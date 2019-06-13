@@ -1,0 +1,7 @@
+**/*.pyc
+**/__init__.py
+pycache
+venv
+*.log
+*.log.*
+.DS_Store

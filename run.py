@@ -7,12 +7,12 @@ import importlib
 import re
 
 from config import AppConfig
-from app.application import APP as app
+from app.application import app
 from app.application import flaskrun
 from app.settings.logger import LoggerConfigurator
 
 env = os.getenv('ENV', 'prod')
-ROUTES_FOLDERS = ["server/web"]
+ROUTES_FOLDERS = ["app/web"]
 
 
 def walk(directory, only_regular_files=True):
@@ -35,6 +35,7 @@ class Starter(object):
     def configure(cls, config_file=None):
         AppConfig.load(config_file=config_file)
         LoggerConfigurator.configure()
+        app.config['SQLALCHEMY_DATABASE_URI'] = AppConfig.get('database', 'uri')
         cls.logger = logging.getLogger('MemsourceProxifier')
         cls.routing()
 

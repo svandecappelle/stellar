@@ -6,6 +6,7 @@ import os
 import optparse
 
 from flask import Flask, session, request, abort, jsonify
+from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -15,15 +16,18 @@ from config import AppConfig
 from app.models.base import Base
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
-APP = Flask(__name__, template_folder=tmpl_dir)
+app = Flask(__name__, template_folder=tmpl_dir)
 
+global db
+app.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
 
-APP.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
+db = SQLAlchemy()
 
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        return f(*args, **kwargs)
         if not session or not session['logged_in']:
             return jsonify({
                 "message": "Not authorized"
@@ -32,7 +36,7 @@ def login_required(f):
     return decorated_function
 
 
-def flaskrun(app, default_host="127.0.0.1", default_port="6000"):
+def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     """
     Takes a flask.Flask instance and runs it. Parses
     command-line flags to configure the app.
@@ -73,7 +77,7 @@ def flaskrun(app, default_host="127.0.0.1", default_port="6000"):
         )
         options.debug = True
 
-    Session = sessionmaker()
+    db.init_app(app)
     engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
     Session = sessionmaker(bind=engine)
     session = Session()

@@ -16,6 +16,9 @@ flask-migrate = "*"
 logging-gelf = "*"
 simplejson = "*"
 flask-jsontools = "*"
+flask-script = "*"
+pytest = "*"
+flask-sqlalchemy-session = "*"
 
 [requires]
 python_version = "3.7"

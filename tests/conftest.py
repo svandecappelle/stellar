@@ -1,7 +1,6 @@
 import pytest
-import re
-import responses
 
+from logging_gelf.formatters import GELFFormatter
 from run import create_app
 
 

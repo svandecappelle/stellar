@@ -1,9 +1,10 @@
 import traceback
 import logging
 import sys
-from logging_gelf.formatters import GELFFormatter
 
+from logging_gelf.formatters import GELFFormatter
 from flask import has_request_context, request
+
 
 logger = None
 
@@ -31,7 +32,7 @@ class ExtraFilter(logging.Filter):
 
 class DefaultLogger(object):
     def __init__(self, config=None, extra={}):
-        self.logger = logging.getLogger(AppConfig.get("logger", "name"))
+        self.logger = logging.getLogger(config.get("logging", "name"))
         self.logger.addFilter(ExtraFilter())
         level = logging.getLevelName(config.get('logging', 'level') or 'INFO')
         # on met le niveau du logger à DEBUG, comme ça il écrit tout

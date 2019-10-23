@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-from app.application import APP as app
 
-from app.application import login_required
 import werkzeug.exceptions as ex
-
 from flask import jsonify, request, session, g
+
+from app.application import app
+from app.application import login_required
 
 
 class AuthenticationError(ex.HTTPException):

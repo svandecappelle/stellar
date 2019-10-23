@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from app.application import APP as app
+from app.application import app
 
 
 @app.route('/api/mon/ping', methods=['GET'])

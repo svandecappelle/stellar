@@ -11,7 +11,7 @@ from flask_jsontools import JsonSerializableBase
 # SQLITE cant do autoincrement on bigint so we need this hybrid type
 from sqlalchemy.dialects import sqlite
 
-from .exceptions import CheckError, CheckErrorWithCode, CheckErrorMultipleCodes
+from .exceptions import CheckError, CheckErrorWithCode
 
 
 Base = declarative_base(cls=(JsonSerializableBase,))
@@ -101,8 +101,6 @@ def is_valid(self, session, ignored_checks=[]):
         except CheckErrorMultipleCodes as e:
             for error in e.errors:
                 _process_check_error(check=check, errors=error_codes, e=error, model=self)
-    if error_codes:
-        raise CheckErrorMultipleCodes(errors=[e.error for e in error_codes])
     if errors:
         raise CheckError(errors)
     return True

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import werkzeug.exceptions as ex
-from flask import jsonify, request, session, g
-
-from app.application import app
+from flask import jsonify, request, session, g, abort
+from flask_login import login_user, logout_user, current_user
+from app.application import app, User
 from app.application import login_required
 
 
@@ -26,15 +26,11 @@ def get_user_logged():
 @app.route('/api/auth/login', methods=['GET', 'POST'])
 def autentication():
     # Yet in dev
-    # TODO to use authentication into app, create database or logging service provider
-    if request.method == 'POST':
-        if request.json['password'] == 'password' and request.json['username'] == 'admin':
-            session['logged_in'] = True
-            # session['user'] =
-        elif request.json['token'] == 'fl?8dnh432fmfokf1!sfz54fxgk84x:wx':
-            session['logged_in'] = True
-        else:
-            raise AuthenticationError
+    if not request.json.get("username"):
+        logout_user()
+        return abort(400, "Invalid credentials")
+    remember = request.json.get('remember_me', False)
+    login_user(User(request.json['username']), remember=remember)
     return jsonify({'token': 'token', 'duration': 600, 'user': {'uid': 'uid'}, 'connected': True})
 
 

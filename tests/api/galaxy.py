@@ -3,37 +3,61 @@ import pytest
 
 class TestGalaxy:
 
-    def test_create_galaxy(self, http_client):
+    @pytest.mark.usefixtures("authenticate_as_admin")
+    def test_create_galaxy(self, client, session):
         """
+        Test initialize a new galaxy
         """
-        response = http_client.post(
+        response = client.post(
             '/api/galaxy/create',
             json={
                 'name': 'Milky way'
             }
         )
-
         assert response.status_code == 200
         assert response.json['name'] == 'Milky way'
+
+    @pytest.mark.usefixtures("authenticate_as_admin")
+    def test_create_another_galaxy(self, client, session):
+        """
+        Test initialize a two different galaxy
+        """
+        response = client.post(
+            '/api/galaxy/create',
+            json={
+                'name': 'Milky way'
+            }
+        )
+        assert response.status_code == 200
+        assert response.json['name'] == 'Milky way'
+
+        response = client.post(
+            '/api/galaxy/create',
+            json={
+                'name': 'Andromeda'
+            }
+        )
+        assert response.status_code == 200
+        assert response.json['name'] == 'Andromeda'
 
 
 class TestRaisesGalaxy:
 
-    def test_create_galaxy(self, http_client):
+    @pytest.mark.usefixtures("authenticate_as_admin")
+    def test_create_galaxy(self, client):
         """
+        Test cannot initialize a new galaxy because already exists
         """
-        response = http_client.post(
+        response = client.post(
             '/api/galaxy/create',
             json={
                 'name': 'Milky way'
             }
         )
-
         assert response.status_code == 200
         assert response.json['name'] == 'Milky way'
-
-        # Reinit
-        response = http_client.post(
+        # Initialisation of the same galaxy
+        response = client.post(
             '/api/galaxy/create',
             json={
                 'name': 'Milky way'

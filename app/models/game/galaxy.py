@@ -16,11 +16,18 @@ class Galaxy(Base):
         self.sector_number = sector_number
 
     @classmethod
-    def get(cls, session):
+    def exists(cls, session, name):
+        """
+        Check if galaxy exists
+        """
+        return session.query(Galaxy).filter(cls.name == name).first() is not None
+
+    @classmethod
+    def get(cls, session, name):
         """
         Get galaxy conf
         """
-        return session.query(Galaxy).first()
+        return session.query(Galaxy).filter(cls.name == name).one()
 
     @classmethod
     def create(cls, session, name, sector_size=500, sector_number=10):

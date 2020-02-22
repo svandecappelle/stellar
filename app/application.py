@@ -5,8 +5,10 @@ import logger
 import os
 import optparse
 
-from flask import Flask, session, request, abort, jsonify
+from flask import Flask, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_paranoid import Paranoid
+from flask_login import LoginManager, UserMixin, current_user
 from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -15,25 +17,51 @@ from werkzeug.exceptions import Forbidden
 from config import AppConfig
 from app.models.base import Base
 
+global db
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
-
-global db
 app.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
-
+login_manager = LoginManager(app)
+paranoid = Paranoid(app)
+paranoid.redirect_view = '/'
 db = SQLAlchemy()
 
 
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        return f(*args, **kwargs)
-        if not session or not session['logged_in']:
+class User(UserMixin):
+    def __init__(self, username):
+        self.id = username
+
+
+@login_manager.user_loader
+def load_user(id):
+    return User(id)
+
+
+def serialize(*args, **kwargs):
+    json = kwargs.get("json", True)
+
+    def _callable(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            result = func(*args, **kwargs)
+            return jsonify(result.serialize) if json else result.serialize
+        return wrapped
+
+    if len(args) == 1 and callable(args[0]):
+        return _callable(args[0])
+    return _callable
+
+
+def login_required(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        if not current_user.is_authenticated:
             return jsonify({
                 "message": "Not authorized"
             }), 401
-        return f(*args, **kwargs)
-    return decorated_function
+        result = func(*args, **kwargs)
+        return result
+    return wrapped
 
 
 def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
@@ -79,11 +107,16 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
 
     db.init_app(app)
     engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session_build = sessionmaker(bind=engine)
+    session = session_build()
     Base.metadata.create_all(engine)
     app.run(
         debug=options.debug,
         host=options.host,
         port=int(options.port)
     )
+
+
+@login_manager.user_loader
+def load_user(id):
+    return User(id)

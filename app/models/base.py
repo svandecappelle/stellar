@@ -98,9 +98,9 @@ def is_valid(self, session, ignored_checks=[]):
             _process_check_error(check=check, errors=errors, e=e, model=self)
         except CheckErrorWithCode as e:
             _process_check_error(check=check, errors=error_codes, e=e, model=self)
-        except CheckErrorMultipleCodes as e:
-            for error in e.errors:
-                _process_check_error(check=check, errors=error_codes, e=error, model=self)
+        # except CheckErrorMultipleCodes as e:
+        #    for error in e.errors:
+        #        _process_check_error(check=check, errors=error_codes, e=error, model=self)
     if errors:
         raise CheckError(errors)
     return True
@@ -111,9 +111,14 @@ def as_dict(self):
     return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
+def set_engine(engine):
+    Base.metadata.create_all(engine)
+
+
 Base.is_valid = is_valid
 Base.as_dict = as_dict
 Base.to_dict = as_dict  # TODO change to_dict -> as_dict in all the models
+Base._set_engine = set_engine
 
 
 def get_check_path(name):

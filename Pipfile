@@ -19,6 +19,9 @@ flask-jsontools = "*"
 flask-script = "*"
 pytest = "*"
 flask-sqlalchemy-session = "*"
+pytest-flask-sqlalchemy = "*"
+flask-paranoid = "*"
+flask-login = "*"
 
 [requires]
-python_version = "3.7"
+python_version = "3.8"

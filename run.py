@@ -66,8 +66,8 @@ class Starter(object):
         """Stop api server"""
 
 
-def create_app():
-    Starter.configure(config_file=os.getenv("CONFIG") or env)
+def create_app(environment=None):
+    Starter.configure(config_file=os.getenv("CONFIG") or environment)
     return app
 
 

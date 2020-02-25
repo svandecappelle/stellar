@@ -111,7 +111,7 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
     session_build = sessionmaker(bind=engine)
     session = session_build()
-    from app.models import Base
+    from app.models.base import Base
     Base.metadata.create_all(engine)
     app.run(
         debug=options.debug,

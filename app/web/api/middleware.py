@@ -5,7 +5,7 @@ import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import UserMixin, login_user, logout_user, current_user
 from app.application import app, login_required, serialize
-from app.models import User
+from app.models.user import User
 
 
 class AuthUser(UserMixin, User):

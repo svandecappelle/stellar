@@ -10,7 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from run import create_app
 from app.application import db
 from config.configuration import AppConfig
-from app.models import Base, User
+from app.models.base import Base
+from app.models.user import User
 from app.models.role import RoleType
 
 

@@ -14,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from werkzeug.exceptions import Forbidden
 
-from config import AppConfig
+from config.configuration import AppConfig
 import app.models as models
 
 

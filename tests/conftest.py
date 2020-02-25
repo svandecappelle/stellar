@@ -10,7 +10,7 @@ sys.path.insert(0, myPath + '/../')
 
 from run import create_app
 from app.application import db
-from config import AppConfig
+from config.configuration import AppConfig
 from app.models import Base, User
 
 

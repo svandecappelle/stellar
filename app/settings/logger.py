@@ -5,7 +5,7 @@ import platform
 import logging
 from logging.handlers import RotatingFileHandler
 
-from config import AppConfig
+from config.configuration import AppConfig
 from logger import get_logger
 from logging_gelf.formatters import GELFFormatter
 

@@ -6,7 +6,7 @@ import os
 import importlib
 import re
 
-from config import AppConfig
+from config.configuration import AppConfig
 from app.application import app
 from app.application import flaskrun
 from app.settings.logger import LoggerConfigurator

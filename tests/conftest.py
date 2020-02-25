@@ -1,17 +1,17 @@
 import sys
 import os
+myPath = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, myPath + '/../')
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-myPath = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, myPath + '/../')
-
 from run import create_app
 from app.application import db
 from config.configuration import AppConfig
 from app.models import Base, User
+from app.models.role import RoleType
 
 
 @pytest.fixture(autouse=True, scope='function')
@@ -71,11 +71,11 @@ def users(session):
     }]
     for usr in users_to_create:
         user = User.new(
-            session=session,
             username=usr['username'],
             password=usr['password'],
             email=usr['email']
         )
+        user.add_role(RoleType.admin)
     session.commit()
     return users_to_create
 

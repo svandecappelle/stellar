@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.models.base import Base
 from sqlalchemy import Column, Integer, VARCHAR, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
@@ -9,6 +11,9 @@ class Galaxy(Base):
     name = Column(VARCHAR(255), primary_key=True)
     sector_number = Column(Integer, default=10, nullable=False)  # number of sectors
     sector_size = Column(Integer, default=500, nullable=False)  # number of system in one sector
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __init__(self, name, sector_size=500, sector_number=10):
         self.name = name

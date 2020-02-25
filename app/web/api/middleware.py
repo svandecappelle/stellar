@@ -3,9 +3,19 @@
 from Crypto.Hash import SHA256
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
-from flask_login import login_user, logout_user, current_user
-from app.application import app, AuthUser, login_required, db
+from flask_login import UserMixin, login_user, logout_user, current_user
+from app.application import app, login_required, serialize
 from app.models import User
+
+
+class AuthUser(UserMixin, User):
+    def __init__(self, username):
+        self.id = username
+
+    def get(self):
+        if self.is_authenticated:
+            return User.get(username=self.id)
+        return None
 
 
 class AuthenticationError(ex.HTTPException):
@@ -20,12 +30,14 @@ def invalid_credentials(e):
 
 @app.route('/api/auth', methods=['GET'])
 @login_required
+@serialize(without_rights=False)
 def get_user_logged():
-    return jsonify({'token': 'token', 'duration': 600, 'user': {'uid': 'uid'}, 'connected': True})
+    return current_user.get()
 
 
 @app.route('/api/auth/login', methods=['GET', 'POST'])
-def autentication():
+@serialize(without_rights=True)
+def authentication():
     # Yet in dev
     if not request.json.get("username") or not request.json.get("username"):
         logout_user()
@@ -34,9 +46,9 @@ def autentication():
     username = request.json['username']
     password = request.json['password']
 
-    if not User.exists(session=db.session, username=username):
+    if not User.exists(username=username):
         return abort(401, "Invalid credentials")
-    user = User.get(session=db.session, username=username)
+    user = User.get(username=username)
     given = SHA256.new()
     given.update(password.encode('utf-8'))
     if given.digest() != user.password:
@@ -45,7 +57,7 @@ def autentication():
     login_user(AuthUser(
         username=user.username,
     ), remember=remember)
-    return current_user.get().serialize()
+    return current_user.get()
 
 
 @app.route('/api/auth/logout', methods=['GET', 'POST'])

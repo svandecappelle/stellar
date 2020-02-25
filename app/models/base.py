@@ -13,9 +13,9 @@ from sqlalchemy.dialects import sqlite
 
 from .exceptions import CheckError, CheckErrorWithCode
 
-
-Base = declarative_base(cls=(JsonSerializableBase,))
-metadata = Base.metadata
+# cls=(JsonSerializableBase,)
+Base = declarative_base()
+#metadata = Base.metadata
 
 BigIntLite = BigInteger()
 BigIntLite = BigIntLite.with_variant(sqlite.INTEGER, 'sqlite')
@@ -111,14 +111,9 @@ def as_dict(self):
     return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
-def set_engine(engine):
-    Base.metadata.create_all(engine)
-
-
 Base.is_valid = is_valid
 Base.as_dict = as_dict
 Base.to_dict = as_dict  # TODO change to_dict -> as_dict in all the models
-Base._set_engine = set_engine
 
 
 def get_check_path(name):
@@ -158,28 +153,13 @@ def compare(self, other, attrs=None, exclude_attrs=None):
 Base.compare = compare
 
 
-def __getitem__(self, key):
-    return getattr(self, key)
-
-
-# To be able to do model['id'] while Celery does not have access to database directly
-Base.__getitem__ = __getitem__
-
-
 def __repr__(self):
     if hasattr(self, "id"):
         return "<{}#{}>".format(self.__class__.__name__, self.id)
     return "<{}>".format(self.__class__.__name__)
 
 
-def __json_serializable__(self):
-    if hasattr(self, "serialize"):
-        return self.serialize
-    raise Exception("Not JSON serializable")
-
-
 Base.__repr__ = __repr__
-Base.__json_serializable__ = __json_serializable__
 
 
 class HasMetadata(object):

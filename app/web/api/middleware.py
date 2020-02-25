@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
+from Crypto.Hash import SHA256
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import login_user, logout_user, current_user
-from app.application import app, User
-from app.application import login_required
+from app.application import app, AuthUser, login_required, db
+from app.models import User
 
 
 class AuthenticationError(ex.HTTPException):
@@ -26,12 +27,25 @@ def get_user_logged():
 @app.route('/api/auth/login', methods=['GET', 'POST'])
 def autentication():
     # Yet in dev
-    if not request.json.get("username"):
+    if not request.json.get("username") or not request.json.get("username"):
         logout_user()
-        return abort(400, "Invalid credentials")
+        return abort(401, "Invalid credentials")
     remember = request.json.get('remember_me', False)
-    login_user(User(request.json['username']), remember=remember)
-    return jsonify({'token': 'token', 'duration': 600, 'user': {'uid': 'uid'}, 'connected': True})
+    username = request.json['username']
+    password = request.json['password']
+
+    if not User.exists(session=db.session, username=username):
+        return abort(401, "Invalid credentials")
+    user = User.get(session=db.session, username=username)
+    given = SHA256.new()
+    given.update(password.encode('utf-8'))
+    if given.digest() != user.password:
+        return abort(401, "Invalid credentials")
+
+    login_user(AuthUser(
+        username=user.username,
+    ), remember=remember)
+    return current_user.get().serialize()
 
 
 @app.route('/api/auth/logout', methods=['GET', 'POST'])

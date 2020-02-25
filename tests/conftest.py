@@ -11,7 +11,7 @@ sys.path.insert(0, myPath + '/../')
 from run import create_app
 from app.application import db
 from config import AppConfig
-from app.models.base import Base
+from app.models import Base, User
 
 
 @pytest.fixture(autouse=True, scope='function')
@@ -58,16 +58,26 @@ def login(client, allowed_users):
                     "password": user_to_authenticate["password"],
                     "remember_me": True
                 })
-            print(response)
+            assert response.status_code == 200
     return auth
 
 
 @pytest.fixture(name="allowed_users")
-def users():
-    return [{
+def users(session):
+    users_to_create = [{
         "username": "admin",
-        "password": "admin"
+        "password": "admin",
+        "email": "test@testing.com"
     }]
+    for usr in users_to_create:
+        user = User.new(
+            session=session,
+            username=usr['username'],
+            password=usr['password'],
+            email=usr['email']
+        )
+    session.commit()
+    return users_to_create
 
 
 @pytest.fixture(scope="function", name="authenticate_as_admin")

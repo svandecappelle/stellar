@@ -44,7 +44,7 @@ class TestGalaxy:
 class TestRaisesGalaxy:
 
     @pytest.mark.usefixtures("authenticate_as_admin")
-    def test_create_galaxy(self, client):
+    def test_raise_create_galaxy(self, client):
         """
         Test cannot initialize a new galaxy because already exists
         """
@@ -64,3 +64,16 @@ class TestRaisesGalaxy:
             }
         )
         assert response.status_code == 400
+
+    @pytest.mark.usefixtures()
+    def test_raise_not_allowed_create_galaxy(self, client):
+        """
+        Test cannot initialize a new galaxy because not authenticated
+        """
+        response = client.post(
+            '/api/galaxy/create',
+            json={
+                'name': 'Milky way'
+            }
+        )
+        assert response.status_code == 401

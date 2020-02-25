@@ -15,7 +15,8 @@ from sqlalchemy.orm import sessionmaker
 from werkzeug.exceptions import Forbidden
 
 from config import AppConfig
-from app.models.base import Base
+import app.models as models
+
 
 global db
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
@@ -27,14 +28,19 @@ paranoid.redirect_view = '/'
 db = SQLAlchemy()
 
 
-class User(UserMixin):
+class AuthUser(UserMixin, models.User):
     def __init__(self, username):
         self.id = username
 
+    def get(self):
+        if self.is_authenticated:
+            return models.User.get(session=db.session, username=self.id)
+        return None
+
 
 @login_manager.user_loader
-def load_user(id):
-    return User(id)
+def load_user(username):
+    return AuthUser(username=username)
 
 
 def serialize(*args, **kwargs):
@@ -44,6 +50,10 @@ def serialize(*args, **kwargs):
         @wraps(func)
         def wrapped(*args, **kwargs):
             result = func(*args, **kwargs)
+            if not hasattr(result, "serialize"):
+                raise NotImplementedError("serialize property or function is not implemented")
+            if callable(result.serialize):
+                return jsonify(result.serialize()) if json else result.serialize
             return jsonify(result.serialize) if json else result.serialize
         return wrapped
 
@@ -109,14 +119,9 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
     session_build = sessionmaker(bind=engine)
     session = session_build()
-    Base.metadata.create_all(engine)
+    models.Base.metadata.create_all(engine)
     app.run(
         debug=options.debug,
         host=options.host,
         port=int(options.port)
     )
-
-
-@login_manager.user_loader
-def load_user(id):
-    return User(id)

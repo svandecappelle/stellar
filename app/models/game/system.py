@@ -4,13 +4,14 @@ from sqlalchemy.orm import relationship
 
 
 class System(Base):
-    __tablename__ = 'systems'
+    __tablename__ = 'system'
 
     id = Column(Integer, primary_key=True)
-    sector_id = Column(Integer, nullable=False)
+    sector_id = Column(Integer, ForeignKey("sector.id"), nullable=False)
     name = Column(String, nullable=True)
 
-    # sector = relationship()
+    sector = relationship("Sector", back_populates="systems")
+    territories = relationship("Territory", back_populates="system")
 
     def __init__(self, sector):
         self.sector_id = sector.id

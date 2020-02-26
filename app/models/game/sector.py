@@ -8,7 +8,7 @@ class Sector(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(Integer, nullable=True)  # Sector generated name
-    galaxy_name = Column(Integer, ForeignKey("galaxy.name"), nullable=False)
+    galaxy_name = Column(String, ForeignKey("galaxy.name"), nullable=False)
     position = Column(Integer, nullable=False)
 
     galaxy = relationship("Galaxy", back_populates="sectors")

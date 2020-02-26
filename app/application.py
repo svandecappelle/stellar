@@ -20,6 +20,7 @@ global db
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
 app.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 login_manager = LoginManager(app)
 paranoid = Paranoid(app)
 paranoid.redirect_view = '/'

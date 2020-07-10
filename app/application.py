@@ -41,6 +41,22 @@ def serialize(*args, **kwargs):
         @wraps(func)
         def wrapped(*args, **kwargs):
             result = func(*args, **kwargs)
+
+            if isinstance(result, list):
+                # On array results
+                if len(result) > 0 and not hasattr(result[0], "serialize"):
+                    raise NotImplementedError("serialize property or function is not implemented")
+                array_results = list()
+                for r in result:
+                    if callable(r.serialize) and to_give_at_serialize:
+                        array_results.append(r.serialize(**to_give_at_serialize))
+                    if callable(r.serialize):
+                        array_results.append(r.serialize())
+                    else:
+                        array_results.append(r.serialize)
+                return jsonify(array_results)
+
+            # On simple result
             if not hasattr(result, "serialize"):
                 raise NotImplementedError("serialize property or function is not implemented")
             if callable(result.serialize):

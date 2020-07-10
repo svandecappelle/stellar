@@ -11,6 +11,7 @@ from run import create_app
 from app.application import db
 from config.configuration import AppConfig
 from app.models.base import Base
+from app.models.game.galaxy import Galaxy
 from app.models.user import User
 from app.models.role import RoleType
 
@@ -69,6 +70,10 @@ def users(session):
         "username": "admin",
         "password": "admin",
         "email": "test@testing.com"
+    }, {
+        "username": "user",
+        "password": "user",
+        "email": "simpleuser@testing.com"
     }]
     for usr in users_to_create:
         user = User.new(
@@ -84,3 +89,14 @@ def users(session):
 @pytest.fixture(scope="function", name="authenticate_as_admin")
 def authenticate_as_admin(allowed_users, authentify):
     authentify(allowed_users[0])
+
+
+@pytest.fixture(scope="function", name="authenticate_as_user")
+def authenticate_as_user(allowed_users, authentify):
+    authentify(allowed_users[1])
+
+
+@pytest.fixture(scope="function", name="base_universe")
+def base_universe(session):
+    Galaxy.create(session=db.session, name="Milky Way")
+    db.session.commit()

@@ -1,11 +1,13 @@
 from Crypto.Hash import SHA256
 from datetime import datetime
 
-from app.application import db
-from app.models.base import Base
-from app.models.role import Role
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
+
+from app.application import db
+from app.models.base import Base
+from app.models.game.technologies.technology import Technology
+from app.models.role import Role
 
 
 class User(Base):
@@ -19,6 +21,7 @@ class User(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     roles = relationship("Role", back_populates="user")
+    technologies = relationship("Technology", back_populates="user")
 
     def __init__(self, username, email):
         self.username = username
@@ -48,6 +51,9 @@ class User(Base):
         encrypt.update(password.encode('utf-8'))
         usr.password = encrypt.digest()
         db.session.add(usr)
+
+        db.session.flush()
+        Technology.initialize(usr)
         return usr
 
     def add_role(self, role_type, scope="*"):

@@ -22,6 +22,7 @@ class User(Base):
 
     roles = relationship("Role", back_populates="user")
     technologies = relationship("Technology", back_populates="user")
+    territories = relationship("Territory", back_populates="user")
 
     def __init__(self, username, email):
         self.username = username
@@ -45,7 +46,7 @@ class User(Base):
         return db.session.query(User).filter(cls.username == username).one()
 
     @classmethod
-    def new(cls, username, password, email):
+    def new(cls, username, password, email, territory=None):
         usr = cls(username=username, email=email)
         encrypt = SHA256.new()
         encrypt.update(password.encode('utf-8'))
@@ -53,7 +54,9 @@ class User(Base):
         db.session.add(usr)
 
         db.session.flush()
-        Technology.initialize(usr)
+        if territory:  # If no territory the user is not a playable user (Moderator / Administrator)
+            territory.assign(user=usr)
+            Technology.initialize(usr)
         return usr
 
     def add_role(self, role_type, scope="*"):

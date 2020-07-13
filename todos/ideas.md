@@ -2,7 +2,7 @@
 
 - Universe in 3 parametrable dimentions at install 9:9:9
 
-- resources are: minerals => base resource, , deuterium => combustible, energy => Mw, population => people
+- resources are: minerals => base resource, , tritium => combustible, energy => Mw, population => people
     - Each ships / building consume the population
     - There is a max-population on each planet
 

@@ -1,5 +1,6 @@
 import sys
 import os
+
 myPath = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, myPath + '/../')
 
@@ -12,9 +13,9 @@ from app.application import db
 from config.configuration import AppConfig
 from app.models.base import Base
 from app.models.game.galaxy import Galaxy
+from app.models.game.territory import Territory
 from app.models.user import User
 from app.models.role import RoleType
-
 
 @pytest.fixture(autouse=True, scope='function')
 def flask_app():
@@ -70,10 +71,6 @@ def users(session):
         "username": "admin",
         "password": "admin",
         "email": "test@testing.com"
-    }, {
-        "username": "user",
-        "password": "user",
-        "email": "simpleuser@testing.com"
     }]
     for usr in users_to_create:
         user = User.new(
@@ -92,11 +89,28 @@ def authenticate_as_admin(allowed_users, authentify):
 
 
 @pytest.fixture(scope="function", name="authenticate_as_user")
-def authenticate_as_user(allowed_users, authentify):
-    authentify(allowed_users[1])
+def authenticate_as_user(allowed_users, authentify, base_universe):
+    authentify(base_universe[0])
 
 
 @pytest.fixture(scope="function", name="base_universe")
 def base_universe(session):
-    Galaxy.create(session=db.session, name="Milky Way")
-    db.session.commit()
+    Galaxy.create(session=session, name="Milky Way")
+    users_to_create =[{
+        "username": "user",
+        "password": "user",
+        "email": "simpleuser@testing.com",
+        "starting_territory": (1, 1, 1)
+    }]
+    users = []
+    for usr in users_to_create:
+        User.new(
+            username=usr['username'],
+            password=usr['password'],
+            email=usr['email'],
+            territory=Territory.new(position=usr.get('starting_territory'))  # If none this is generated
+        )
+        users.append(usr)
+
+    session.commit()
+    return users

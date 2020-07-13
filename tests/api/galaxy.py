@@ -72,7 +72,7 @@ class TestRaisesGalaxy:
                 'name': 'Milky way'
             }
         )
-        assert response.status_code == 400
+        assert response.status_code == 409
 
     @pytest.mark.usefixtures()
     def test_raise_not_allowed_create_galaxy(self, client, session):

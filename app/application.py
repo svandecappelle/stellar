@@ -5,15 +5,15 @@ import logger
 import os
 import optparse
 
-from flask import Flask, jsonify
+from flask import abort, Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_paranoid import Paranoid
 from flask_login import LoginManager, current_user
 from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from werkzeug.exceptions import Forbidden
 
+from app.web.api.exceptions import APIException
 from config.configuration import AppConfig
 
 global db
@@ -25,6 +25,16 @@ login_manager = LoginManager(app)
 paranoid = Paranoid(app)
 paranoid.redirect_view = '/'
 db = SQLAlchemy()
+
+
+@app.errorhandler(APIException)
+def handle_error(e):
+    return jsonify({'message': str(e), 'statusCode': e.status_code}), e.status_code
+
+
+@app.errorhandler(ValueError)
+def handle_error(e):
+    return jsonify({'message': str(e), 'statusCode': 400}), 400
 
 
 @login_manager.user_loader

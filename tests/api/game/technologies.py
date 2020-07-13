@@ -5,14 +5,13 @@ from app.models.game.technologies.technology import TechnologyType
 
 class TestTechnologies:
 
-    @pytest.mark.usefixtures("authenticate_as_user")
     @pytest.mark.usefixtures("base_universe")
-    def test_new_user_basis_technologies(self, client, session):
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_new_user_basis_technologies(self, client):
         """
         Test initialize a new galaxy
         ---
         :param client: http client
-        :param session: db session
         """
         response = client.get(
             '/api/technologies'

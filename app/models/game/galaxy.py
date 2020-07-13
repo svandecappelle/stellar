@@ -44,6 +44,9 @@ class Galaxy(Base):
         galaxy = cls(name=name, sector_size=sector_size, sector_number=sector_number)
         session.add(galaxy)
         session.flush()
+
+        from app.models.game.sector import Sector
+        Sector.initialize_all(galaxy=galaxy)
         return galaxy
 
     def __repr__(self):

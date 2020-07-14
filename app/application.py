@@ -5,25 +5,36 @@ import logger
 import os
 import optparse
 
-from flask import Flask, jsonify
+from flask import abort, Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_paranoid import Paranoid
 from flask_login import LoginManager, current_user
 from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from werkzeug.exceptions import Forbidden
 
+from app.web.api.exceptions import APIException
 from config.configuration import AppConfig
 
 global db
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
 app.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 login_manager = LoginManager(app)
 paranoid = Paranoid(app)
 paranoid.redirect_view = '/'
 db = SQLAlchemy()
+
+
+@app.errorhandler(APIException)
+def handle_error(e):
+    return jsonify({'message': str(e), 'statusCode': e.status_code}), e.status_code
+
+
+@app.errorhandler(ValueError)
+def handle_error(e):
+    return jsonify({'message': str(e), 'statusCode': 400}), 400
 
 
 @login_manager.user_loader
@@ -40,6 +51,22 @@ def serialize(*args, **kwargs):
         @wraps(func)
         def wrapped(*args, **kwargs):
             result = func(*args, **kwargs)
+
+            if isinstance(result, list):
+                # On array results
+                if len(result) > 0 and not hasattr(result[0], "serialize"):
+                    raise NotImplementedError("serialize property or function is not implemented")
+                array_results = list()
+                for r in result:
+                    if callable(r.serialize) and to_give_at_serialize:
+                        array_results.append(r.serialize(**to_give_at_serialize))
+                    if callable(r.serialize):
+                        array_results.append(r.serialize())
+                    else:
+                        array_results.append(r.serialize)
+                return jsonify(array_results)
+
+            # On simple result
             if not hasattr(result, "serialize"):
                 raise NotImplementedError("serialize property or function is not implemented")
             if callable(result.serialize):

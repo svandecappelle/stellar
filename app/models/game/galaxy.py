@@ -15,6 +15,8 @@ class Galaxy(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    sectors = relationship("Sector", back_populates="galaxy")
+
     def __init__(self, name, sector_size=500, sector_number=10):
         self.name = name
         self.sector_size = sector_size
@@ -42,6 +44,9 @@ class Galaxy(Base):
         galaxy = cls(name=name, sector_size=sector_size, sector_number=sector_number)
         session.add(galaxy)
         session.flush()
+
+        from app.models.game.sector import Sector
+        Sector.initialize_all(galaxy=galaxy)
         return galaxy
 
     def __repr__(self):

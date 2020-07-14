@@ -7,6 +7,7 @@ from app.application import app, db, serialize
 from app.application import login_required
 
 from app.models.game.galaxy import Galaxy
+from app.web.api.exceptions import NotFoundError, ConflictError
 
 
 @app.route('/api/galaxy/create', methods=['POST'])
@@ -15,9 +16,9 @@ from app.models.game.galaxy import Galaxy
 def initialize_galaxy():
     name = request.json.get('name')
     if not name:
-        abort(400, 'Name is required')
+        raise ValueError(400, 'Name is required')
     if Galaxy.exists(session=db.session, name=name):
-        abort(400, 'Galaxy is already initialized')
+        raise ConflictError(message='Galaxy is already initialized')
     galaxy = Galaxy.create(session=db.session, name=name)
     db.session.commit()
     return galaxy
@@ -29,5 +30,5 @@ def get_galaxy_detail(name):
     try:
         galaxy = Galaxy.get(session=db.session, name=name)
     except NoResultFound:
-        abort(404, 'Galaxy does not exists')
+        raise NotFoundError(404, 'Galaxy does not exists')
     return galaxy

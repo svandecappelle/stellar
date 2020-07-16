@@ -26,11 +26,11 @@ def increase_technology(name, territory):
     if not territory:
         raise ValueError("Territory does not owned by you")
     technology = Technology.get(user=me, type=TechnologyType.get_by_name(name))
-    if technology.can_be_increased():
+    if technology.can_be_increased(territory=territory):
         event = technology.increase(territory=territory)
         db.session.commit()
         return event
-    raise ValueError(f"Technology {name} can not be increased")
+    raise ValueError(f"Technology {name} can not be increased. Prerequisites not reached.")
 
 
 @app.route('/api/technologies/events', methods=['GET'])

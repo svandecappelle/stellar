@@ -24,6 +24,7 @@ flask-paranoid = "*"
 flask-login = "*"
 pycrypto = "*"
 ipdb = "*"
+freezegun = "*"
 
 [requires]
 python_version = "3.8"

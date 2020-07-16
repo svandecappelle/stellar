@@ -17,6 +17,7 @@ from app.models.game.territory import Territory
 from app.models.user import User
 from app.models.role import RoleType
 
+
 @pytest.fixture(autouse=True, scope='function')
 def flask_app():
     flask_app = create_app(environment="test")

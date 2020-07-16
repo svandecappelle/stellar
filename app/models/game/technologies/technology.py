@@ -88,15 +88,15 @@ class Technology(Base):
             query = query.filter(cls.type == type)
         return query
 
-    def can_be_increased(self):
+    def can_be_increased(self, territory):
         """
         Check if technology is able to be increased
         ---
         :return:
         """
         # check prerequisites and resource available
-        p = self.type.price(self.level + 1)
-        return True
+        prerequisites = self.type.price(self.level + 1)
+        return territory.match_prerequisite(prerequisites=prerequisites)
 
     def increase(self, territory, now=False):
         """
@@ -110,7 +110,9 @@ class Technology(Base):
                 user=self.user,
                 duration=self.next_level_duration,
                 event_type=PositionalEventType.technology,
-                extra_args=self.type
+                extra_args={
+                    'type': self.type.name
+                }
             )
         self.level += 1
 

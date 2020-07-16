@@ -30,21 +30,15 @@ class TestEvents:
         assert len(response.json) == 1
         assert response.json[0].get('id') is not None
 
-        # Add resource to let increase the tech
-        territory = Territory.get(id=response.json[0]["id"])
-        territory.add(ResourceType.mater, 100)
-        territory.add(ResourceType.credit, 100)
-        territory.add(BuildingType.power_station, 1)
-        session.commit()
-        assert territory.energy > 0
-
         # Add event using increase a tech
         response = client.post(
             f'/api/technology/computer/{response.json[0]["id"]}'
         )
         assert response.status_code == 200
         assert response.json['eventType'] == 'PositionalEventType.technology'
-        assert response.json['extraArgs'] == 'TechnologyType.computer'
+        assert response.json['extraArgs'] == {
+            'type': 'computer'
+        }
 
         # Check tech is not yet completed
         response = client.get(

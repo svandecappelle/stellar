@@ -5,14 +5,16 @@ from flask_login import current_user
 from app.application import app, serialize
 from app.application import login_required
 
-from app.models.game.technologies.technology import Technology
-
 
 @app.route('/api/events', methods=['GET'])
 @login_required
 @serialize
 def get_my_events():
-    return Technology.all(user=current_user.get())
+    for event_type, events in current_user.get().events.items():
+        for event in events:
+            event.update_event()
+
+    return current_user.get().events
 
 
 @app.route('/api/territories', methods=['GET'])

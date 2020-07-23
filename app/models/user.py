@@ -1,11 +1,12 @@
 from Crypto.Hash import SHA256
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, and_
 from sqlalchemy.orm import relationship
 
 from app.application import db
 from app.models.base import Base
+from app.models.game.event import PositionalEvent, UserEvent
 from app.models.game.technologies.technology import Technology
 from app.models.role import Role
 
@@ -68,6 +69,17 @@ class User(Base):
         """
         role = Role.create(user=self, role_type=role_type, scope=scope)
         self.roles.append(role)
+
+    @property
+    def events(self):
+        """
+        ---
+        :return:
+        """
+        return {
+            'positional': PositionalEvent.all(user=self),
+            'general': UserEvent.all(user=self)
+        }
 
     def serialize(self, without_rights=True):
         data = {

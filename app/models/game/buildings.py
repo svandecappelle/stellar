@@ -13,7 +13,8 @@ class BuildingType(enum.Enum):
             'mater': lambda n: 200 * pow(2, n - 1),
             'credit': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
-        }
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
     economical_center = {
         'cost': {
@@ -22,15 +23,17 @@ class BuildingType(enum.Enum):
             'energy': lambda n: 10 * n * pow(1.1, n)
         },
         'gain': {
-            'mater': lambda n: 20 * n * pow(1.1, n)
+            'credits': lambda n: 30 * n * pow(1.1, n)
         },
+        'time': lambda x: 5 * pow(3, x)
     }
     factory = {
         'cost': {
             'mater': lambda n: 400 * pow(2, n - 1),
             'credit': lambda n: 120 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
-        }
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
     mater_extractor = {
         'cost': {
@@ -40,7 +43,8 @@ class BuildingType(enum.Enum):
         },
         'gain': {
             'mater': lambda n: 30 * n * pow(1.1, n)
-        }
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
     power_station = {
         'cost': {
@@ -48,8 +52,9 @@ class BuildingType(enum.Enum):
             'credit': lambda n: 30 * pow(1.6, n - 1),
         },
         'gain': {
-            'energy': lambda n: 20 * n * pow(1.1, n)
-        }
+            'energy': lambda n: 13 + 20 * n * pow(1.1, n)
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
     rafinery = {
         'cost': {
@@ -58,19 +63,25 @@ class BuildingType(enum.Enum):
             'energy': lambda n: 20 * n * pow(1.1, n)
         },
         'gain': {
-            'mater': lambda n: 10 * n * pow(1.1, n) * (-0.002 * 40 + 1.28)
-        }
+            'tritium': lambda n: 10 * n * pow(1.1, n) * (-0.002 * 40 + 1.28)
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
     shipyard = {
         'cost': {
             'mater': lambda n: 200 * pow(2, n - 1),
             'credit': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
-        }
+        },
+        'time': lambda x: 5 * pow(3, x)
     }
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def get_by_name(cls, name):
+        return [b for b in BuildingType if b.name == name][0]
 
     def get_hourly_gain(self, level):
         """
@@ -80,7 +91,7 @@ class BuildingType(enum.Enum):
         :return:
         """
         from app.models.game.territory import ResourceType
-        return {t.name: self.get_resource_gain(resource_type=t, level=level) for t in ResourceType}
+        return {t: self.get_resource_gain(resource_type=t, level=level) for t in ResourceType}
 
     def get_resource_cost(self, resource_type, level):
         """
@@ -106,10 +117,24 @@ class BuildingType(enum.Enum):
         :return:
         """
         from app.models.game.territory import ResourceType
-        return {self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
+        return {t: self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
+
+    @property
+    def type_of_resource(self):
+        from app.models.game.territory import ResourceType
+        return [ResourceType(g) for g in self.value.get('gain', {}).keys()]
+
+    def duration(self, level):
+        """
+        Get the duration of level technology
+        :param level:
+        :return:
+        """
+        return self.value.get('time')(level)
 
 
 class Building(Base):
+
     __tablename__ = 'territory_buildings'
 
     id = Column(Integer, primary_key=True)
@@ -136,3 +161,37 @@ class Building(Base):
         :return:
         """
         return self.type.get_hourly_gain(level=self.level)
+
+    @property
+    def type_of_resource(self):
+        return self.type.type_of_resource
+
+    @property
+    def cost(self):
+        return self.type.get_cost(level=self.level + 1)
+
+    @property
+    def consumption(self):
+        from app.models.game.territory import ResourceType
+        return self.type.get_cost(level=self.level)[ResourceType.energy]
+
+    @property
+    def next_level_duration(self):
+        """
+        ---
+        :return:
+        """
+        current_factory_level = self.territory.get_building(building_type=BuildingType.factory).level
+        return self.type.duration(level=self.level) * (1 / (current_factory_level + 1))
+
+    @property
+    def serialize(self):
+        """
+        Serialization method
+        ---
+        :return:
+        """
+        return {
+            'level': self.level,
+            'duration': self.next_level_duration
+        }

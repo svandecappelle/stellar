@@ -1,3 +1,4 @@
+import functools
 from datetime import datetime
 import enum
 
@@ -7,15 +8,15 @@ from sqlalchemy.orm import relationship
 from app.application import db
 from app.models.base import Base
 from app.models.game.buildings import BuildingType, Building
-from app.models.game.event import PositionalEventType
+from app.models.game.event import PositionalEventType, PositionalEvent
 
 
 class ResourceType(enum.Enum):
     mater = "mater"
-    credit = "credit"
+    credits = "credits"
     energy = "energy"
     population = "population"
-    combustible = "combustible"
+    tritium = "tritium"
 
 
 class Territory(Base):
@@ -28,9 +29,9 @@ class Territory(Base):
     name = Column(String, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    mater = Column(Integer, default=100, nullable=False)
-    credits = Column(Integer, default=100, nullable=False)
-    energy = Column(Integer, default=0, nullable=False)
+    mater = Column(Integer, default=10000, nullable=False)
+    credits = Column(Integer, default=8000, nullable=False)
+    tritium = Column(Integer, default=100, nullable=False)
     population = Column(Integer, default=100, nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -165,46 +166,147 @@ class Territory(Base):
         :return:
         """
         resource_building = (
-            "mater_extractor",
-            "space_port",
-            "power_station"
+            BuildingType.mater_extractor,
+            BuildingType.economical_center,
+            BuildingType.rafinery
         )
-        for event in self.territory_events:
-            if event.finishing_at >= datetime.utcnow():
-                # generate diff of resource
-                if event.event_type == PositionalEventType.building and event.extra_args['building'] in resource_building:
-                    # There is an event on resource triggered before actual refresh
-                    self.mater = self.get_hourly_gain(resource_type=ResourceType.mater) * (self.updated_at - event.finishing_at).hours
+        for event_detail in self.territory_events:
+            event = event_detail.event
+            if event.finishing_at <= datetime.utcnow():
+                # generate diff of resource from previous building level to new finished
+                if event.event_type == PositionalEventType.building:
+                    building_type = BuildingType.get_by_name(event.extra_args['name'])
+                    if building_type in resource_building:
+                        # There is an event on resource triggered before actual refresh
+                        time_elapsed = (self.updated_at - event.finishing_at).seconds / 60 / 60  # in hours
+                        increased_resources = {}
 
-                # apply_modification_building
+                        for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
+                            increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
+
+                        self.mater += increased_resources[ResourceType.mater]
+                        self.credits += increased_resources[ResourceType.credits]
+                        self.tritium += increased_resources[ResourceType.tritium]
+
+                    # apply_modification_building
+                    self.add(type=building_type, amount=1)
+                    event.archive()
 
                 # TODO other events ...
+        db.session.commit()
+        time_elapsed = (datetime.utcnow() - self.updated_at).seconds / 60 / 60  # in hours
+        increased_resources = {}
+
+        for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
+            increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
+
+        self.mater += increased_resources[ResourceType.mater]
+        self.credits += increased_resources[ResourceType.credits]
+        self.tritium += increased_resources[ResourceType.tritium]
+        db.session.commit()
+
+    def get_building(self, building_type):
+        """
+        ---
+        :param building_type:
+        :return:
+        """
+        return next(b for b in self.buildings if b.type == building_type)
 
     def get_hourly_gain(self, resource_type):
         """
-
+        ---
         :return:
         """
-        building = filter(self.buildings, lambda b: b.type == resource_type)
-        return building.get_hourly_gain()
+        hourly_gain = 0  # TODO add a base gain on territory without any construction
+        buildings = [b for b in self.buildings if resource_type in b.type_of_resource]
+        if buildings:
+            for b in buildings:
+                hourly_gain += b.get_hourly_gain[resource_type]
+        return hourly_gain
 
     def add(self, type, amount):
         if isinstance(type, ResourceType):
             if type == ResourceType.mater:
                 self.mater += amount
-
-            if type == ResourceType.credit:
+            if type == ResourceType.credits:
                 self.credits += amount
+            if type == ResourceType.tritium:
+                self.tritium += amount
+            if type == ResourceType.population:
+                self.population += amount
 
         if isinstance(type, BuildingType):
-            building = next(b for b in self.buildings if b.type == type)
+            building = self.get_building(building_type=type)
             if building:
                 building.level += amount
+
+    def match_prerequisite(self, prerequisites):
+        """
+        Check if prerequisites are matched or not
+        ---
+        :param prerequisites: Prerequisites to increase or build something
+        :type prerequisites: dict
+        :return:
+        """
+        for k, val in prerequisites.items():
+            resources = self.resources
+            if val > resources[ResourceType(k)]:
+                return False
+        return True
+
+    def can_be_increased(self, building_type):
+        """
+        Check if building can be increase of level
+        ---
+        :return:
+        """
+        building = next(b for b in self.buildings if b.type == building_type)
+        return self.match_prerequisite(building.cost)
+
+    def increase(self, building_type):
+        """
+        ---
+        :return:
+        """
+        factory = self.get_building(building_type=BuildingType.factory)
+        building = next(b for b in self.buildings if b.type == building_type)
+        if building:
+            # TODO self.spend(building.cost)
+            return PositionalEvent.create(
+                territory=self,
+                user=self.user,
+                duration=building.next_level_duration,
+                event_type=PositionalEventType.building,
+                extra_args={
+                    'name': building.type.name,
+                    'level': building.level
+                }
+            )
+            # TODO do it after event finished --> self.add(type=building_type, amount=1)
 
     @property
     def energy(self):
         building = next(b for b in self.buildings if b.type == BuildingType.power_station)
-        return building.get_hourly_gain[ResourceType.energy.name]
+        return building.get_hourly_gain[ResourceType.energy] - self.consumption
+
+    @property
+    def consumption(self):
+        return functools.reduce(lambda acc, x: acc + x, [b.consumption for b in self.buildings])
+
+    @property
+    def resources(self):
+        """
+        Get current resource state on territory
+        :return:
+        """
+        return {
+            ResourceType.mater: self.mater,
+            ResourceType.credits: self.credits,
+            ResourceType.energy: self.energy,
+            ResourceType.population: self.population,
+            ResourceType.tritium: self.tritium
+        }
 
     @property
     def serialize(self):
@@ -212,5 +314,6 @@ class Territory(Base):
             'id': self.id,
             'name': self.name,
             'position': self.position_in_system,
-            'system': self.system.serialize
+            'system': self.system.serialize,
+            'buildings': {b.type.name: b for b in self.buildings}
         }

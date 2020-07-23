@@ -5,7 +5,7 @@ import logger
 import os
 import optparse
 
-from flask import abort, Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_paranoid import Paranoid
 from flask_login import LoginManager, current_user
@@ -37,6 +37,18 @@ def handle_error(e):
     return jsonify({'message': str(e), 'statusCode': 400}), 400
 
 
+# TODO test if it is a good solution to ensure territory is refresh after each access
+'''
+@app.after_request
+def after_request_func(response):
+    if 'territory' in request.url:
+        args = request.view_args
+        if 'territory_id' in args:
+            print("need refresh on territory")
+    return response
+'''
+
+
 @login_manager.user_loader
 def load_user(username):
     from app.web.api.middleware import AuthUser
@@ -47,33 +59,79 @@ def load_user(username):
 def serialize(*args, **kwargs):
     to_give_at_serialize = kwargs
 
+    def native_serializable(obj):
+        try:
+            jsonify(obj)
+            return True
+        except TypeError:
+            return False
+
+    def serialize_list(result):
+        # On array results
+        if len(result) > 0 and not hasattr(result[0], "serialize"):
+            raise NotImplementedError("serialize property or function is not implemented")
+        array_results = list()
+        for r in result:
+            if isinstance(r, list):
+                serialized = serialize_list(r)
+            elif isinstance(r, dict):
+                serialized = serialize_dict(r)
+            else:
+                serialized = serialize_object(r)
+
+            array_results.append(serialized)
+
+        return array_results
+
+    def serialize_dict(result):
+        r_dict = {}
+        for key, val in result.items():
+            if native_serializable(val):
+                serialized = val
+            elif isinstance(val, list):
+                serialized = serialize_list(val)
+            elif isinstance(val, dict):
+                serialized = serialize_dict(val)
+            else:
+                serialized = serialize_object(val)
+
+            r_dict[key] = serialized
+        return r_dict
+
+    def serialize_object(result):
+        if not hasattr(result, "serialize"):
+            raise NotImplementedError(f"serialize property or function is not implemented on {type(result)}")
+        if callable(result.serialize):
+            if to_give_at_serialize:
+                obj_serializable = result.serialize(**to_give_at_serialize)
+            else:
+                obj_serializable = result.serialize()
+        else:
+            obj_serializable = result.serialize
+
+        if isinstance(obj_serializable, dict):
+            obj_serializable = serialize_dict(obj_serializable)
+        if isinstance(obj_serializable, list):
+            obj_serializable = serialize_list(obj_serializable)
+
+        return obj_serializable
+
     def _callable(func):
         @wraps(func)
         def wrapped(*args, **kwargs):
             result = func(*args, **kwargs)
 
             if isinstance(result, list):
-                # On array results
-                if len(result) > 0 and not hasattr(result[0], "serialize"):
-                    raise NotImplementedError("serialize property or function is not implemented")
-                array_results = list()
-                for r in result:
-                    if callable(r.serialize) and to_give_at_serialize:
-                        array_results.append(r.serialize(**to_give_at_serialize))
-                    if callable(r.serialize):
-                        array_results.append(r.serialize())
-                    else:
-                        array_results.append(r.serialize)
-                return jsonify(array_results)
+                # Array
+                jsonable_result = serialize_list(result)
+            elif isinstance(result, dict):
+                # Dictionary
+                jsonable_result = serialize_dict(result)
+            # On simple result Object
+            else:
+                jsonable_result = serialize_object(result)
+            return jsonify(jsonable_result)
 
-            # On simple result
-            if not hasattr(result, "serialize"):
-                raise NotImplementedError("serialize property or function is not implemented")
-            if callable(result.serialize):
-                if to_give_at_serialize:
-                    return jsonify(result.serialize(**to_give_at_serialize))
-                return jsonify(result.serialize())
-            return jsonify(result.serialize)
         return wrapped
 
     if len(args) == 1 and callable(args[0]):

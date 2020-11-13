@@ -33,6 +33,12 @@ class ConflictError(APIException):
         super(ConflictError, self).__init__(status_code=409, message=message)
 
 
+class BadRequestError(APIException):
+
+    def __init__(self, message=None):
+        super(BadRequestError, self).__init__(status_code=400, message=message)
+
+
 class NotFoundError(APIException):
 
     def __init__(self, message=None):

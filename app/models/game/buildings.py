@@ -127,6 +127,7 @@ class BuildingType(enum.Enum):
     def duration(self, level):
         """
         Get the duration of level technology
+        ---
         :param level:
         :return:
         """
@@ -150,7 +151,7 @@ class Building(Base):
 
     def __init__(self, type, territory_id, level=0):
         self.type = type
-        self.territory_id=territory_id
+        self.territory_id = territory_id
         self.level = level
 
     @property
@@ -178,6 +179,7 @@ class Building(Base):
     @property
     def next_level_duration(self):
         """
+        Get the next level building duration
         ---
         :return:
         """

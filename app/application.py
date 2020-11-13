@@ -5,7 +5,7 @@ import logger
 import os
 import optparse
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_paranoid import Paranoid
 from flask_login import LoginManager, current_user
@@ -28,12 +28,12 @@ db = SQLAlchemy()
 
 
 @app.errorhandler(APIException)
-def handle_error(e):
+def handle_error_api(e):
     return jsonify({'message': str(e), 'statusCode': e.status_code}), e.status_code
 
 
 @app.errorhandler(ValueError)
-def handle_error(e):
+def handle_error_bad_request(e):
     return jsonify({'message': str(e), 'statusCode': 400}), 400
 
 
@@ -68,7 +68,7 @@ def serialize(*args, **kwargs):
 
     def serialize_list(result):
         # On array results
-        if len(result) > 0 and not hasattr(result[0], "serialize"):
+        if len(result) > 0 and not hasattr(result[0], "serialize") and result is not None:
             raise NotImplementedError("serialize property or function is not implemented")
         array_results = list()
         for r in result:
@@ -120,6 +120,8 @@ def serialize(*args, **kwargs):
         @wraps(func)
         def wrapped(*args, **kwargs):
             result = func(*args, **kwargs)
+            if result is None:
+                return jsonify(result), 204
 
             if isinstance(result, list):
                 # Array
@@ -156,7 +158,6 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     Takes a flask.Flask instance and runs it. Parses
     command-line flags to configure the app.
     """
-    LOGGER = logger.get_logger()
 
     # Set up the command-line options
     parser = optparse.OptionParser()
@@ -195,7 +196,7 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     db.init_app(app)
     engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
     session_build = sessionmaker(bind=engine)
-    session = session_build()
+    session_build()
     from app.models.base import Base
     Base.metadata.create_all(engine)
     app.run(

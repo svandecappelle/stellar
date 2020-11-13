@@ -1,5 +1,6 @@
 import enum
 
+from app.models.game.community.faction import FactionAdvantageScope
 
 class EquationType(enum.Enum):
     time = "time"
@@ -81,13 +82,22 @@ class TechnologyType(enum.Enum):
             if name == t.name:
                 return t
 
-    def duration(self, level):
+    def duration(self, level, user):
         """
         Get the duration of level technology
         :param level:
         :return:
         """
-        return TechnologyEquations.get(tech_type=self, equation_type=EquationType.time)(level)
+        time = TechnologyEquations.get(
+            tech_type=self,
+            equation_type=EquationType.time,
+        )(level)
+        if user.faction:
+            time = user.faction.apply(
+                obj=time,
+                advantage_scope=FactionAdvantageScope.Technologies
+            )
+        return time
 
     def price(self, level):
         """
@@ -114,11 +124,23 @@ class TechnologyType(enum.Enum):
 class TechnologyEquations:
 
     TIME_EQUATIONS = {
-        TechnologyType.computer: lambda x: 5 * pow(3, x)
+        TechnologyType.computer: lambda x: 5 * pow(3, x),
+        TechnologyType.optical: lambda x: 5 * pow(3, x),
+        TechnologyType.chemistry: lambda x: 5 * pow(3, x),
+        TechnologyType.alliage: lambda x: 5 * pow(3, x),
+        TechnologyType.energy: lambda x: 5 * pow(3, x),
+        TechnologyType.distorsion: lambda x: 5 * pow(3, x),
+        TechnologyType.atom: lambda x: 5 * pow(3, x)
     }
 
     PRICE_EQUATIONS = {
-        TechnologyType.computer: lambda x, base: base * pow(2, (x-1))
+        TechnologyType.computer: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.optical: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.chemistry: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.alliage: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.energy: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.distorsion: lambda x, base: base * pow(2, (x-1)),
+        TechnologyType.atom: lambda x, base: base * pow(2, (x-1))
     }
 
     @classmethod
@@ -133,4 +155,3 @@ class TechnologyEquations:
             return cls.TIME_EQUATIONS.get(tech_type)
         if equation_type == EquationType.price:
             return cls.PRICE_EQUATIONS.get(tech_type)
-

@@ -1,7 +1,7 @@
 from Crypto.Hash import SHA256
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, and_
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.application import db
@@ -18,12 +18,16 @@ class User(Base):
     username = Column(String)
     password = Column(String)
     email = Column(String)
+
+    faction_id = Column(Integer, ForeignKey("factions.id"), nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     roles = relationship("Role", back_populates="user")
     technologies = relationship("Technology", back_populates="user")
     territories = relationship("Territory", back_populates="user")
+    faction = relationship("Faction")
 
     def __init__(self, username, email):
         self.username = username
@@ -69,6 +73,12 @@ class User(Base):
         """
         role = Role.create(user=self, role_type=role_type, scope=scope)
         self.roles.append(role)
+
+    def affect_faction(self, faction):
+        """
+        ---
+        """
+        self.faction = faction
 
     @property
     def events(self):

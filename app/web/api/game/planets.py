@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from flask import request
 from flask_login import current_user
 
 from app.application import app, db, serialize
@@ -35,3 +36,19 @@ def build(territory_id, building):
     event = territory.increase(type)
     db.session.commit()
     return event
+
+
+@app.route('/api/territory/<int:territory_id>/defense/<string:defense>', methods=['POST'])
+@login_required
+@serialize
+def build_defense(territory_id, defense):
+    items = request.json.get('items')
+    me = current_user.get()
+    territory = Territory.get(id=territory_id, user=me)
+    if not territory:
+        raise ValueError("Territory does not owned by you")
+    events = []
+    for item in items:
+        events.append(territory.build(item))
+    db.session.commit()
+    return events

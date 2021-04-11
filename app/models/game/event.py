@@ -15,6 +15,7 @@ class UserEventType(enum.Enum):
 class PositionalEventType(enum.Enum):
     technology = "technology"
     building = "building"
+    defense = "defense"
 
 
 class Event:

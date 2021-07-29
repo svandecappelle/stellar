@@ -7,6 +7,7 @@ from app.application import app, db, serialize
 from app.application import login_required
 from app.models.game.territory import Territory
 from app.models.game.buildings import BuildingType
+from app.models.game.event import PositionalEventType
 
 
 @app.route('/api/territory/<int:territory_id>', methods=['GET'])
@@ -19,6 +20,17 @@ def get_territory(territory_id):
     if not territory:
         raise ValueError("Territory does not owned by you")
     return territory
+
+
+@app.route('/api/territory/<int:territory_id>/ships', methods=['GET'])
+@login_required
+@serialize
+def get_territory_ships(territory_id):
+    me = current_user.get()
+    territory = Territory.get(id=territory_id, user=me)
+    if not territory:
+        raise ValueError("Territory does not owned by you")
+    return territory.ships
 
 
 @app.route('/api/territory/<int:territory_id>/<string:building>', methods=['POST'])
@@ -38,10 +50,12 @@ def build(territory_id, building):
     return event
 
 
-@app.route('/api/territory/<int:territory_id>/defense/<string:defense>', methods=['POST'])
+@app.route('/api/territory/<int:territory_id>/defense', methods=['POST'])
+@app.route('/api/territory/<int:territory_id>/ship', methods=['POST'])
 @login_required
 @serialize
-def build_defense(territory_id, defense):
+def build_defense_or_ship(territory_id):
+    type = PositionalEventType(request.path.split('/')[-1:][0])
     items = request.json.get('items')
     me = current_user.get()
     territory = Territory.get(id=territory_id, user=me)
@@ -49,6 +63,6 @@ def build_defense(territory_id, defense):
         raise ValueError("Territory does not owned by you")
     events = []
     for item in items:
-        events.append(territory.build(item))
+        events.append(territory.build(type, item))
     db.session.commit()
     return events

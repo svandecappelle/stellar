@@ -91,7 +91,7 @@ def authenticate_as_admin(allowed_users, authentify):
 
 @pytest.fixture(scope="function", name="authenticate_as_user")
 def authenticate_as_user(allowed_users, authentify, base_universe):
-    authentify(base_universe[0])
+    authentify(base_universe[0]['dict'])
 
 
 @pytest.fixture(scope="function", name="base_universe")
@@ -105,13 +105,16 @@ def base_universe(session):
     }]
     users = []
     for usr in users_to_create:
-        User.new(
+        u = User.new(
             username=usr['username'],
             password=usr['password'],
             email=usr['email'],
             territory=Territory.new(position=usr.get('starting_territory'))  # If none this is generated
         )
-        users.append(usr)
+        users.append({
+            'dict': usr,
+            'model': u
+        })
 
     session.commit()
     return users

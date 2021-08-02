@@ -16,6 +16,7 @@ class PositionalEventType(enum.Enum):
     technology = "technology"
     building = "building"
     defense = "defense"
+    ship = "ship"
 
 
 class Event:
@@ -100,9 +101,9 @@ class UserEvent(Base, Event):
             'id': self.id,
             'eventType': str(self.event_type),
             'extraArgs': self.extra_args,
-            'createdAt': self.created_at,
-            'updatedAt': self.updated_at,
-            'finishingAt': self.finishing_at
+            'createdAt': self.created_at.isoformat(),
+            'updatedAt': self.updated_at.isoformat(),
+            'finishingAt': self.finishing_at.isoformat()
         }
 
 
@@ -208,9 +209,9 @@ class PositionalEvent(Base, Event):
             'eventType': str(self.event_type),
             'extraArgs': self.extra_args,
             'details': self.details.serialize,
-            'createdAt': self.created_at,
-            'updatedAt': self.updated_at,
-            'finishingAt': self.finishing_at,
+            'createdAt': self.created_at.isoformat(),
+            'updatedAt': self.updated_at.isoformat(),
+            'finishingAt': self.finishing_at.isoformat(),
         }
 
 
@@ -266,6 +267,6 @@ class PositionalEventDetail(Base):
             'eventId': self.event_id,
             'territory': self.territory.serialize,
             'extraData': self.extra_data,
-            'createdAt': self.created_at,
-            'updatedAt': self.updated_at
+            'createdAt': self.created_at.isoformat(),
+            'updatedAt': self.updated_at.isoformat()
         }

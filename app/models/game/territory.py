@@ -1,6 +1,7 @@
 import functools
 from datetime import datetime
 import enum
+import math
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
@@ -8,8 +9,9 @@ from sqlalchemy.orm import relationship
 from app.application import db
 from app.models.base import Base
 from app.models.game.buildings import BuildingType, Building
-from app.models.game.defenses.defense import DefenseType
+from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
+from app.models.game.ship import Ship, ShipType
 
 
 class ResourceType(enum.Enum):
@@ -39,6 +41,8 @@ class Territory(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     buildings = relationship("Building", back_populates="territory")
+    ships = relationship("Ship", back_populates="territory")
+    defenses = relationship("Defense", back_populates="territory")
 
     system = relationship("System", back_populates="territories")
     territory_events = relationship("PositionalEventDetail", back_populates="territory")
@@ -84,6 +88,20 @@ class Territory(Base):
             )
             db.session.add(b)
             territory.buildings.append(b)
+
+        for d_type in DefenseType:
+            d = Defense(
+                territory_id=territory.id,
+                type=d_type
+            )
+            territory.defenses.append(d)
+
+        for s_type in ShipType:
+            s = Ship(
+                territory_id=territory.id,
+                type=s_type
+            )
+            territory.ships.append(s)
 
         db.session.add(territory)
         db.session.flush()
@@ -175,37 +193,31 @@ class Territory(Base):
         for event_detail in self.territory_events:
             event = event_detail.event
             if event.finishing_at <= now:
+                # first apply buildings and tech modifications
                 # generate diff of resource from previous building level to new finished
-                if event.event_type == PositionalEventType.building:
-                    building_type = BuildingType.get_by_name(event.extra_args['name'])
-                    if building_type in resource_building:
-                        # There is an event on resource triggered before actual refresh
-                        time_elapsed = (self.updated_at - event.finishing_at).seconds / 60 / 60  # in hours
-                        increased_resources = {}
+                self._apply_modification(event=event)
 
-                        for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
-                            increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
-
-                        self.mater += increased_resources[ResourceType.mater]
-                        self.credits += increased_resources[ResourceType.credits]
-                        self.tritium += increased_resources[ResourceType.tritium]
-
-                    # apply_modification_building
-                    self.add(type=building_type, amount=1)
-                event.archive()
-
-            if event.event_type == PositionalEventType.defense:
+            elif event.event_type in (PositionalEventType.defense, PositionalEventType.ship):
+                # apply all def / ships increase
                 duration_for_one = event.extra_args.get("unitaryDuration")
                 quantity = event.extra_args.get("quantity")
                 last_refresh = event.extra_args.get("lastRefresh", event.created_at)
                 if type(last_refresh) == str:
                     last_refresh = datetime.fromisoformat(last_refresh)
-                quantity_builded = min(quantity, (now - last_refresh).seconds / duration_for_one)
+                quantity_builded = math.floor(min(quantity, (now - last_refresh).seconds / duration_for_one))
                 extra_args = event.extra_args
                 # left quantity
                 extra_args["quantity"] = quantity - quantity_builded
                 extra_args["lastRefresh"] = now.isoformat()
                 event.extra_args = extra_args
+
+                if quantity_builded >= 1:
+                    # generate diff of resource from previous building level to new finished
+                    self._apply_modification(event=event, amount=quantity_builded)
+            
+            if event.finishing_at <= now:
+                # Archive the event if finished
+                event.archive()
 
                 # TODO other events ...
         db.session.commit()
@@ -219,6 +231,35 @@ class Territory(Base):
         self.credits += increased_resources[ResourceType.credits]
         self.tritium += increased_resources[ResourceType.tritium]
         db.session.commit()
+
+    def _apply_modification(self, event, amount=1):
+        resource_building = (
+            BuildingType.mater_extractor,
+            BuildingType.economical_center,
+            BuildingType.rafinery
+        )
+        if event.event_type == PositionalEventType.building:
+            building_type = BuildingType.get_by_name(event.extra_args['name'])
+            if building_type in resource_building:
+                # There is an event on resource triggered before actual refresh
+                time_elapsed = (self.updated_at - event.finishing_at).seconds / 60 / 60  # in hours
+                increased_resources = {}
+
+                for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
+                    increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
+
+                self.mater += increased_resources[ResourceType.mater]
+                self.credits += increased_resources[ResourceType.credits]
+                self.tritium += increased_resources[ResourceType.tritium]
+
+            # apply_modification_building
+            self.add(type=building_type, amount=amount)
+        elif event.event_type in (PositionalEventType.ship, PositionalEventType.defense):
+            if event.event_type == PositionalEventType.defense:
+                el_type = DefenseType.get_by_name(event.extra_args['name'])
+            elif event.event_type == PositionalEventType.ship:
+                el_type = ShipType.get_by_name(event.extra_args['name'])
+            self.add(type=el_type, amount=amount)
 
     def get_building(self, building_type):
         """
@@ -255,6 +296,11 @@ class Territory(Base):
             building = self.get_building(building_type=type)
             if building:
                 building.level += amount
+
+        if isinstance(type, DefenseType):
+            next(filter(lambda d: d.type, self.defenses)).increment(count=amount)
+        if isinstance(type, ShipType):
+            next(filter(lambda s: s.type, self.ships)).increment(count=amount)
 
     def match_prerequisite(self, prerequisites):
         """
@@ -299,24 +345,27 @@ class Territory(Base):
             )
             # TODO do it after event finished --> self.add(type=building_type, amount=1)
 
-    def build(self, item):
+    def build(self, type, item):
         """
         Build ships or defenses on the territory.
         ---
         """
         factory = self.get_building(building_type=BuildingType.factory)
-        defense = DefenseType[item["type"]]
-        if not self.match_prerequisite(defense.cost):
-            raise ValueError(f"Cannot build {item['quantity']} {defense.name}. Prerequisites not reached.")
+        if type == PositionalEventType.ship:
+            element = ShipType[item["type"]]
+        elif type == PositionalEventType.defense:
+            element = DefenseType[item["type"]]
+        if not self.match_prerequisite(element.cost):
+            raise ValueError(f"Cannot build {item['quantity']} {element.name}. Prerequisites not reached.")
 
-        unitary_duration = defense.duration(factory)
+        unitary_duration = element.duration(factory)
         return PositionalEvent.create(
             territory=self,
             user=self.user,
             duration=unitary_duration * item["quantity"],
-            event_type=PositionalEventType.defense,
+            event_type=type,
             extra_args={
-                "name": defense.name,
+                "name": element.name,
                 "quantity": item["quantity"],
                 "initialQuantity": item["quantity"],
                 "unitaryDuration": unitary_duration

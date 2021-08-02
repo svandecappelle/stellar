@@ -49,7 +49,7 @@ class System(Base):
             )
             db.session.add(system)
             db.session.flush()
-        return system
+        return system    
 
     @property
     def serialize(self):

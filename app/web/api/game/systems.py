@@ -14,3 +14,9 @@ from app.models.game.system import System
 def get_system_detail(id):
     system = System.get(id)
     return system
+
+@app.route('/api/system/{}/army', methods=["GET"])
+@login_required
+def get_system_army(id):
+    system = System.get(id)
+    return system.army

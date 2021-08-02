@@ -1,7 +1,14 @@
-from enum import Enum
+import enum
+from datetime import datetime
+
+from sqlalchemy import Column, Enum, Integer, String, DateTime, ForeignKey, func
+from sqlalchemy.orm import relationship
+
+from app.application import db
+from app.models.base import Base
 
 
-class DefenseType(Enum):
+class DefenseType(enum.Enum):
     FlackCannon = {
         "name": "FlackCannon",
         "base_cost": {
@@ -87,8 +94,62 @@ class DefenseType(Enum):
     }
 
     def duration(self, factory):
-    	return self.value["integrity"] / 2500 * (1 + factory.level)
+    	return self.value["integrity"] / 2500 * (1 + factory.level) * 60
 
     @property
     def cost(self):
         return self.value["base_cost"]
+
+    @classmethod
+    def get_by_name(cls, name):
+        return [d for d in DefenseType if d.name == name][0]
+
+
+class Defense(Base):
+    """
+    Ship class define a territory ship in orbit
+    """
+    __tablename__ = 'defense_territory'
+
+    id = Column(Integer, primary_key=True)
+    type = Column(Enum(DefenseType), nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+
+    territory_id = Column(Integer, ForeignKey("territory.id"), nullable=False)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    territory = relationship("Territory", back_populates="defenses")
+
+    def __init__(self, territory_id, type):
+        """
+        Append a ship on the territory
+        """
+        self.territory_id = territory_id
+        self.type = type
+        self.count = 0
+
+    def increment(self, count=1):
+        """
+        Increase the number of ship into its related territory
+        """
+        self.count += 1
+
+    def decrement(self, count):
+        """
+        Decrement the number of ship into its related territory
+        """
+        self.count -= count if count <= self.count else self.count
+
+    @property
+    def serialize(self):
+        """
+        Serialization method
+        ---
+        :return:
+        """
+        return {
+            'quantity': self.count,
+            'type': self.type.name
+        }

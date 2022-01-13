@@ -87,8 +87,8 @@ class ShipType(enum.Enum):
         "requirements": {}
     }
 
-    def duration(self, factory):
-        return self.value["integrity"] / 2500 * (1 + factory.level) * 60
+    def duration(self, shipyard):
+        return self.value["integrity"] / 2500 * (1 + shipyard.level) * 60
 
     @property
     def cost(self):

@@ -39,7 +39,7 @@ class TestDefenses:
             session.commit()
 
         unitary_duration = item.duration(
-            factory=Building(
+            shipyard=Building(
                 type=BuildingType.shipyard,
                 territory_id=territory.id,
                 level=0

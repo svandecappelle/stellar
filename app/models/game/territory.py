@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship
 from app.application import db
 from app.models.base import Base
 from app.models.game.buildings import BuildingType, Building
+from app.models.game.community.faction import FactionAdvantageScope
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.ship import Ship, ShipType
@@ -279,6 +280,12 @@ class Territory(Base):
         if buildings:
             for b in buildings:
                 hourly_gain += b.get_hourly_gain[resource_type]
+        if self.user.faction:
+            hourly_gain = self.user.faction.apply(
+                obj=hourly_gain,
+                advantage_scope=FactionAdvantageScope.Resource,
+                scope=resource_type.name
+            )
         return hourly_gain
 
     def add(self, type, amount):
@@ -350,7 +357,8 @@ class Territory(Base):
         Build ships or defenses on the territory.
         ---
         """
-        factory = self.get_building(building_type=BuildingType.factory)
+        shipyard = self.get_building(building_type=BuildingType.shipyard)
+
         if type == PositionalEventType.ship:
             element = ShipType[item["type"]]
         elif type == PositionalEventType.defense:
@@ -358,7 +366,7 @@ class Territory(Base):
         if not self.match_prerequisite(element.cost):
             raise ValueError(f"Cannot build {item['quantity']} {element.name}. Prerequisites not reached.")
 
-        unitary_duration = element.duration(factory)
+        unitary_duration = element.duration(shipyard=shipyard)
         return PositionalEvent.create(
             territory=self,
             user=self.user,

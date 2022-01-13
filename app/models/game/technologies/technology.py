@@ -105,10 +105,11 @@ class Technology(Base):
         :return:
         """
         if not now:
+            duration = self.next_level_duration
             return PositionalEvent.create(
                 territory=territory,
                 user=self.user,
-                duration=self.next_level_duration,
+                duration=duration,
                 event_type=PositionalEventType.technology,
                 extra_args={
                     'type': self.type.name
@@ -123,7 +124,7 @@ class Technology(Base):
         ---
         :return: duration in seconds
         """
-        return self.type.duration(self.level)
+        return self.type.duration(self.level, self.user)
 
     @property
     def serialize(self):
@@ -131,7 +132,8 @@ class Technology(Base):
             'type': str(self.type),
             'level': self.level,
             'created_at': self.created_at.isoformat(),
-            'updated_at': self.created_at.isoformat()
+            'updated_at': self.created_at.isoformat(),
+            'duration': self.next_level_duration,
         }
 
         return data

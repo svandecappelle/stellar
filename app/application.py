@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import logger
 import os
 import optparse
 
@@ -13,6 +12,7 @@ from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from logger import get_logger
 from app.web.api.exceptions import APIException
 from config.configuration import AppConfig
 
@@ -153,6 +153,17 @@ def login_required(func):
     return wrapped
 
 
+def dburi():
+    uri = None
+    if AppConfig.get("database", "type") == "sqlite" and AppConfig.has("database", "file"):
+        f = AppConfig.get("database", "file")
+        uri = "sqlite:///" + os.path.join(os.getcwd(), f)
+    if uri is None:
+        uri = AppConfig.get('database', 'uri')
+    get_logger().debug(f"Start with {uri}")
+    return uri
+
+
 def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
     """
     Takes a flask.Flask instance and runs it. Parses
@@ -194,7 +205,7 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
         options.debug = True
 
     db.init_app(app)
-    engine = create_engine(AppConfig.get('database', 'uri'), echo=True)
+    engine = create_engine(dburi(), echo=True)
     session_build = sessionmaker(bind=engine)
     session_build()
     from app.models.base import Base

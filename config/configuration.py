@@ -23,6 +23,10 @@ class AppConfig:
         return cls._config.get(section, key)
 
     @classmethod
+    def has(cls, section, key) -> bool:
+        return key in cls._config
+
+    @classmethod
     def get_boolean(cls, section, key):
         return cls._config.getboolean(section, key)
 

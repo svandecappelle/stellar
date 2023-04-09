@@ -7,8 +7,7 @@ import importlib
 import re
 
 from config.configuration import AppConfig
-from app.application import app
-from app.application import flaskrun
+from app.application import app, dburi, flaskrun
 from app.settings.logger import LoggerConfigurator
 
 env = os.getenv('ENV', 'prod')
@@ -35,7 +34,7 @@ class Starter(object):
     def configure(cls, config_file=None):
         AppConfig.load(config_file=config_file)
         LoggerConfigurator.configure()
-        app.config['SQLALCHEMY_DATABASE_URI'] = AppConfig.get('database', 'uri')
+        app.config['SQLALCHEMY_DATABASE_URI'] = dburi()
         cls.logger = logging.getLogger('MemsourceProxifier')
         cls.routing()
 
@@ -46,7 +45,9 @@ class Starter(object):
             modules = walk(route_folder)
             for module in modules:
                 if module.endswith('.py') and not module.endswith('__init__.py'):
-                    route_file = re.sub(r'/', r'.', module)[:-3]
+                    route_file = re.sub(r'/', r'.', module)
+                    route_file = re.sub(r'\\', r'.', route_file)
+                    route_file = route_file[:-3]
                     cls.logger.info("[%s] Route importing..." % route_file)
                     importlib.import_module(route_file)
                     cls.logger.info("[%s] imported" % route_file)

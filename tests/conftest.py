@@ -13,6 +13,7 @@ from app.application import db
 from config.configuration import AppConfig
 from app.models.base import Base
 from app.models.game.galaxy import Galaxy
+from app.models.game.system import System
 from app.models.game.territory import Territory
 from app.models.user import User
 from app.models.role import RoleType
@@ -96,20 +97,27 @@ def authenticate_as_user(allowed_users, authentify, base_universe):
 
 @pytest.fixture(scope="function", name="base_universe")
 def base_universe(session):
-    Galaxy.create(session=session, name="Milky Way")
+    galaxy = Galaxy.create(session=session, name="Milky Way")
     users_to_create =[{
         "username": "user",
         "password": "user",
-        "email": "simpleuser@testing.com",
-        "starting_territory": (1, 1, 1)
+        "email": "simpleuser@testing.com"
     }]
     users = []
     for usr in users_to_create:
+        s = System.create(
+            galaxy=galaxy,
+            position="1_1_1",
+        )
         u = User.new(
             username=usr['username'],
             password=usr['password'],
             email=usr['email'],
-            territory=Territory.new(position=usr.get('starting_territory'))  # If none this is generated
+            territory=Territory.new(
+                galaxy=galaxy,
+                system_id=s.id,
+                position_in_system=1,
+            )  # If none this is generated
         )
         users.append({
             'dict': usr,

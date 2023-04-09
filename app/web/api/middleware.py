@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from Crypto.Hash import SHA256
+import hashlib
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import UserMixin, login_user, logout_user, current_user
@@ -49,9 +49,8 @@ def authentication():
     if not User.exists(username=username):
         return abort(401, "Invalid credentials")
     user = User.get(username=username)
-    given = SHA256.new()
-    given.update(password.encode('utf-8'))
-    if given.digest() != user.password:
+    given = hashlib.sha256(password.encode('utf-8'))
+    if given.hexdigest() != user.password:
         return abort(401, "Invalid credentials")
 
     login_user(AuthUser(

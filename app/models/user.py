@@ -1,4 +1,4 @@
-from Crypto.Hash import SHA256
+import hashlib
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
@@ -53,9 +53,8 @@ class User(Base):
     @classmethod
     def new(cls, username, password, email, territory=None):
         usr = cls(username=username, email=email)
-        encrypt = SHA256.new()
-        encrypt.update(password.encode('utf-8'))
-        usr.password = encrypt.digest()
+        given = hashlib.sha256(password.encode('utf-8'))
+        usr.password = given.hexdigest()
         db.session.add(usr)
 
         db.session.flush()

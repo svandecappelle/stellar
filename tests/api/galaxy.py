@@ -14,7 +14,8 @@ class TestGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Milky way'
+                'name': 'Milky way',
+                'sectors': 2
             }
         )
         assert response.status_code == 200
@@ -31,7 +32,8 @@ class TestGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Milky way'
+                'name': 'Milky way',
+                'sectors': 2
             }
         )
         assert response.status_code == 200
@@ -40,7 +42,8 @@ class TestGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Andromeda'
+                'name': 'Andromeda',
+                'sectors': 8
             }
         )
         assert response.status_code == 200
@@ -60,7 +63,8 @@ class TestRaisesGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Milky way'
+                'name': 'Milky way',
+                'sectors': 2
             }
         )
         assert response.status_code == 200
@@ -69,7 +73,8 @@ class TestRaisesGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Milky way'
+                'name': 'Milky way',
+                'sectors': 2
             }
         )
         assert response.status_code == 409
@@ -85,7 +90,8 @@ class TestRaisesGalaxy:
         response = client.post(
             '/api/galaxy/create',
             json={
-                'name': 'Milky way'
+                'name': 'Milky way',
+                'sectors': 2
             }
         )
         assert response.status_code == 401

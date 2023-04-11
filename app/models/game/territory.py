@@ -13,6 +13,7 @@ from app.models.game.community.faction import FactionAdvantageScope
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.ship import Ship, ShipType
+from app.models.game.system import System
 
 
 class ResourceType(enum.Enum):
@@ -49,8 +50,7 @@ class Territory(Base):
     territory_events = relationship("PositionalEventDetail", back_populates="territory")
     user = relationship("User", back_populates="territories")
 
-    def __init__(self, sector_id, system, position_in_system):
-        self.sector_id = sector_id
+    def __init__(self, system, position_in_system):
         self.system_id = system.id
         self.position_in_system = position_in_system
 
@@ -58,26 +58,22 @@ class Territory(Base):
         return '<id {}>'.format(self.id)
 
     @classmethod
-    def new(cls, position=None):
+    def new(cls, galaxy, system_id, position_in_system):
         """
         Allocate a free position.
         ---
         :param position:
         :return:
         """
-        from app.models.game.system import System
-        if not position:
-            position = cls.optimized_available_position()
-        if not Territory.available(position):
-            raise ValueError("Position is not available")
-        system = System.get_or_create(
-            sector_id=position[0],
-            position=position[1],
+        system = System.get(
+            id=system_id,
+            galaxy=galaxy
         )
+        if not Territory.available(system, position_in_system):
+            raise ValueError("Position is not available")
         territory = Territory(
-            sector_id=position[0],
             system=system,
-            position_in_system=position[2]
+            position_in_system=position_in_system
         )
         db.session.add(system)
         db.session.flush()
@@ -109,7 +105,7 @@ class Territory(Base):
         return territory
 
     @classmethod
-    def available(cls, position):
+    def available(cls, system, position_in_system):
         """
         Check position is free
         ---
@@ -118,33 +114,9 @@ class Territory(Base):
         """
         from app.models.game.system import System
         query = db.session.query(Territory).join(System)\
-            .filter(System.id == position[0])\
-            .filter(System.position == position[1])\
-            .filter(cls.position_in_system == position[2])
+            .filter(System.id == system.id)\
+            .filter(cls.position_in_system == position_in_system)
         return not db.session.query(query.exists()).scalar()
-
-    @classmethod
-    def optimized_available_position(cls):
-        """
-        ---
-        :return:
-        """
-        from app.models.game.system import System
-        query = db.session.query(
-            func.max(System.sector_id),
-            func.min(System.sector_id),
-            func.avg(System.sector_id),
-
-            func.max(System.position),
-            func.min(System.position),
-            func.avg(System.position)
-        ).join(Territory)
-
-        max_sector, min_sector, avg_sector, max_system, min_system, avg_system = query.one()
-        if max_sector is None:
-            # TODO Generate it with random.
-            # Not any territory: place it approximately at center of galaxy
-            return (5, 500, 6)
 
     @classmethod
     def get(cls, id, user=None):

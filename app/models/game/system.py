@@ -1,63 +1,82 @@
+import json
 from datetime import datetime
-
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.application import db
 from app.models.base import Base
-from app.models.game.sector import Sector
 
 
 class System(Base):
     __tablename__ = 'system'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=True)
-    position = Column(Integer, nullable=False)
+    galaxy_name = Column(String, ForeignKey("galaxy.name"), nullable=False)
 
-    sector_id = Column(Integer, ForeignKey("sector.id"), nullable=False)
+    name = Column(String, nullable=True)
+    # TODO insert position in vector3 representation
+    # and display properties to ensure all users get same image of system
+    # could be done using a jsonb for characteristics and str:'x-y-z' for vector
+    position = Column(String, nullable=False)
+
+    # We use json as text here to be sure compatible with all dbs.
+    # This should not be necessary to query rows using this field
+    characteristics = Column(String, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    sector = relationship("Sector", back_populates="systems")
     territories = relationship("Territory", back_populates="system")
 
-    def __init__(self, sector, position):
+    def __init__(self, galaxy, position, characteristics={}):
+        self.galaxy_name = galaxy.name
         self.position = position
-        self.sector_id = sector.id
+        self.characteristics = json.dumps(characteristics)
 
     def __repr__(self):
         return '<id {}>'.format(self.id)
 
     @classmethod
-    def get_or_create(cls, sector_id, position):
+    def get(cls, galaxy, id):
         """
         ---
         :return:
         """
         query = db.session.query(System)\
-            .filter(cls.sector_id == sector_id)\
-            .filter(cls.position == position)
+            .filter(cls.id == id)
 
-        system = query.first()
-        if not system:
-            system = System(
-                sector=Sector.get(id=sector_id),
-                position=position
-            )
-            db.session.add(system)
-            db.session.flush()
-        return system    
+        system = query.one()
+        return system
+
+    @classmethod
+    def create(cls, galaxy, position, characteristics=None):
+        """
+        ---
+        :return:
+        """
+        system = System(
+            galaxy=galaxy,
+            position=position,
+            characteristics=characteristics
+        )
+        db.session.add(system)
+        db.session.flush()
+        return system
 
     @property
     def serialize(self):
+        coordinates = self.position.split("_") if self.position else [0, 0, 0]
         data = {
             'id': self.id,
-            'position': self.position,
+            'galaxy': self.galaxy_name,
+            'position': {
+                'x': float(coordinates[0]),
+                'y': float(coordinates[1]),
+                'z': float(coordinates[2]),
+            } if self.position else None,
             'name': self.name,
-            'sector': self.sector.serialize,
+            'characteristics': json.loads(self.characteristics)
         }
 
         return data

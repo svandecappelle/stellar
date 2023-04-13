@@ -15,7 +15,7 @@ class TestUtils:
         @serialize
         def check_it():
             return Toto()
-        expected_message = "serialize property or function is not implemented on <class 'utils.TestUtils.test_serialize.<locals>.Toto'>"
+        expected_message = "serialize property or function is not implemented on <class 'application.TestUtils.test_serialize.<locals>.Toto'>"
         with pytest.raises(NotImplementedError, match=expected_message) as error:
             s = check_it()
         assert "serialize property or function is not implemented" in caplog.text
@@ -34,3 +34,9 @@ class TestUtils:
         assert "Error" in caplog.text
         get_logger().critical("Critical")
         assert "Critical" in caplog.text
+
+    def test_logger_gelf(self, caplog):
+        with pytest.raises(NotImplementedError) as error:
+            raise NotImplementedError("blabla")
+        get_logger().critical("Error", exception=error)
+        assert "NotImplementedError" in caplog.text

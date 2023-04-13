@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from random import randint
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
@@ -38,7 +39,7 @@ class System(Base):
         return '<id {}>'.format(self.id)
 
     @classmethod
-    def get(cls, galaxy, id):
+    def get(cls, id):
         """
         ---
         :return:
@@ -48,6 +49,21 @@ class System(Base):
 
         system = query.one()
         return system
+
+    @classmethod
+    def all(cls, galaxy, user=None):
+        """
+        ---
+        :return:
+        """
+        query = db.session.query(System)\
+            .filter(cls.galaxy_name == galaxy.name)
+        
+        if user is not None:
+            from app.models.game.territory import Territory
+            query = query.join(Territory).filter(Territory.user_id == user.id)
+
+        return query.distinct().all()
 
     @classmethod
     def create(cls, galaxy, position, characteristics=None):
@@ -62,6 +78,11 @@ class System(Base):
         )
         db.session.add(system)
         db.session.flush()
+        nb_territories = randint(1, 6)
+        from app.models.game.territory import Territory
+
+        for i in range(nb_territories):
+            Territory.new(galaxy=galaxy, system_id=system.id, position_in_system=i + 1)
         return system
 
     @property

@@ -13,6 +13,7 @@ from app.models.game.system import System
 from app.models.role import RoleType
 from app.web.api.exceptions import NotFoundError, ConflictError
 
+from logger import get_logger
 
 @app.route('/api/galaxy/create', methods=['POST'])
 @login_required
@@ -73,6 +74,7 @@ def get_galaxy_detail(name):
     try:
         galaxy = Galaxy.get(session=db.session, name=name)
     except NoResultFound:
+        get_logger().warn(f"Galaxy {name} does not exists")
         raise NotFoundError(404, 'Galaxy does not exists')
     return galaxy
 
@@ -84,8 +86,13 @@ def get_galaxy_systems(name):
         galaxy = Galaxy.get(session=db.session, name=name)
     except NoResultFound:
         raise NotFoundError(404, 'Galaxy does not exists')
+    only_mine = request.args.get('mine', "false")
+    if only_mine.lower() in ['true']:
+        systems = System.all(galaxy=galaxy, user=current_user.get())
+    else:
+        systems = galaxy.systems
     return {
         "galaxy_name": galaxy.name, 
-        "systems": galaxy.systems,
+        "systems": systems,
         "properties": json.loads(galaxy.properties),
     }

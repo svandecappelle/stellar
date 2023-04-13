@@ -66,8 +66,7 @@ class Territory(Base):
         :return:
         """
         system = System.get(
-            id=system_id,
-            galaxy=galaxy
+            id=system_id
         )
         if not Territory.available(system, position_in_system):
             raise ValueError("Position is not available")

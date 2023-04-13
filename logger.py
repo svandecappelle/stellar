@@ -5,9 +5,8 @@ import sys
 from logging_gelf.formatters import GELFFormatter
 from flask import has_request_context, request
 
-
+global logger
 logger = None
-
 
 def get_logger(config=None):
     global logger
@@ -24,8 +23,6 @@ class ExtraFilter(logging.Filter):
                            "lineno", "msg", "args", "exc_text", "name", "thread", "created", "threadName", "msecs",
                            "pathname", "exc_info", "levelname"):
                 extra_string.append(u"{}={}".format(key, getattr(record, key)))
-                if key == 'X-Request-ID':
-                    record = getattr(record, key)
         record.extras_ = u" ".join(extra_string)
         return True
 
@@ -73,9 +70,6 @@ class DefaultLogger(object):
 
     def warn(self, *args, **kwargs):
         self._feed_kwargs(kwargs=kwargs)
-        return self._log("warn", *args, **kwargs)
-
-    def warning(self, *args, **kwargs):
         return self._log("warn", *args, **kwargs)
 
     def error(self, *args, **kwargs):

@@ -69,6 +69,7 @@ def serialize(*args, **kwargs):
     def serialize_list(result):
         # On array results
         if len(result) > 0 and not hasattr(result[0], "serialize") and result is not None:
+            get_logger().error("serialize property or function is not implemented")
             raise NotImplementedError("serialize property or function is not implemented")
         array_results = list()
         for r in result:
@@ -100,6 +101,7 @@ def serialize(*args, **kwargs):
 
     def serialize_object(result):
         if not hasattr(result, "serialize"):
+            get_logger().error("serialize property or function is not implemented")
             raise NotImplementedError(f"serialize property or function is not implemented on {type(result)}")
         if callable(result.serialize):
             if to_give_at_serialize:
@@ -157,6 +159,7 @@ def dburi():
     uri = None
     if AppConfig.get("database", "type") == "sqlite" and AppConfig.has("database", "file"):
         f = AppConfig.get("database", "file")
+        get_logger().warn("Using sqlite with fil is not recommended for production use")
         uri = "sqlite:///" + os.path.join(os.getcwd(), f)
     if uri is None:
         uri = AppConfig.get('database', 'uri')
@@ -215,3 +218,4 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
         host=options.host,
         port=int(options.port)
     )
+    get_logger().info("Server started")

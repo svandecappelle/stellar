@@ -28,7 +28,7 @@ class TestShips:
             f'/api/system/{response.json["id"]}/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) > 0
+        assert len(response.json["territories"]) > 0
 
     @pytest.mark.usefixtures("complexe_universe")
     @pytest.mark.usefixtures("authenticate_as_user")

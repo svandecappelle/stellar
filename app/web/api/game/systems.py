@@ -22,7 +22,10 @@ def get_system_detail(id):
 @serialize
 def get_system_territories(id):
     system = System.get(id=id)
-    return system.territories
+    return {
+        "id": system.id,
+        "territories": system.territories
+    }
 
 
 @app.route('/api/system/<int:id>/army', methods=["GET"])

@@ -84,6 +84,7 @@ def is_valid(self, session, ignored_checks=[]):
     try:
         __import__(path_checks)
     except ImportError:  # pragma: no cover
+        get_logger().critical("Import error on module")
         return True  # pragma: no cover
 
     checks = get_check_funcs(name=path_checks, ignored_funcs=ignored_checks)
@@ -98,9 +99,6 @@ def is_valid(self, session, ignored_checks=[]):
             _process_check_error(check=check, errors=errors, e=e, model=self)
         except CheckErrorWithCode as e:
             _process_check_error(check=check, errors=error_codes, e=e, model=self)
-        # except CheckErrorMultipleCodes as e:
-        #    for error in e.errors:
-        #        _process_check_error(check=check, errors=error_codes, e=error, model=self)
     if errors:
         raise CheckError(errors)
     return True

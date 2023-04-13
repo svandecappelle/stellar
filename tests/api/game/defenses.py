@@ -28,7 +28,7 @@ class TestDefenses:
 
         if item == DefenseType.Shield:
             # required for shield
-            me = base_universe[0]['model']
+            me = base_universe["users"][0]['model']
             technology = Technology.get(user=me, type=TechnologyType.energy).level = 8
             territory.add(type=ResourceType.credits, amount=300000)
             territory.add(type=ResourceType.mater, amount=300000)

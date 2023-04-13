@@ -92,7 +92,17 @@ def authenticate_as_admin(allowed_users, authentify):
 
 @pytest.fixture(scope="function", name="authenticate_as_user")
 def authenticate_as_user(allowed_users, authentify, base_universe):
-    authentify(base_universe[0]['dict'])
+    authentify(base_universe["users"][0]['dict'])
+
+
+@pytest.fixture(scope="function", name="complexe_universe")
+def complexe_universe(session, base_universe):
+    for i in range(20):
+        s = System.create(
+            galaxy=base_universe["galaxy"],
+            position=f"1_{i}_1",
+        )
+    session.commit()
 
 
 @pytest.fixture(scope="function", name="base_universe")
@@ -113,11 +123,7 @@ def base_universe(session):
             username=usr['username'],
             password=usr['password'],
             email=usr['email'],
-            territory=Territory.new(
-                galaxy=galaxy,
-                system_id=s.id,
-                position_in_system=1,
-            )  # If none this is generated
+            territory=s.territories[0]
         )
         users.append({
             'dict': usr,
@@ -125,4 +131,7 @@ def base_universe(session):
         })
 
     session.commit()
-    return users
+    return {
+        "users": users,
+        "galaxy": galaxy
+    }

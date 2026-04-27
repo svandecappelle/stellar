@@ -16,3 +16,12 @@
 * with pipenv
   * activate virtual environment: `pipenv shell`
 * `pytest tests`
+
+## Running with Docker Compose
+* start API + PostgreSQL
+  * `docker compose up --build`
+* API is available on `http://localhost:9000`
+* stop stack
+  * `docker compose down`
+* stop stack and remove database volume
+  * `docker compose down -v`

@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+import os
 
 from run import create_app
 from app.application import db, dburi
@@ -10,7 +11,8 @@ from app.models.user import User
 from app.models.role import RoleType
 
 if __name__ == '__main__':
-    flask_app = create_app(environment="prod")
+    environment = os.getenv('CONFIG', 'prod')
+    flask_app = create_app(environment=environment)
     flask_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(flask_app)
     engine = create_engine(dburi(), echo=False)

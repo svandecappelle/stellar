@@ -6,9 +6,16 @@ import os
 import importlib
 import re
 
-from config.configuration import AppConfig
-from app.application import app, dburi, flaskrun
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.application import app, db, dburi, flaskrun
+from app.models.base import Base
+from app.models.game.galaxy import Galaxy
+from app.models.user import User
+from app.models.role import RoleType
 from app.settings.logger import LoggerConfigurator
+from config.configuration import AppConfig
 
 env = os.getenv('ENV', 'prod')
 ROUTES_FOLDERS = ["app/web"]
@@ -27,21 +34,23 @@ def walk(directory, only_regular_files=True):
 
 class Starter(object):
     """
-    Memsource proxifier application entry point
+    Application entry point stating utilities
     """
 
     @classmethod
     def configure(cls, config_file=None):
+        cls.logger = logging.getLogger('Starter')
+        cls.logger.info("[%s] configuring..." % config_file)
         AppConfig.load(config_file=config_file)
         LoggerConfigurator.configure()
         app.config['SQLALCHEMY_DATABASE_URI'] = dburi()
-        cls.logger = logging.getLogger('MemsourceProxifier')
         cls.routing()
 
     @classmethod
     def routing(cls):
         """Routing application"""
         for route_folder in ROUTES_FOLDERS:
+            cls.logger.info("[%s] Route importing..." % route_folder)
             modules = walk(route_folder)
             for module in modules:
                 if module.endswith('.py') and not module.endswith('__init__.py'):
@@ -56,7 +65,7 @@ class Starter(object):
     def launch(cls):
         """Launch api server"""
         cls.logger.info("Starting server")
-        flaskrun(app)
+        flaskrun(app,default_host="0.0.0.0", default_port="9000")
 
     @classmethod
     def status(cls):
@@ -73,10 +82,40 @@ def create_app(environment=None):
 
 
 def main():
-    """Enty point"""
+    """Entry point"""
     Starter.configure(config_file=os.getenv("CONFIG") or env)
     Starter.launch()
 
 
 if __name__ == '__main__':
+    print("Starting server...")
     main()
+
+
+
+"""
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+        db.init_app(app)
+        engine = create_engine(dburi(), echo=False)
+        session_build = sessionmaker(bind=engine)
+        session = session_build()
+        db.session = session
+        Base.metadata.create_all(bind=engine)
+        session.commit()
+        if not Galaxy.exists(session=session, name="Milky Way"):
+            Galaxy.create(session=session, name="Milky Way")
+        if not User.exists(username="admin"):
+            users_to_create = [{
+                "username": "admin",
+                "password": "admin",
+                "email": "test@testing.com"
+            }]
+            for usr in users_to_create:
+                user = User.new(
+                    username=usr['username'],
+                    password=usr['password'],
+                    email=usr['email']
+                )
+                user.add_role(RoleType.admin)
+            session.commit()
+"""

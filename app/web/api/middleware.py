@@ -4,7 +4,7 @@ import hashlib
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import UserMixin, login_user, logout_user, current_user
-from app.application import app, login_required, serialize
+from app.application import app, json_description, login_required, serialize
 from app.models.user import User
 
 
@@ -37,6 +37,7 @@ def get_user_logged():
 
 @app.route('/api/auth/login', methods=['GET', 'POST'])
 @serialize(without_rights=True)
+@json_description(file='descriptions/authentication.json')
 def authentication():
     # Yet in dev
     if not request.json.get("username") or not request.json.get("username"):

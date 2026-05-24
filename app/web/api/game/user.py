@@ -6,6 +6,7 @@ from app.application import app, db, serialize
 from app.application import login_required
 
 from app.models.game.community.faction import Faction
+from app.models.game.territory import Territory
 from app.web.api.exceptions import BadRequestError, ConflictError
 
 @app.route('/api/events', methods=['GET'])

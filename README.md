@@ -25,3 +25,11 @@
   * `docker compose down`
 * stop stack and remove database volume
   * `docker compose down -v`
+
+## API Documentation (Swagger UI)
+* Open Swagger UI at `http://localhost:9000/api/docs`
+* Open raw OpenAPI spec at `http://localhost:9000/api/openapi.json`
+
+## Update OpenAPI Schema File
+* Generate a schema file that matches the current Flask routes:
+  * `python update_openapi_schema.py --routes-root app/web/api --app-web-root app/web --output app/web/api/openapi.generated.json`

@@ -142,6 +142,21 @@ def serialize(*args, **kwargs):
         return _callable(args[0])
     return _callable
 
+def json_description(*args, **kwargs):
+    description_file = kwargs.get("file")
+
+    def _decorate(func):
+        @wraps(func)
+        def wrapped(*func_args, **func_kwargs):
+            result = func(*func_args, **func_kwargs)
+            return result
+
+        wrapped.json_description_file = description_file
+        return wrapped
+
+    if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
+        return _decorate(args[0])
+    return _decorate
 
 def login_required(func):
     @wraps(func)

@@ -1,0 +1,33 @@
+{
+    "/api/auth/login": {
+        "tags": ["Authentication"],
+        "method": "POST",
+        "summary": "Authenticate user",
+        "responses": {
+            "200": {
+                "description": "Authenticated user"
+            },
+            "401": {
+                "description": "Invalid credentials"
+            }
+        },
+        "requestBody": {
+            "required": true,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "username": {
+                                "type": "string"
+                            },
+                            "password": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

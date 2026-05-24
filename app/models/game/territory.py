@@ -1,9 +1,10 @@
 import functools
+import json
 from datetime import datetime
 import enum
 import math
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, JSON, String, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 
 from app.application import db
@@ -42,6 +43,10 @@ class Territory(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # We use json as text here to be sure compatible with all dbs.
+    # This should not be necessary to query rows using this field
+    characteristics = Column(JSON, nullable=True)
+
     buildings = relationship("Building", back_populates="territory")
     ships = relationship("Ship", back_populates="territory")
     defenses = relationship("Defense", back_populates="territory")
@@ -50,15 +55,16 @@ class Territory(Base):
     territory_events = relationship("PositionalEventDetail", back_populates="territory")
     user = relationship("User", back_populates="territories")
 
-    def __init__(self, system, position_in_system):
+    def __init__(self, system, position_in_system, characteristics={}):
         self.system_id = system.id
         self.position_in_system = position_in_system
+        self.characteristics = json.dumps(characteristics)
 
     def __repr__(self):
         return '<id {}>'.format(self.id)
 
     @classmethod
-    def new(cls, galaxy, system_id, position_in_system):
+    def create(cls, system_id, position_in_system, characteristics={}):
         """
         Allocate a free position.
         ---
@@ -72,7 +78,8 @@ class Territory(Base):
             raise ValueError("Position is not available")
         territory = Territory(
             system=system,
-            position_in_system=position_in_system
+            position_in_system=position_in_system,
+            characteristics=characteristics,
         )
         db.session.add(system)
         db.session.flush()
@@ -382,5 +389,9 @@ class Territory(Base):
             'name': self.name,
             'position': self.position_in_system,
             'system': self.system.serialize,
-            'buildings': {b.type.name: b for b in self.buildings}
+            'buildings': {b.type.name: b for b in self.buildings},
+            'characteristics': json.loads(self.characteristics) if self.characteristics else {},
+            'resources': {
+                k.name: v for k, v in self.resources.items()
+            }
         }

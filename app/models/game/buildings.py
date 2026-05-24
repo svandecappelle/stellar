@@ -1,5 +1,6 @@
-from datetime import datetime
 import enum
+import json
+from datetime import datetime
 
 from app.models.base import Base
 
@@ -117,7 +118,7 @@ class BuildingType(enum.Enum):
         :return:
         """
         from app.models.game.territory import ResourceType
-        return {t: self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
+        return {str(t): self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
 
     @property
     def type_of_resource(self):
@@ -174,7 +175,7 @@ class Building(Base):
     @property
     def consumption(self):
         from app.models.game.territory import ResourceType
-        return self.type.get_cost(level=self.level)[ResourceType.energy]
+        return self.type.get_cost(level=self.level).get(ResourceType.energy, 0)
 
     @property
     def next_level_duration(self):
@@ -195,5 +196,6 @@ class Building(Base):
         """
         return {
             'level': self.level,
-            'duration': self.next_level_duration
+            'duration': self.next_level_duration,
+            'cost': self.cost,  # FIXME avoid json.dumps in model
         }

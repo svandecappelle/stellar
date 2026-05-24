@@ -2,7 +2,7 @@
 
 from flask_login import current_user
 
-from app.application import app, serialize
+from app.application import app, db, serialize
 from app.application import login_required
 
 from app.models.game.community.faction import Faction
@@ -18,6 +18,22 @@ def get_my_events():
 
     return current_user.get().events
 
+@app.route('/api/territory/<int:id>', methods=['POST'])
+@login_required
+@serialize
+def affect_first_territory(id):
+    user = current_user.get()
+    
+    if not user.territories:
+        territory = Territory.get(id=id)
+        if territory.user_id:
+            raise ConflictError("Territory already has an owner")
+        territory.assign(user=user)
+    else:
+        raise ConflictError("User already has a territory")
+
+    db.session.commit()
+    return user.territories[0]
 
 @app.route('/api/territories', methods=['GET'])
 @login_required

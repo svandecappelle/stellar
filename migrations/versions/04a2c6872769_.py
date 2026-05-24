@@ -56,6 +56,7 @@ def upgrade():
         sa.Column('id', sa.INTEGER(), autoincrement=True, nullable=False),
         sa.Column('sector_id', sa.INTEGER(), autoincrement=False, nullable=False),
         sa.Column('name', sa.VARCHAR(), autoincrement=False, nullable=True),
+        sa.Column('characteristics', postgresql.JSONB(), autoincrement=False, nullable=False),
         sa.ForeignKeyConstraint(['sector_id'], ['sector.id'], name='system_sector_id_fkey'),
         sa.PrimaryKeyConstraint('id', name='system_pkey')
     )

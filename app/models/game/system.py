@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from random import randint
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.application import db
@@ -21,9 +21,7 @@ class System(Base):
     # could be done using a jsonb for characteristics and str:'x-y-z' for vector
     position = Column(String, nullable=False)
 
-    # We use json as text here to be sure compatible with all dbs.
-    # This should not be necessary to query rows using this field
-    characteristics = Column(String, nullable=True)
+    characteristics = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -66,7 +64,7 @@ class System(Base):
         return query.distinct().all()
 
     @classmethod
-    def create(cls, galaxy, position, characteristics=None):
+    def create(cls, galaxy, position, characteristics=None, create_territories=True):
         """
         ---
         :return:
@@ -78,11 +76,12 @@ class System(Base):
         )
         db.session.add(system)
         db.session.flush()
-        nb_territories = randint(1, 6)
-        from app.models.game.territory import Territory
+        if create_territories:
+            nb_territories = randint(1, 6)
+            from app.models.game.territory import Territory
 
-        for i in range(nb_territories):
-            Territory.new(galaxy=galaxy, system_id=system.id, position_in_system=i + 1)
+            for i in range(nb_territories):
+                Territory.create(galaxy=galaxy, system_id=system.id, position_in_system=i + 1)
         return system
 
     @property
@@ -97,7 +96,8 @@ class System(Base):
                 'z': float(coordinates[2]),
             } if self.position else None,
             'name': self.name,
-            'characteristics': json.loads(self.characteristics)
+            'characteristics': json.loads(self.characteristics),
+            'territories_count': len(self.territories),
         }
 
         return data

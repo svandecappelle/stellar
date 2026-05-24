@@ -57,7 +57,8 @@ def initialize_systems():
         System.create(
             galaxy=galaxy,
             position=f"{position['x']}_{position['y']}_{position['z']}",
-            characteristics=characteristics
+            characteristics=characteristics,
+            create_territories=False,
         )
     db.session.commit()
 

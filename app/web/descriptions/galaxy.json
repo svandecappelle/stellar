@@ -1,0 +1,80 @@
+{
+    "/api/galaxy/create": {
+        "tags": ["Galaxy"],
+        "method": "POST",
+        "summary": "Initialize a galaxy",
+        "responses": {
+            "200": {
+                "description": "Created galaxy"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "409": {
+                "description": "Conflict"
+            }
+        }
+    },
+    "/api/galaxy/batch_initialize": {
+        "tags": ["Galaxy"],
+        "method": "POST",
+        "summary": "Batch initialize galaxy systems",
+        "responses": {
+            "200": {
+                "description": "Initialized systems"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/galaxies": {
+        "tags": ["Galaxy"],
+        "method": "GET",
+        "summary": "List galaxies",
+        "responses": {
+            "200": {
+                "description": "Galaxy list"
+            }
+        }
+    },
+    "/api/galaxy/{name}": {
+        "tags": ["Galaxy"],
+        "method": "GET",
+        "summary": "Get galaxy details",
+        "responses": {
+            "200": {
+                "description": "Galaxy details"
+            },
+            "404": {
+                "description": "Galaxy not found"
+            }
+        }
+    },
+    "/api/galaxy/{name}/systems": {
+        "tags": ["Galaxy"],
+        "method": "GET",
+        "summary": "List systems for a galaxy",
+        "parameters": [
+            {
+                "name": "mine",
+                "in": "query",
+                "required": false,
+                "schema": {
+                    "type": "boolean"
+                }
+            }
+        ],
+        "responses": {
+            "200": {
+                "description": "Systems in galaxy"
+            }
+        }
+    }
+}

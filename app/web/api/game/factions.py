@@ -5,6 +5,7 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from app.application import app, db, serialize
 from app.application import login_required
+from app.application import json_description
 from app.models.game.community.faction import Faction
 
 from app.models.game.galaxy import Galaxy
@@ -14,6 +15,7 @@ from app.web.api.exceptions import NotFoundError, ConflictError
 @app.route('/api/galaxy/factions', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/factions.json')
 def initialize_factions():
     Faction.initialize(session=db.session)
     db.session.commit()

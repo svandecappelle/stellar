@@ -1,0 +1,34 @@
+{
+    "/api/faction/{faction_id}": {
+        "tags": ["Factions"],
+        "method": "PUT",
+        "summary": "Assign faction to current user",
+        "responses": {
+            "204": {
+                "description": "Faction assigned"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "409": {
+                "description": "Conflict"
+            }
+        }
+    },
+    "/api/galaxy/factions": {
+        "tags": ["Factions"],
+        "method": "POST",
+        "summary": "Initialize factions for the game",
+        "responses": {
+            "200": {
+                "description": "Faction list"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    }
+}

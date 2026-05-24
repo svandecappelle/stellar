@@ -4,13 +4,14 @@ from flask import abort
 from flask_login import current_user
 from werkzeug.exceptions import NotFound
 
-from app.application import app, db, serialize, login_required
+from app.application import app, db, serialize, login_required, json_description
 from app.models.user import User
 
 
 @app.route('/api/user/<string:username>', methods=['GET'])
 @login_required
 @serialize(without_rights=True)
+@json_description(file='descriptions/users.json')
 def get_user(username):
     """
     Get user object from its name
@@ -26,6 +27,7 @@ def get_user(username):
 @app.route('/api/auth/me', methods=['GET'])
 @login_required
 @serialize(without_rights=False)
+@json_description(file='descriptions/authentication.json')
 def me():
     """
     Get my own user

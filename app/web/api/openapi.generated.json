@@ -19,10 +19,16 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Authenticated user"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/auth"
+        "summary": "Get currently authenticated user",
+        "tags": [
+          "Authentication"
+        ]
       }
     },
     "/api/auth/login": {
@@ -71,10 +77,28 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Logout response"
           }
         },
-        "summary": "GET /api/auth/logout"
+        "summary": "Logout current user",
+        "tags": [
+          "Authentication"
+        ]
       },
       "post": {
         "requestBody": {
@@ -89,40 +113,73 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Logout response"
           }
         },
-        "summary": "POST /api/auth/logout"
+        "summary": "Logout current user",
+        "tags": [
+          "Authentication"
+        ]
       }
     },
     "/api/auth/me": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Current user"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/auth/me"
+        "summary": "Get own user profile",
+        "tags": [
+          "Authentication"
+        ]
       }
     },
     "/api/docs": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Swagger UI page"
           }
         },
-        "summary": "GET /api/docs"
+        "summary": "Open Swagger UI",
+        "tags": [
+          "Documentation"
+        ]
       }
     },
     "/api/events": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "User events"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/events"
+        "summary": "Get current user events",
+        "tags": [
+          "Events"
+        ]
       }
     },
     "/api/faction/{faction_id}": {
@@ -149,20 +206,45 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true
+                }
+              }
+            },
             "description": "Success"
+          },
+          "204": {
+            "description": "Faction assigned"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "409": {
+            "description": "Conflict"
           }
         },
-        "summary": "PUT /api/faction/{faction_id}"
+        "summary": "Assign faction to current user",
+        "tags": [
+          "Factions"
+        ]
       }
     },
     "/api/galaxies": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Galaxy list"
           }
         },
-        "summary": "GET /api/galaxies"
+        "summary": "List galaxies",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/galaxy/batch_initialize": {
@@ -171,6 +253,14 @@
           "content": {
             "application/json": {
               "schema": {
+                "properties": {
+                  "galaxy_name": {
+                    "type": "string"
+                  },
+                  "systems": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }
@@ -179,10 +269,19 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Initialized systems"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/galaxy/batch_initialize"
+        "summary": "Batch initialize galaxy systems",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/galaxy/create": {
@@ -191,6 +290,17 @@
           "content": {
             "application/json": {
               "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "properties": {
+                    "type": "string"
+                  },
+                  "sectors": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }
@@ -199,10 +309,22 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Created galaxy"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "409": {
+            "description": "Conflict"
           }
         },
-        "summary": "POST /api/galaxy/create"
+        "summary": "Initialize a galaxy",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/galaxy/factions": {
@@ -219,10 +341,16 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Faction list"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/galaxy/factions"
+        "summary": "Initialize factions for the game",
+        "tags": [
+          "Factions"
+        ]
       }
     },
     "/api/galaxy/{name}": {
@@ -239,10 +367,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Galaxy details"
+          },
+          "404": {
+            "description": "Galaxy not found"
           }
         },
-        "summary": "GET /api/galaxy/{name}"
+        "summary": "Get galaxy details",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/galaxy/{name}/systems": {
@@ -255,44 +389,104 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "galaxy_name": {},
+                    "properties": {},
+                    "systems": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "systems",
+                    "properties"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Systems in galaxy"
           }
         },
-        "summary": "GET /api/galaxy/{name}/systems"
+        "summary": "List systems for a galaxy",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/mon/ping": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Pong"
           }
         },
-        "summary": "GET /api/mon/ping"
+        "summary": "Health check endpoint",
+        "tags": [
+          "Monitoring"
+        ]
       }
     },
     "/api/openapi.json": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "OpenAPI schema"
           }
         },
-        "summary": "GET /api/openapi.json"
+        "summary": "Get generated OpenAPI schema",
+        "tags": [
+          "Documentation"
+        ]
       }
     },
     "/api/resource": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {}
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Sample payload"
           }
         },
-        "summary": "GET /api/resource"
+        "summary": "Get sample protected resource",
+        "tags": [
+          "Authentication"
+        ]
       }
     },
     "/api/system/{id}": {
@@ -309,10 +503,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "System details"
           }
         },
-        "summary": "GET /api/system/{id}"
+        "summary": "Get system details",
+        "tags": [
+          "Systems"
+        ]
       },
       "post": {
         "parameters": [
@@ -329,6 +526,11 @@
           "content": {
             "application/json": {
               "schema": {
+                "properties": {
+                  "territories": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }
@@ -337,10 +539,22 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Created system"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "409": {
+            "description": "Conflict"
           }
         },
-        "summary": "POST /api/system/{id}"
+        "summary": "Create system territories",
+        "tags": [
+          "Systems"
+        ]
       }
     },
     "/api/system/{id}/army": {
@@ -357,10 +571,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "System army"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/system/{id}/army"
+        "summary": "Get army in a system",
+        "tags": [
+          "Systems"
+        ]
       }
     },
     "/api/system/{id}/territories": {
@@ -377,30 +597,60 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "id": {},
+                    "territories": {}
+                  },
+                  "required": [
+                    "id",
+                    "territories"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "System territories"
           }
         },
-        "summary": "GET /api/system/{id}/territories"
+        "summary": "Get territories in a system",
+        "tags": [
+          "Systems"
+        ]
       }
     },
     "/api/technologies": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Technology list"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/technologies"
+        "summary": "Get current user technologies",
+        "tags": [
+          "Technologies"
+        ]
       }
     },
     "/api/technologies/events": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Pending events"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/technologies/events"
+        "summary": "Get pending technology events",
+        "tags": [
+          "Technologies"
+        ]
       }
     },
     "/api/technology/{name}/{territory}": {
@@ -435,20 +685,35 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Technology event"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/technology/{name}/{territory}"
+        "summary": "Increase technology for a territory",
+        "tags": [
+          "Technologies"
+        ]
       }
     },
     "/api/territories": {
       "get": {
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Territory list"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/territories"
+        "summary": "Get current user territories",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{id}": {
@@ -465,10 +730,13 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Territory details"
           }
         },
-        "summary": "GET /api/territory/{id}"
+        "summary": "Get territory details",
+        "tags": [
+          "Territories"
+        ]
       },
       "post": {
         "parameters": [
@@ -493,10 +761,19 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Assigned territory"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "409": {
+            "description": "Conflict"
           }
         },
-        "summary": "POST /api/territory/{id}"
+        "summary": "Assign first territory to current user",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{territory_id}": {
@@ -513,10 +790,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Territory details"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/territory/{territory_id}"
+        "summary": "Get owned territory details",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{territory_id}/defense": {
@@ -535,6 +818,11 @@
           "content": {
             "application/json": {
               "schema": {
+                "properties": {
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }
@@ -543,10 +831,19 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Build events"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/territory/{territory_id}/defense"
+        "summary": "Build territory defenses",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{territory_id}/ship": {
@@ -565,6 +862,11 @@
           "content": {
             "application/json": {
               "schema": {
+                "properties": {
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               }
             }
@@ -573,10 +875,19 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Build events"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/territory/{territory_id}/ship"
+        "summary": "Build ships in territory",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{territory_id}/ships": {
@@ -593,10 +904,16 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Ship list"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "GET /api/territory/{territory_id}/ships"
+        "summary": "Get ships in a territory",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/territory/{territory_id}/{building}": {
@@ -631,10 +948,19 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "Build event"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
           }
         },
-        "summary": "POST /api/territory/{territory_id}/{building}"
+        "summary": "Upgrade territory building",
+        "tags": [
+          "Territories"
+        ]
       }
     },
     "/api/user/{username}": {
@@ -651,10 +977,19 @@
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "description": "User details"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "User not found"
           }
         },
-        "summary": "GET /api/user/{username}"
+        "summary": "Get user by username",
+        "tags": [
+          "Users"
+        ]
       }
     }
   },

@@ -1,0 +1,54 @@
+{
+    "/api/system/{id}": {
+        "get": {
+            "tags": ["Systems"],
+            "summary": "Get system details",
+            "responses": {
+                "200": {
+                    "description": "System details"
+                }
+            }
+        },
+        "post": {
+            "tags": ["Systems"],
+            "summary": "Create system territories",
+            "responses": {
+                "200": {
+                    "description": "Created system"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "409": {
+                    "description": "Conflict"
+                }
+            }
+        }
+    },
+    "/api/system/{id}/territories": {
+        "tags": ["Systems"],
+        "method": "GET",
+        "summary": "Get territories in a system",
+        "responses": {
+            "200": {
+                "description": "System territories"
+            }
+        }
+    },
+    "/api/system/{id}/army": {
+        "tags": ["Systems"],
+        "method": "GET",
+        "summary": "Get army in a system",
+        "responses": {
+            "200": {
+                "description": "System army"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    }
+}

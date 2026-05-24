@@ -19,10 +19,10 @@ CONVERTER_TO_TYPE = {
 
 
 def _string_value(node):
-    if isinstance(node, ast.Str):
-        return node.s
     if hasattr(ast, "Constant") and isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.Str):
+        return node.s
     return None
 
 
@@ -123,6 +123,179 @@ def _default_operation(method, openapi_path, path_parameters):
             },
         }
     return operation
+
+
+def _is_request_json_get_call(node):
+    if not isinstance(node, ast.Call):
+        return False
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "get":
+        return False
+    json_attr = node.func.value
+    if not isinstance(json_attr, ast.Attribute) or json_attr.attr != "json":
+        return False
+    return isinstance(json_attr.value, ast.Name) and json_attr.value.id == "request"
+
+
+def _request_json_key_from_call(node):
+    if not _is_request_json_get_call(node):
+        return None
+    if node.args:
+        return _string_value(node.args[0])
+    return None
+
+
+def _literal_schema(node):
+    if hasattr(ast, "Constant") and isinstance(node, ast.Constant):
+        value = node.value
+        if isinstance(value, bool):
+            return {"type": "boolean"}
+        if isinstance(value, int):
+            return {"type": "integer"}
+        if isinstance(value, float):
+            return {"type": "number"}
+        if isinstance(value, str):
+            return {"type": "string"}
+        if value is None:
+            return {"nullable": True}
+
+    if isinstance(node, ast.Dict):
+        properties = {}
+        required = []
+        for key_node, value_node in zip(node.keys, node.values):
+            key = _string_value(key_node)
+            if key is None:
+                continue
+            properties[key] = _literal_schema(value_node)
+            required.append(key)
+
+        schema = {
+            "type": "object",
+            "properties": properties,
+        }
+        if required:
+            schema["required"] = required
+        return schema
+
+    if isinstance(node, (ast.List, ast.Tuple)):
+        item_schema = {}
+        if node.elts:
+            item_schema = _literal_schema(node.elts[0])
+        return {
+            "type": "array",
+            "items": item_schema,
+        }
+
+    if isinstance(node, ast.Str):
+        return {"type": "string"}
+    if isinstance(node, ast.Num):
+        if isinstance(node.n, int):
+            return {"type": "integer"}
+        return {"type": "number"}
+    if isinstance(node, ast.NameConstant):
+        if node.value is None:
+            return {"nullable": True}
+        if isinstance(node.value, bool):
+            return {"type": "boolean"}
+
+    if isinstance(node, ast.Call):
+        # jsonify({...}) or jsonify([...])
+        if isinstance(node.func, ast.Name) and node.func.id == "jsonify" and node.args:
+            return _literal_schema(node.args[0])
+
+    return {}
+
+
+def _infer_response_schema(function_node):
+    schemas = []
+    seen = set()
+
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Return) or child.value is None:
+            continue
+
+        schema = _literal_schema(child.value)
+        if not schema:
+            continue
+
+        schema_key = json.dumps(schema, sort_keys=True)
+        if schema_key in seen:
+            continue
+        seen.add(schema_key)
+        schemas.append(schema)
+
+    if not schemas:
+        return None
+    if len(schemas) == 1:
+        return schemas[0]
+    return {"oneOf": schemas}
+
+
+def _infer_request_body_schema(function_node):
+    properties = {}
+
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Call):
+            continue
+        key = _request_json_key_from_call(child)
+        if key:
+            properties[key] = {"type": "string"}
+
+    if not properties:
+        return None
+
+    return {
+        "type": "object",
+        "properties": properties,
+    }
+
+
+def _infer_function_contract(function_node):
+    return {
+        "requestBodySchema": _infer_request_body_schema(function_node),
+        "responseSchema": _infer_response_schema(function_node),
+    }
+
+
+def _merge_responses_with_schema(existing_responses, response_schema):
+    if not response_schema:
+        return existing_responses
+
+    responses = dict(existing_responses or {})
+    success_response = dict(responses.get("200") or {})
+    if "description" not in success_response:
+        success_response["description"] = "Success"
+    if "content" not in success_response:
+        success_response["content"] = {
+            "application/json": {
+                "schema": response_schema
+            }
+        }
+    responses["200"] = success_response
+    return responses
+
+
+def _merge_operation_metadata(operation, metadata):
+    merged = dict(operation)
+    if not metadata:
+        return merged
+
+    metadata_copy = dict(metadata)
+    metadata_responses = metadata_copy.pop("responses", None)
+    for key, value in metadata_copy.items():
+        merged[key] = value
+
+    if metadata_responses is not None:
+        combined = dict(merged.get("responses") or {})
+        for code, response_value in metadata_responses.items():
+            if code in combined and isinstance(combined[code], dict) and isinstance(response_value, dict):
+                nested = dict(combined[code])
+                nested.update(response_value)
+                combined[code] = nested
+            else:
+                combined[code] = response_value
+        merged["responses"] = combined
+
+    return merged
 
 
 def _walk_python_files(root_path):
@@ -235,6 +408,8 @@ def _build_paths(routes_root, app_web_root):
             if not route_defs:
                 continue
 
+            function_contract = _infer_function_contract(node)
+
             description_map = _load_json_description_file(
                 app_web_root=app_web_root,
                 file_ref=json_description_file,
@@ -253,13 +428,29 @@ def _build_paths(routes_root, app_web_root):
 
                 for method in route_def["methods"]:
                     operation = _default_operation(method, openapi_path, path_parameters)
+
+                    if method in ["POST", "PUT", "PATCH"] and function_contract.get("requestBodySchema"):
+                        operation["requestBody"] = {
+                            "required": False,
+                            "content": {
+                                "application/json": {
+                                    "schema": function_contract["requestBodySchema"]
+                                }
+                            },
+                        }
+
+                    operation["responses"] = _merge_responses_with_schema(
+                        existing_responses=operation.get("responses"),
+                        response_schema=function_contract.get("responseSchema"),
+                    )
+
                     description_operation = _operation_metadata_from_description(
                         description_map=description_map,
                         openapi_path=openapi_path,
                         method=method,
                     )
                     if description_operation:
-                        operation.update(description_operation)
+                        operation = _merge_operation_metadata(operation, description_operation)
                         if path_parameters and "parameters" in description_operation:
                             operation["parameters"] = _merge_parameters(
                                 existing_parameters=path_parameters,

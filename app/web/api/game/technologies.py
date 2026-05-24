@@ -4,6 +4,7 @@ from flask_login import current_user
 
 from app.application import app, db, serialize
 from app.application import login_required
+from app.application import json_description
 from app.models.game.event import PositionalEvent, PositionalEventType
 from app.models.game.territory import Territory
 
@@ -13,6 +14,7 @@ from app.models.game.technologies.technology import Technology, TechnologyType
 @app.route('/api/technologies', methods=['GET'])
 @login_required
 @serialize
+@json_description(file='descriptions/technologies.json')
 def get_my_technologies():
     return Technology.all(user=current_user.get())
 
@@ -20,6 +22,7 @@ def get_my_technologies():
 @app.route('/api/technology/<string:name>/<int:territory>', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/technologies.json')
 def increase_technology(name, territory):
     me = current_user.get()
     territory = Territory.get(id=territory, user=me)
@@ -36,5 +39,6 @@ def increase_technology(name, territory):
 @app.route('/api/technologies/events', methods=['GET'])
 @login_required
 @serialize
+@json_description(file='descriptions/technologies.json')
 def get_pending_technologies():
     return PositionalEvent.all(user=current_user.get(), event_type=PositionalEventType.technology)

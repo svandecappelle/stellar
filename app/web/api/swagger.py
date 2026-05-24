@@ -5,7 +5,7 @@ import os
 
 from flask import jsonify, render_template_string, request
 
-from app.application import app
+from app.application import app, json_description
 
 OPENAPI_GENERATED_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -98,12 +98,14 @@ def build_openapi_spec(server_url):
 
 
 @app.route('/api/openapi.json', methods=['GET'])
+@json_description(file='descriptions/documentation.json')
 def openapi_spec():
     server_url = request.host_url.rstrip('/')
     return jsonify(build_openapi_spec(server_url=server_url))
 
 
 @app.route('/api/docs', methods=['GET'])
+@json_description(file='descriptions/documentation.json')
 def swagger_ui():
     return render_template_string(
         """

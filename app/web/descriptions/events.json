@@ -1,0 +1,15 @@
+{
+    "/api/events": {
+        "tags": ["Events"],
+        "method": "GET",
+        "summary": "Get current user events",
+        "responses": {
+            "200": {
+                "description": "User events"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    }
+}

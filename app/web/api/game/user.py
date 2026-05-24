@@ -4,6 +4,7 @@ from flask_login import current_user
 
 from app.application import app, db, serialize
 from app.application import login_required
+from app.application import json_description
 
 from app.models.game.community.faction import Faction
 from app.models.game.territory import Territory
@@ -12,6 +13,7 @@ from app.web.api.exceptions import BadRequestError, ConflictError
 @app.route('/api/events', methods=['GET'])
 @login_required
 @serialize
+@json_description(file='descriptions/events.json')
 def get_my_events():
     for event_type, events in current_user.get().events.items():
         for event in events:
@@ -22,6 +24,7 @@ def get_my_events():
 @app.route('/api/territory/<int:id>', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/territories.json')
 def affect_first_territory(id):
     user = current_user.get()
     
@@ -39,12 +42,14 @@ def affect_first_territory(id):
 @app.route('/api/territories', methods=['GET'])
 @login_required
 @serialize
+@json_description(file='descriptions/territories.json')
 def get_territories():
     return current_user.get().territories
 
 @app.route('/api/faction/<int:faction_id>', methods=['PUT'])
 @login_required
 @serialize
+@json_description(file='descriptions/factions.json')
 def affect_faction_to_user(faction_id):
     """
     Affect a faction to a user

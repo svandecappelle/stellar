@@ -1,0 +1,18 @@
+{
+    "/api/user/{username}": {
+        "tags": ["Users"],
+        "method": "GET",
+        "summary": "Get user by username",
+        "responses": {
+            "200": {
+                "description": "User details"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "404": {
+                "description": "User not found"
+            }
+        }
+    }
+}

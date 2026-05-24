@@ -1,0 +1,12 @@
+{
+    "/api/mon/ping": {
+        "tags": ["Monitoring"],
+        "method": "GET",
+        "summary": "Health check endpoint",
+        "responses": {
+            "200": {
+                "description": "Pong"
+            }
+        }
+    }
+}

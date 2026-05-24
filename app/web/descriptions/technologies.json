@@ -1,0 +1,44 @@
+{
+    "/api/technologies": {
+        "tags": ["Technologies"],
+        "method": "GET",
+        "summary": "Get current user technologies",
+        "responses": {
+            "200": {
+                "description": "Technology list"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/technology/{name}/{territory}": {
+        "tags": ["Technologies"],
+        "method": "POST",
+        "summary": "Increase technology for a territory",
+        "responses": {
+            "200": {
+                "description": "Technology event"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/technologies/events": {
+        "tags": ["Technologies"],
+        "method": "GET",
+        "summary": "Get pending technology events",
+        "responses": {
+            "200": {
+                "description": "Pending events"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    }
+}

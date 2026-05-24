@@ -7,6 +7,7 @@ from sqlalchemy.orm.exc import NoResultFound
 
 from app.application import app, db, serialize
 from app.application import login_required
+from app.application import json_description
 
 from app.models.game.galaxy import Galaxy
 from app.models.game.system import System
@@ -18,6 +19,7 @@ from logger import get_logger
 @app.route('/api/galaxy/create', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/galaxy.json')
 def initialize_galaxy():
     if RoleType.admin in current_user.get().roles:
         # TODO raise not allowed
@@ -40,6 +42,7 @@ def initialize_galaxy():
 @app.route('/api/galaxy/batch_initialize', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/galaxy.json')
 def initialize_systems():
     #if RoleType.admin not in current_user.get().roles:
     #    # TODO raise not allowed
@@ -65,12 +68,14 @@ def initialize_systems():
 
 @app.route('/api/galaxies', methods=['GET'])
 @serialize
+@json_description(file='descriptions/galaxy.json')
 def get_all_galaxies():
     return db.session.query(Galaxy).all()
 
 
 @app.route('/api/galaxy/<string:name>', methods=['GET'])
 @serialize
+@json_description(file='descriptions/galaxy.json')
 def get_galaxy_detail(name):
     try:
         galaxy = Galaxy.get(session=db.session, name=name)
@@ -82,6 +87,7 @@ def get_galaxy_detail(name):
 
 @app.route('/api/galaxy/<string:name>/systems', methods=['GET'])
 @serialize
+@json_description(file='descriptions/galaxy.json')
 def get_galaxy_systems(name):
     try:
         galaxy = Galaxy.get(session=db.session, name=name)

@@ -5,6 +5,7 @@ from flask import jsonify, request, session, g
 
 from app.application import app, db, serialize
 from app.application import login_required
+from app.application import json_description
 
 from app.models.game.system import System
 from app.models.game.territory import Territory
@@ -13,6 +14,7 @@ from app.models.game.territory import Territory
 
 @app.route('/api/system/<int:id>', methods=['GET'])
 @serialize
+@json_description(file='descriptions/systems.json')
 def get_system_detail(id):
     system = System.get(id=id)
     return system
@@ -21,6 +23,7 @@ def get_system_detail(id):
 @app.route('/api/system/<int:id>', methods=['POST'])
 @login_required
 @serialize
+@json_description(file='descriptions/systems.json')
 def create_system(id):
     system = System.get(id=id)
     territories = request.json.get('territories')
@@ -40,6 +43,7 @@ def create_system(id):
 
 @app.route('/api/system/<int:id>/territories', methods=['GET'])
 @serialize
+@json_description(file='descriptions/systems.json')
 def get_system_territories(id):
     system = System.get(id=id)
     return {
@@ -50,6 +54,7 @@ def get_system_territories(id):
 
 @app.route('/api/territory/<int:id>', methods=['GET'])
 @serialize
+@json_description(file='descriptions/territories.json')
 def get_territory_detail(id):
     territory = Territory.get(id=id)
     return territory
@@ -58,6 +63,7 @@ def get_territory_detail(id):
 @app.route('/api/system/<int:id>/army', methods=["GET"])
 @login_required
 @serialize
+@json_description(file='descriptions/systems.json')
 def get_system_army(id):
     system = System.get(id=id)
     return system.army

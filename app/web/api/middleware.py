@@ -31,6 +31,7 @@ def invalid_credentials(e):
 @app.route('/api/auth', methods=['GET'])
 @login_required
 @serialize(without_rights=False)
+@json_description(file='descriptions/authentication.json')
 def get_user_logged():
     return current_user.get()
 
@@ -61,11 +62,13 @@ def authentication():
 
 
 @app.route('/api/auth/logout', methods=['GET', 'POST'])
+@json_description(file='descriptions/authentication.json')
 def logout():
     session['logged_in'] = False
     return jsonify({'message': 'ok'})
 
 
 @app.route('/api/resource')
+@json_description(file='descriptions/authentication.json')
 def get_resource():
     return jsonify({'data': 'Hello, %s!' % g.user.username})

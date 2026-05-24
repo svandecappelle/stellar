@@ -1,0 +1,22 @@
+{
+    "/api/openapi.json": {
+        "tags": ["Documentation"],
+        "method": "GET",
+        "summary": "Get generated OpenAPI schema",
+        "responses": {
+            "200": {
+                "description": "OpenAPI schema"
+            }
+        }
+    },
+    "/api/docs": {
+        "tags": ["Documentation"],
+        "method": "GET",
+        "summary": "Open Swagger UI",
+        "responses": {
+            "200": {
+                "description": "Swagger UI page"
+            }
+        }
+    }
+}

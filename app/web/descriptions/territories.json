@@ -1,0 +1,115 @@
+{
+    "/api/territory/{id}": {
+        "post": {
+            "tags": ["Territories"],
+            "summary": "Assign first territory to current user",
+            "responses": {
+                "200": {
+                    "description": "Assigned territory"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "409": {
+                    "description": "Conflict"
+                }
+            }
+        },
+        "get": {
+            "tags": ["Territories"],
+            "summary": "Get territory details",
+            "responses": {
+                "200": {
+                    "description": "Territory details"
+                }
+            }
+        }
+    },
+    "/api/territories": {
+        "tags": ["Territories"],
+        "method": "GET",
+        "summary": "Get current user territories",
+        "responses": {
+            "200": {
+                "description": "Territory list"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/territory/{territory_id}": {
+        "tags": ["Territories"],
+        "method": "GET",
+        "summary": "Get owned territory details",
+        "responses": {
+            "200": {
+                "description": "Territory details"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/territory/{territory_id}/ships": {
+        "tags": ["Territories"],
+        "method": "GET",
+        "summary": "Get ships in a territory",
+        "responses": {
+            "200": {
+                "description": "Ship list"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/territory/{territory_id}/{building}": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Upgrade territory building",
+        "responses": {
+            "200": {
+                "description": "Build event"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/territory/{territory_id}/defense": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Build territory defenses",
+        "responses": {
+            "200": {
+                "description": "Build events"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/territory/{territory_id}/ship": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Build ships in territory",
+        "responses": {
+            "200": {
+                "description": "Build events"
+            },
+            "400": {
+                "description": "Bad request"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    }
+}

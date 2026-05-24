@@ -1,4 +1,17 @@
 {
+    "/api/auth": {
+        "tags": ["Authentication"],
+        "method": "GET",
+        "summary": "Get currently authenticated user",
+        "responses": {
+            "200": {
+                "description": "Authenticated user"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
     "/api/auth/login": {
         "tags": ["Authentication"],
         "method": "POST",
@@ -27,6 +40,39 @@
                         }
                     }
                 }
+            }
+        }
+    },
+    "/api/auth/logout": {
+        "tags": ["Authentication"],
+        "method": ["GET", "POST"],
+        "summary": "Logout current user",
+        "responses": {
+            "200": {
+                "description": "Logout response"
+            }
+        }
+    },
+    "/api/auth/me": {
+        "tags": ["Authentication"],
+        "method": "GET",
+        "summary": "Get own user profile",
+        "responses": {
+            "200": {
+                "description": "Current user"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/resource": {
+        "tags": ["Authentication"],
+        "method": "GET",
+        "summary": "Get sample protected resource",
+        "responses": {
+            "200": {
+                "description": "Sample payload"
             }
         }
     }

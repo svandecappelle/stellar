@@ -44,7 +44,9 @@ def affect_first_territory(id):
 @serialize
 @json_description(file='descriptions/territories.json')
 def get_territories():
-    return current_user.get().territories
+    return {
+        'territories': current_user.get().territories
+    }
 
 @app.route('/api/faction/<int:faction_id>', methods=['PUT'])
 @login_required

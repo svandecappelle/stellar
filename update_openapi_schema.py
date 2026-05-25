@@ -21,8 +21,6 @@ CONVERTER_TO_TYPE = {
 def _string_value(node):
     if hasattr(ast, "Constant") and isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
     return None
 
 
@@ -185,18 +183,6 @@ def _literal_schema(node):
             "items": item_schema,
         }
 
-    if isinstance(node, ast.Str):
-        return {"type": "string"}
-    if isinstance(node, ast.Num):
-        if isinstance(node.n, int):
-            return {"type": "integer"}
-        return {"type": "number"}
-    if isinstance(node, ast.NameConstant):
-        if node.value is None:
-            return {"nullable": True}
-        if isinstance(node.value, bool):
-            return {"type": "boolean"}
-
     if isinstance(node, ast.Call):
         # jsonify({...}) or jsonify([...])
         if isinstance(node.func, ast.Name) and node.func.id == "jsonify" and node.args:
@@ -205,15 +191,139 @@ def _literal_schema(node):
     return {}
 
 
-def _infer_response_schema(function_node):
+def _schema_from_node(node, variable_schemas, model_serialize_schemas):
+    if isinstance(node, ast.Name) and node.id in variable_schemas:
+        return variable_schemas[node.id]
+
+    if isinstance(node, ast.Attribute):
+        if node.attr == "serialize" and isinstance(node.value, ast.Name):
+            return variable_schemas.get(node.value.id, {})
+        return {}
+
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id == "jsonify" and node.args:
+            return _schema_from_node(node.args[0], variable_schemas, model_serialize_schemas)
+
+        model_schema = _schema_from_model_call(node, model_serialize_schemas)
+        if model_schema:
+            return model_schema
+
+    if isinstance(node, ast.Dict):
+        properties = {}
+        required = []
+        for key_node, value_node in zip(node.keys, node.values):
+            key = _string_value(key_node)
+            if key is None:
+                continue
+            value_schema = _schema_from_node(value_node, variable_schemas, model_serialize_schemas)
+            if not value_schema:
+                value_schema = _literal_schema(value_node)
+            properties[key] = value_schema
+            required.append(key)
+
+        schema = {"type": "object", "properties": properties}
+        if required:
+            schema["required"] = required
+        return schema
+
+    if isinstance(node, (ast.List, ast.Tuple)):
+        item_schema = {}
+        if node.elts:
+            item_schema = _schema_from_node(node.elts[0], variable_schemas, model_serialize_schemas)
+            if not item_schema:
+                item_schema = _literal_schema(node.elts[0])
+        return {"type": "array", "items": item_schema}
+
+    return _literal_schema(node)
+
+
+def _schema_from_model_call(node, model_serialize_schemas):
+    if not isinstance(node, ast.Call):
+        return None
+    if not isinstance(node.func, ast.Attribute):
+        return None
+    if not isinstance(node.func.value, ast.Name):
+        return None
+
+    class_name = node.func.value.id
+    method_name = node.func.attr
+    base_schema = model_serialize_schemas.get(class_name)
+    if not base_schema:
+        return None
+
+    if method_name == "all":
+        return {"type": "array", "items": base_schema}
+    if method_name in ["get", "create", "new"]:
+        return base_schema
+    return None
+
+
+def _find_serialize_function(class_node):
+    for member in class_node.body:
+        if isinstance(member, ast.FunctionDef) and member.name == "serialize":
+            return member
+    return None
+
+
+def _extract_return_schema_from_function(function_node):
+    for child in ast.walk(function_node):
+        if isinstance(child, ast.Return) and child.value is not None:
+            schema = _literal_schema(child.value)
+            if schema:
+                return schema
+    return None
+
+
+def _build_model_serialize_schema_index(models_root):
+    schemas = {}
+    if not os.path.isdir(models_root):
+        return schemas
+
+    for file_path in _walk_python_files(models_root):
+        try:
+            with open(file_path, "r", encoding="utf-8") as source_file:
+                source = source_file.read()
+            tree = ast.parse(source, filename=file_path)
+        except (OSError, SyntaxError):
+            continue
+
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            serialize_fn = _find_serialize_function(node)
+            if not serialize_fn:
+                continue
+            schema = _extract_return_schema_from_function(serialize_fn)
+            if schema:
+                schemas[node.name] = schema
+
+    return schemas
+
+
+def _infer_variable_schemas(function_node, model_serialize_schemas):
+    variable_schemas = {}
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Assign):
+            continue
+        inferred = _schema_from_model_call(child.value, model_serialize_schemas)
+        if not inferred:
+            continue
+        for target in child.targets:
+            if isinstance(target, ast.Name):
+                variable_schemas[target.id] = inferred
+    return variable_schemas
+
+
+def _infer_response_schema(function_node, model_serialize_schemas):
     schemas = []
     seen = set()
+    variable_schemas = _infer_variable_schemas(function_node, model_serialize_schemas)
 
     for child in ast.walk(function_node):
         if not isinstance(child, ast.Return) or child.value is None:
             continue
 
-        schema = _literal_schema(child.value)
+        schema = _schema_from_node(child.value, variable_schemas, model_serialize_schemas)
         if not schema:
             continue
 
@@ -249,10 +359,10 @@ def _infer_request_body_schema(function_node):
     }
 
 
-def _infer_function_contract(function_node):
+def _infer_function_contract(function_node, model_serialize_schemas):
     return {
         "requestBodySchema": _infer_request_body_schema(function_node),
-        "responseSchema": _infer_response_schema(function_node),
+        "responseSchema": _infer_response_schema(function_node, model_serialize_schemas),
     }
 
 
@@ -376,9 +486,10 @@ def _merge_parameters(existing_parameters, extra_parameters):
     return merged
 
 
-def _build_paths(routes_root, app_web_root):
+def _build_paths(routes_root, app_web_root, models_root):
     paths = {}
     description_cache = {}
+    model_serialize_schemas = _build_model_serialize_schema_index(models_root)
 
     for file_path in _walk_python_files(routes_root):
         with open(file_path, "r", encoding="utf-8") as source_file:
@@ -408,7 +519,7 @@ def _build_paths(routes_root, app_web_root):
             if not route_defs:
                 continue
 
-            function_contract = _infer_function_contract(node)
+            function_contract = _infer_function_contract(node, model_serialize_schemas)
 
             description_map = _load_json_description_file(
                 app_web_root=app_web_root,
@@ -463,6 +574,9 @@ def _build_paths(routes_root, app_web_root):
 
 
 def build_openapi_spec(server_url, routes_root, app_web_root):
+    project_root = os.path.abspath(os.path.join(app_web_root, os.pardir))
+    models_root = os.path.join(project_root, "models")
+
     return {
         "openapi": "3.0.3",
         "info": {
@@ -482,7 +596,11 @@ def build_openapi_spec(server_url, routes_root, app_web_root):
                 }
             }
         },
-        "paths": _build_paths(routes_root=routes_root, app_web_root=app_web_root),
+        "paths": _build_paths(
+            routes_root=routes_root,
+            app_web_root=app_web_root,
+            models_root=models_root,
+        ),
     }
 
 

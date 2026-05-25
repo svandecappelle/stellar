@@ -309,6 +309,23 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "name": {},
+                    "properties": {},
+                    "sector_number": {}
+                  },
+                  "required": [
+                    "name",
+                    "sector_number",
+                    "properties"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Created galaxy"
           },
           "400": {
@@ -341,6 +358,24 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "id": {},
+                      "name": {}
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
             "description": "Faction list"
           },
           "401": {
@@ -367,6 +402,23 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "name": {},
+                    "properties": {},
+                    "sector_number": {}
+                  },
+                  "required": [
+                    "name",
+                    "sector_number",
+                    "properties"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Galaxy details"
           },
           "404": {
@@ -641,6 +693,34 @@
       "get": {
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {},
+                      "details": {},
+                      "eventType": {},
+                      "extraArgs": {},
+                      "finishingAt": {},
+                      "id": {},
+                      "updatedAt": {}
+                    },
+                    "required": [
+                      "id",
+                      "eventType",
+                      "extraArgs",
+                      "details",
+                      "createdAt",
+                      "updatedAt",
+                      "finishingAt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
             "description": "Pending events"
           },
           "401": {
@@ -704,6 +784,19 @@
       "get": {
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "territories": {}
+                  },
+                  "required": [
+                    "territories"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Territory list"
           },
           "401": {
@@ -730,6 +823,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "buildings": {},
+                    "characteristics": {},
+                    "id": {},
+                    "name": {},
+                    "position": {},
+                    "resources": {},
+                    "system": {}
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "position",
+                    "system",
+                    "buildings",
+                    "characteristics",
+                    "resources"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Territory details"
           }
         },
@@ -790,6 +908,31 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "buildings": {},
+                    "characteristics": {},
+                    "id": {},
+                    "name": {},
+                    "position": {},
+                    "resources": {},
+                    "system": {}
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "position",
+                    "system",
+                    "buildings",
+                    "characteristics",
+                    "resources"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Territory details"
           },
           "401": {

@@ -9,6 +9,7 @@ from app.application import json_description
 from app.models.game.territory import Territory
 from app.models.game.buildings import BuildingType
 from app.models.game.event import PositionalEventType
+from logger import logger
 
 
 @app.route('/api/territory/<int:territory_id>', methods=['GET'])
@@ -21,8 +22,21 @@ def get_territory(territory_id):
     territory = Territory.get(id=territory_id, user=me)
     if not territory:
         raise ValueError("Territory does not owned by you")
+    territory.update_view()
     return territory
 
+@app.route('/api/territory/<int:territory_id>/update', methods=['POST'])
+@login_required
+@serialize
+@json_description(file='descriptions/territories.json')
+def update_territory_view(territory_id):
+    # TODO check building name before try to instanciate
+    me = current_user.get()
+    territory = Territory.get(id=territory_id, user=me)
+    if not territory:
+        raise ValueError("Territory does not owned by you")
+    territory.update_view()
+    return territory
 
 @app.route('/api/territory/<int:territory_id>/ships', methods=['GET'])
 @login_required
@@ -48,6 +62,7 @@ def build(territory_id, building):
     if not territory:
         raise ValueError("Territory does not owned by you")
     if not territory.can_be_increased(type):
+        logger.info(f"Cannot increase {type} building level. Prerequisites not reached.")
         raise ValueError(f"Cannot increase {building} building level. Prerequisites not reached.")
     event = territory.increase(type)
     db.session.commit()

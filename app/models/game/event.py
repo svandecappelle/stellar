@@ -126,7 +126,7 @@ class PositionalEvent(Base, Event):
         self.finishing_at = finishing_at
         self.event_type = event_type
         self.extra_args = extra_args
-        self.on_territory_id = territory.system.id
+        self.on_territory_id = territory.id
 
     def __repr__(self):
         return '<id {}>'.format(self.id)

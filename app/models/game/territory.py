@@ -15,6 +15,7 @@ from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.ship import Ship, ShipType
 from app.models.game.system import System
+from logger import logger
 
 
 class ResourceType(enum.Enum):
@@ -163,6 +164,9 @@ class Territory(Base):
         ---
         :return:
         """
+        logger.info(f"Updating territory {self.id} view")
+        if not self.user_id:
+            return
         now = datetime.utcnow()
         resource_building = (
             BuildingType.mater_extractor,
@@ -209,6 +213,11 @@ class Territory(Base):
         self.mater += increased_resources[ResourceType.mater]
         self.credits += increased_resources[ResourceType.credits]
         self.tritium += increased_resources[ResourceType.tritium]
+        logger.info(f"Resources increased for territory {self.id}", infos=dict(
+            increased_resources=increased_resources,
+            time_elapsed=time_elapsed,
+            user_id=self.user_id,
+        ))
         db.session.commit()
 
     def _apply_modification(self, event, amount=1):
@@ -295,9 +304,14 @@ class Territory(Base):
         :type prerequisites: dict
         :return:
         """
+        resources = self.resources
+        logger.info(f"Checking prerequisites for territory {self.id}", infos=dict(
+            prerequisites=prerequisites,
+            resources=resources
+        ))
         for k, val in prerequisites.items():
-            resources = self.resources
             if val > resources[ResourceType(k)]:
+                logger.debug(f"Prerequisite not met: {k} requires {val} but only {resources[ResourceType(k)]} available")
                 return False
         return True
 
@@ -393,5 +407,6 @@ class Territory(Base):
             'characteristics': json.loads(self.characteristics) if self.characteristics else {},
             'resources': {
                 k.name: v for k, v in self.resources.items()
-            }
+            },
+            'updated_at': self.updated_at.isoformat(),
         }

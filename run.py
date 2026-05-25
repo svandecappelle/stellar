@@ -14,7 +14,6 @@ from app.models.base import Base
 from app.models.game.galaxy import Galaxy
 from app.models.user import User
 from app.models.role import RoleType
-from app.settings.logger import LoggerConfigurator
 from config.configuration import AppConfig
 
 env = os.getenv('ENV', 'prod')
@@ -42,7 +41,6 @@ class Starter(object):
         cls.logger = logging.getLogger('Starter')
         cls.logger.info("[%s] configuring..." % config_file)
         AppConfig.load(config_file=config_file)
-        LoggerConfigurator.configure()
         app.config['SQLALCHEMY_DATABASE_URI'] = dburi()
         cls.routing()
 

@@ -833,7 +833,8 @@
                     "name": {},
                     "position": {},
                     "resources": {},
-                    "system": {}
+                    "system": {},
+                    "updated_at": {}
                   },
                   "required": [
                     "id",
@@ -842,7 +843,8 @@
                     "system",
                     "buildings",
                     "characteristics",
-                    "resources"
+                    "resources",
+                    "updated_at"
                   ],
                   "type": "object"
                 }
@@ -918,7 +920,8 @@
                     "name": {},
                     "position": {},
                     "resources": {},
-                    "system": {}
+                    "system": {},
+                    "updated_at": {}
                   },
                   "required": [
                     "id",
@@ -927,7 +930,8 @@
                     "system",
                     "buildings",
                     "characteristics",
-                    "resources"
+                    "resources",
+                    "updated_at"
                   ],
                   "type": "object"
                 }
@@ -1054,6 +1058,69 @@
           }
         },
         "summary": "Get ships in a territory",
+        "tags": [
+          "Territories"
+        ]
+      }
+    },
+    "/api/territory/{territory_id}/update": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "territory_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "buildings": {},
+                    "characteristics": {},
+                    "id": {},
+                    "name": {},
+                    "position": {},
+                    "resources": {},
+                    "system": {},
+                    "updated_at": {}
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "position",
+                    "system",
+                    "buildings",
+                    "characteristics",
+                    "resources",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Territory details"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Get an updated owned territory view",
         "tags": [
           "Territories"
         ]

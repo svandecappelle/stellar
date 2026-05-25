@@ -24,7 +24,7 @@ class BuildingType(enum.Enum):
             'energy': lambda n: 10 * n * pow(1.1, n)
         },
         'gain': {
-            'credits': lambda n: 30 * n * pow(1.1, n)
+            'credits': lambda n: max(3, 30 * n * pow(1.1, n))
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -43,7 +43,7 @@ class BuildingType(enum.Enum):
             'energy': lambda n: 10 * n * pow(1.1, n)
         },
         'gain': {
-            'mater': lambda n: 30 * n * pow(1.1, n)
+            'mater': lambda n: max(30, 30 * n * pow(1.1, n))
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -64,7 +64,7 @@ class BuildingType(enum.Enum):
             'energy': lambda n: 20 * n * pow(1.1, n)
         },
         'gain': {
-            'tritium': lambda n: 10 * n * pow(1.1, n) * (-0.002 * 40 + 1.28)
+            'tritium': lambda n: max(10, 10 * n * pow(1.1, n) * (-0.002 * 40 + 1.28))
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -118,7 +118,7 @@ class BuildingType(enum.Enum):
         :return:
         """
         from app.models.game.territory import ResourceType
-        return {str(t): self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
+        return {t: self.get_resource_cost(resource_type=t, level=level) for t in ResourceType}
 
     @property
     def type_of_resource(self):
@@ -197,5 +197,5 @@ class Building(Base):
         return {
             'level': self.level,
             'duration': self.next_level_duration,
-            'cost': self.cost,  # FIXME avoid json.dumps in model
+            'cost': { str(k): v for k, v in self.cost.items() },  # FIXME avoid json.dumps in model
         }

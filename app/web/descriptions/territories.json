@@ -51,6 +51,19 @@
             }
         }
     },
+    "/api/territory/{territory_id}/update": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Get an updated owned territory view",
+        "responses": {
+            "200": {
+                "description": "Territory details"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
     "/api/territory/{territory_id}/ships": {
         "tags": ["Territories"],
         "method": "GET",

@@ -993,6 +993,32 @@
         ]
       }
     },
+    "/api/territory/{territory_id}/events": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "territory_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event list"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Get events in a territory",
+        "tags": [
+          "Territories"
+        ]
+      }
+    },
     "/api/territory/{territory_id}/ship": {
       "post": {
         "parameters": [

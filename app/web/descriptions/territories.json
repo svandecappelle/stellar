@@ -77,6 +77,19 @@
             }
         }
     },
+    "/api/territory/{territory_id}/events": {
+        "tags": ["Territories"],
+        "method": "GET",
+        "summary": "Get events in a territory",
+        "responses": {
+            "200": {
+                "description": "Event list"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
     "/api/territory/{territory_id}/{building}": {
         "tags": ["Territories"],
         "method": "POST",

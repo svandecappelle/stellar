@@ -53,7 +53,10 @@ class Territory(Base):
     defenses = relationship("Defense", back_populates="territory")
 
     system = relationship("System", back_populates="territories")
-    territory_events = relationship("PositionalEventDetail", back_populates="territory")
+    territory_events = relationship(
+        "PositionalEvent", 
+        primaryjoin="and_(PositionalEvent.on_territory_id == Territory.id, PositionalEvent.archived_at == None)",
+    )
     user = relationship("User", back_populates="territories")
 
     def __init__(self, system, position_in_system, characteristics={}):
@@ -174,7 +177,7 @@ class Territory(Base):
             BuildingType.rafinery
         )
         for event_detail in self.territory_events:
-            event = event_detail.event
+            event = event_detail
             if event.finishing_at <= now:
                 # first apply buildings and tech modifications
                 # generate diff of resource from previous building level to new finished
@@ -276,6 +279,11 @@ class Territory(Base):
         return hourly_gain
 
     def add(self, type, amount):
+        logger.info(f"Adding {amount} of {type} to territory {self.id}", infos=dict(
+            type=type,
+            amount=amount,
+            territory_id=self.id
+        ))
         if isinstance(type, ResourceType):
             if type == ResourceType.mater:
                 self.mater += amount

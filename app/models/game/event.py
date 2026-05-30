@@ -225,7 +225,7 @@ class PositionalEventDetail(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    territory = relationship("Territory", back_populates="territory_events")
+    territory = relationship("Territory")
     event = relationship("PositionalEvent", back_populates="details")
 
     def __init__(self, event_id, territory_id, extra_data):

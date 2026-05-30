@@ -50,6 +50,18 @@ def get_territory_ships(territory_id):
     return territory.ships
 
 
+@app.route('/api/territory/<int:territory_id>/events', methods=['GET'])
+@login_required
+@serialize
+@json_description(file='descriptions/territories.json')
+def get_territory_events(territory_id):
+    me = current_user.get()
+    territory = Territory.get(id=territory_id, user=me)
+    if not territory:
+        raise ValueError("Territory does not owned by you")
+    return territory.territory_events
+
+
 @app.route('/api/territory/<int:territory_id>/<string:building>', methods=['POST'])
 @login_required
 @serialize

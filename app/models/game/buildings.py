@@ -107,7 +107,9 @@ class BuildingType(enum.Enum):
         ---
         :return:
         """
-        resource_cost_func = self.value['gain'].get(resource_type.name, None)
+        resource_cost_func = self.value.get('gain', {}).get(resource_type.name, None)
+        if resource_cost_func is None:
+            return 0
         return resource_cost_func(level) if resource_cost_func is not None else 0
 
     def get_cost(self, level):
@@ -197,5 +199,6 @@ class Building(Base):
         return {
             'level': self.level,
             'duration': self.next_level_duration,
+            'gain': { str(k): v for k, v in self.get_hourly_gain.items() },
             'cost': { str(k): v for k, v in self.cost.items() },  # FIXME avoid json.dumps in model
         }

@@ -30,7 +30,6 @@ def get_territory(territory_id):
 @serialize
 @json_description(file='descriptions/territories.json')
 def update_territory_view(territory_id):
-    # TODO check building name before try to instanciate
     me = current_user.get()
     territory = Territory.get(id=territory_id, user=me)
     if not territory:

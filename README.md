@@ -26,6 +26,19 @@
 * stop stack and remove database volume
   * `docker compose down -v`
 
+## Web UI (console)
+* Served by the API itself, same origin, so the Flask-Login session cookie applies
+* Open `http://localhost:9000/`
+* Sign in with a game account, then pick one of your territories
+* Screens: resource bar, orbit rail for the system, and the Buildings /
+  Shipyard / Orbital Defences panel with live construction progress
+* Three visual directions ship together (Nebula Grid, Admiralty, Drydock);
+  the switcher sits in the top bar and the choice is kept in `localStorage`
+* Sources are plain HTML/CSS/ES modules under `app/static` — no build step:
+  * `css/tokens.css` — one token set per direction
+  * `css/components.css` — shared component library, reads only tokens
+  * `js/api.js`, `js/app.js`, `js/icons.js`
+
 ## API Documentation (Swagger UI)
 * Open Swagger UI at `http://localhost:9000/api/docs`
 * Open raw OpenAPI spec at `http://localhost:9000/api/openapi.json`

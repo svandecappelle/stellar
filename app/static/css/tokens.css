@@ -1,0 +1,119 @@
+/* ============================================================
+   tokens.css — un seul jeu de noms de tokens, trois directions.
+   Correspond 1:1 au Core/Tokens.uss proposé côté Unity :
+   la structure et les classes ne changent jamais, seuls les
+   tokens basculent d'un thème à l'autre.
+   ============================================================ */
+
+:root{
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --dur-fast: .15s;
+  --dur-slow: .3s;
+
+  /* valeurs par défaut, écrasées par chaque thème */
+  --r: 0px;
+  --pad: 14px;
+  --cut: none;
+  --cut-sm: none;
+  --knob-r: 50%;
+}
+
+/* ---------- 01 · NEBULA GRID — holo-HUD cyan ---------- */
+.theme-nebula{
+  --f-disp:"Chakra Petch","Roboto",sans-serif;
+  --f-body:"Roboto",sans-serif;
+  --f-num:"Chakra Petch","Roboto",sans-serif;
+  --bg-scene:radial-gradient(120% 100% at 50% 0%,#0B1B29 0%,#050B12 60%,#03070C 100%);
+  --bg-scene-flat:#050B12;
+  --bg-panel:rgba(8,22,34,.90);
+  --bg-chip:rgba(14,38,54,.72);
+  --bc:rgba(63,168,190,.42);
+  --bc-soft:rgba(63,168,190,.20);
+  --bw:1px;
+  --acc:#39E3D0;
+  --fg-hi:#E6F5FB; --fg:#BBD6E4; --fg-dim:#7EA3B6; --fg-off:#48606E;
+  --good:#5CE39B; --bad:#FF6B79; --bad-fg:#FFC3C9;
+  --rule:linear-gradient(90deg,rgba(57,227,208,.55),rgba(57,227,208,0));
+  --glow:0 0 12px rgba(57,227,208,.32);
+  --btn-bg:rgba(14,48,68,.85); --btn-bg-h:rgba(24,86,110,.92);
+  --btn-fg:#CDEBF4; --btn-bc:rgba(63,168,190,.42);
+  --btn-pri-bg:rgba(28,124,124,.9); --btn-pri-fg:#EBFFFD;
+  --btn-dgr-bg:rgba(72,26,34,.8); --btn-off-bg:rgba(30,42,50,.7);
+  --row-bg:rgba(11,32,46,.72); --row-bg-h:rgba(16,46,64,.85); --row-edge:2px; --row-off-op:.62;
+  --ico-bg:rgba(6,20,30,.9); --lvl-bg:rgba(57,227,208,.12);
+  --tab-bg:transparent; --tab-bg-on:rgba(57,227,208,.10); --tab-fg-on:#39E3D0; --tab-line:rgba(63,168,190,.22);
+  --tab-gap:4px; --chip-gap:8px; --chip-pad:5px 10px; --chip-bw:1px;
+  --ov-track:.18em; --val-track:.01em; --btn-track:.08em; --title-track:.02em; --btn-case:none;
+  --cut:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+  --cut-sm:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+  --r:0px; --knob-r:50%;
+}
+
+/* ---------- 02 · ADMIRALTY — ambre sur graphite ---------- */
+.theme-admiralty{
+  --f-disp:"Saira Condensed","Roboto",sans-serif;
+  --f-body:"Roboto",sans-serif;
+  --f-num:"Roboto",sans-serif;
+  --bg-scene:linear-gradient(180deg,#151821 0%,#0F1218 100%);
+  --bg-scene-flat:#0F1218;
+  --bg-panel:#1B1F29;
+  --bg-chip:#232833;
+  --bc:#38404F;
+  --bc-soft:#2A303C;
+  --bw:1px;
+  --acc:#E3A340;
+  --fg-hi:#F2EDE3; --fg:#C9C4BA; --fg-dim:#928D84; --fg-off:#5B5952;
+  --good:#8FBF6E; --bad:#C4564F; --bad-fg:#E9B4B0;
+  --rule:linear-gradient(90deg,#4A4437,#2A303C 60%,transparent);
+  --glow:none;
+  --btn-bg:#262C38; --btn-bg-h:#303845;
+  --btn-fg:#DCD6CB; --btn-bc:#3E4655;
+  --btn-pri-bg:#8A6420; --btn-pri-fg:#FFF4DF;
+  --btn-dgr-bg:#3A2523; --btn-off-bg:#22262E;
+  --row-bg:#20252F; --row-bg-h:#262C37; --row-edge:3px; --row-off-op:.55;
+  --ico-bg:#171B23; --lvl-bg:#2E2718;
+  --tab-bg:#1E222B; --tab-bg-on:#2A3040; --tab-fg-on:#F2EDE3; --tab-line:#2A303C;
+  --tab-gap:2px; --chip-gap:2px; --chip-pad:6px 12px; --chip-bw:1px;
+  --ov-track:.14em; --val-track:.02em; --btn-track:.06em; --title-track:.01em; --btn-case:uppercase;
+  --cut:none; --cut-sm:none; --r:3px; --knob-r:2px;
+}
+
+/* ---------- 03 · DRYDOCK — orange sur charbon ---------- */
+.theme-drydock{
+  --f-disp:"Archivo","Roboto",sans-serif;
+  --f-body:"IBM Plex Sans",sans-serif;
+  --f-num:"IBM Plex Mono",monospace;
+  --bg-scene:#0D0F11;
+  --bg-scene-flat:#0D0F11;
+  --bg-panel:#15181B;
+  --bg-chip:#1C2024;
+  --bc:#343A40;
+  --bc-soft:#24292E;
+  --bw:2px;
+  --acc:#FF6B1A;
+  --fg-hi:#F5F7F8; --fg:#B9C0C6; --fg-dim:#7C858D; --fg-off:#4A5158;
+  --good:#7ED957; --bad:#E23D2E; --bad-fg:#FFB9B1;
+  --rule:repeating-linear-gradient(90deg,#343A40 0 6px,transparent 6px 10px);
+  --glow:none;
+  --btn-bg:#1E2226; --btn-bg-h:#2A2F35;
+  --btn-fg:#DDE3E7; --btn-bc:#3C434A;
+  --btn-pri-bg:#FF6B1A; --btn-pri-fg:#120A04;
+  --btn-dgr-bg:#2A1614; --btn-off-bg:#191C1F;
+  --row-bg:#191D20; --row-bg-h:#1F2429; --row-edge:4px; --row-off-op:.5;
+  --ico-bg:#101315; --lvl-bg:#2A1B0E;
+  --tab-bg:#15181B; --tab-bg-on:#FF6B1A; --tab-fg-on:#120A04; --tab-line:#24292E;
+  --tab-gap:0px; --chip-gap:0px; --chip-pad:7px 13px; --chip-bw:0px;
+  --ov-track:.24em; --val-track:.0em; --btn-track:.1em; --title-track:-.02em; --btn-case:uppercase;
+  --cut:none; --cut-sm:none; --r:0px; --knob-r:0;
+}
+
+/* ---------- couleurs de ressources, par thème ---------- */
+.theme-nebula   { --res-mater:#8AB5C9; --res-credits:#F2D173; --res-energy:#70F5DE; --res-population:#E5AEF5; --res-tritium:#F58C82; }
+.theme-admiralty{ --res-mater:#8AB5C9; --res-credits:#E3A340; --res-energy:#6FBFA8; --res-population:#B08FC4; --res-tritium:#C48A7A; }
+.theme-drydock  { --res-mater:#7FA6BC; --res-credits:#FFC24D; --res-energy:#4FD6B8; --res-population:#B77FD6; --res-tritium:#FF6B1A; }

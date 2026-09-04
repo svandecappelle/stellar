@@ -1,0 +1,732 @@
+/* ============================================================
+   app.js — console Stellar.
+   Trois vues : login, sélection de territoire, scène système.
+   Aucune valeur de jeu n'est codée ici : coûts, gains et durées
+   viennent tous de l'API.
+   ============================================================ */
+
+import { api, ApiError } from './api.js';
+import { icon, planetGradient, roman } from './icons.js';
+
+/* ---------- thèmes ---------- */
+const THEMES = [
+  { key: 'nebula', label: 'Nebula Grid' },
+  { key: 'admiralty', label: 'Admiralty' },
+  { key: 'drydock', label: 'Drydock' },
+];
+const THEME_STORAGE_KEY = 'stellar.theme';
+
+/* ---------- ressources ---------- */
+const RESOURCES = [
+  { key: 'mater', code: 'MT', label: 'Mater' },
+  { key: 'credits', code: 'CR', label: 'Crédits' },
+  { key: 'energy', code: 'EN', label: 'Énergie' },
+  { key: 'population', code: 'PO', label: 'Population' },
+  { key: 'tritium', code: 'TR', label: 'Tritium' },
+];
+
+/* ---------- descriptions (texte d'interface, pas de règles de jeu) ---------- */
+const BUILDING_DESC = {
+  power_station: "Installation de production d'énergie. Alimente l'ensemble des systèmes planétaires.",
+  mater_extractor: 'Complexe minier de surface. Extrait le mater des couches exploitables du territoire.',
+  rafinery: 'Raffinerie de tritium. Transforme les volatils captés en carburant de vol.',
+  economical_center: 'Centre économique. Convertit l’activité du territoire en crédits.',
+  factory: 'Usine planétaire. Réduit la durée de toutes les constructions du territoire.',
+  shipyard: "Complexe de construction spatiale. Débloque l'assemblage des vaisseaux et des défenses.",
+  academy: 'Académie de recherche. Prérequis des programmes technologiques avancés.',
+};
+
+/* ---------- état ---------- */
+const state = {
+  theme: 'nebula',
+  user: null,
+  myTerritories: [],
+  territoryId: null,
+  territory: null,
+  systemTerritories: [],
+  events: [],
+  ships: [],
+  defenses: [],
+  catalog: { ships: [], defenses: [] },
+  tab: 'buildings',
+};
+
+let tickTimer = null;
+let pollTimer = null;
+let reloading = false;
+/* Événements dont on a déjà constaté la fin : le serveur les archive au
+   prochain /update, mais tant qu'ils reviennent on ne relance qu'une fois. */
+let settledEvents = new Set();
+
+/* ============================================================
+   utilitaires
+   ============================================================ */
+
+const $ = (sel) => document.querySelector(sel);
+
+function esc(value) {
+  return String(value === null || value === undefined ? '' : value).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+/* "ResourceType.mater" -> "mater", "PositionalEventType.ship" -> "ship" */
+function bare(value) {
+  const s = String(value || '');
+  const dot = s.lastIndexOf('.');
+  return dot === -1 ? s : s.slice(dot + 1);
+}
+
+/* Les dates du serveur sont des datetime.utcnow() sans fuseau :
+   sans le Z, le navigateur les lirait en heure locale. */
+function parseUtc(iso) {
+  if (!iso) return null;
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  const d = new Date(hasZone ? iso : `${iso}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function humanize(name) {
+  return String(name || '')
+    .replace(/_/g, ' ')
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function fmtNumber(n) {
+  const v = Number(n) || 0;
+  const rounded = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+  return rounded.toLocaleString('fr-FR');
+}
+
+function fmtDelta(n) {
+  const v = Number(n) || 0;
+  const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+  return `${sign}${fmtNumber(Math.abs(v))}`;
+}
+
+function fmtDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m) return `${m}m ${String(sec).padStart(2, '0')}s`;
+  return `${sec}s`;
+}
+
+/* Les coûts/gains arrivent indexés par "ResourceType.x" : on remet à plat. */
+function normalizeResourceMap(map) {
+  const out = {};
+  Object.entries(map || {}).forEach(([k, v]) => {
+    const n = Number(v) || 0;
+    if (n) out[bare(k)] = n;
+  });
+  return out;
+}
+
+function toast(message, kind = 'info', title = null) {
+  const host = $('#toasts');
+  const el = document.createElement('div');
+  el.className = `toast${kind === 'err' ? ' err' : ''}`;
+  el.innerHTML = `${title ? `<span class="ov">${esc(title)}</span>` : ''}${esc(message)}`;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), kind === 'err' ? 7000 : 4000);
+}
+
+/* ============================================================
+   thème
+   ============================================================ */
+
+function applyTheme(key) {
+  state.theme = key;
+  document.body.className = `theme-${key}`;
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, key);
+  } catch (e) {
+    /* navigation privée : le thème reste celui de la session */
+  }
+  document.querySelectorAll('.theme-pick').forEach(renderThemePicker);
+}
+
+function renderThemePicker(host) {
+  host.innerHTML = THEMES.map(
+    (t) =>
+      `<button class="tab${t.key === state.theme ? ' on' : ''}" data-theme="${t.key}" title="Direction ${esc(t.label)}">${esc(t.label)}</button>`
+  ).join('');
+}
+
+function initTheme() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem(THEME_STORAGE_KEY);
+  } catch (e) {
+    stored = null;
+  }
+  applyTheme(THEMES.some((t) => t.key === stored) ? stored : 'nebula');
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-theme]');
+    if (btn) applyTheme(btn.dataset.theme);
+  });
+}
+
+/* ============================================================
+   navigation entre vues
+   ============================================================ */
+
+function showView(name) {
+  ['login', 'pick', 'command'].forEach((v) => {
+    $(`#view-${v}`).classList.toggle('hidden', v !== name);
+  });
+  if (name !== 'command') stopTimers();
+}
+
+/* ============================================================
+   login
+   ============================================================ */
+
+function initLogin() {
+  $('#login-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const btn = $('#login-submit');
+    const err = $('#login-error');
+    err.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = 'Connexion…';
+    try {
+      state.user = await api.login($('#login-user').value.trim(), $('#login-pass').value);
+      $('#login-pass').value = '';
+      await enterGame();
+    } catch (e) {
+      err.textContent = e instanceof ApiError ? e.message : 'Connexion impossible';
+      err.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Se connecter';
+    }
+  });
+}
+
+async function logout() {
+  stopTimers();
+  try {
+    await api.logout();
+  } catch (e) {
+    /* la session locale est de toute façon abandonnée */
+  }
+  state.user = null;
+  state.territory = null;
+  state.territoryId = null;
+  showView('login');
+}
+
+/* ============================================================
+   sélection de territoire
+   ============================================================ */
+
+function renderPicker() {
+  const list = $('#pick-list');
+  $('#pick-sub').textContent = state.myTerritories.length
+    ? 'Choisissez le territoire à administrer.'
+    : "Aucun territoire ne vous est attribué pour l'instant.";
+
+  if (!state.myTerritories.length) {
+    list.innerHTML = `<p class="empty">Aucun territoire attribué à ${esc(
+      (state.user && state.user.username) || 'ce compte'
+    )}.<br>Réclamez une planète depuis le client de jeu, puis revenez ici.</p>
+    <button class="menu-btn menu-btn--dgr" data-action="logout">Déconnexion <span class="kb">ESC</span></button>`;
+    return;
+  }
+
+  list.innerHTML =
+    state.myTerritories
+      .map(
+        (t, i) => `<button class="menu-btn" data-territory="${t.id}">
+        ${esc(territoryLabel(t))}
+        <span class="kb">${esc((t.system && t.system.name) || `SYS ${t.system ? t.system.id : '—'}`)} · ${i + 1}</span>
+      </button>`
+      )
+      .join('') +
+    `<button class="menu-btn menu-btn--dgr" data-action="logout">Déconnexion <span class="kb">ESC</span></button>`;
+}
+
+function territoryLabel(t) {
+  if (t.name) return t.name;
+  if (t.characteristics && t.characteristics.name) return t.characteristics.name;
+  const sys = (t.system && t.system.name) || `Système ${t.system ? t.system.id : '?'}`;
+  return `${sys} · orbite ${roman(t.position || 1)}`;
+}
+
+function territorySubtitle(t) {
+  const scheme = t.characteristics && t.characteristics.planeteScheme;
+  return scheme ? humanize(scheme) : 'Territoire';
+}
+
+/* ============================================================
+   scène système
+   ============================================================ */
+
+async function selectTerritory(id) {
+  state.territoryId = id;
+  state.tab = 'buildings';
+  settledEvents = new Set();
+  showView('command');
+  $('#tab-body').innerHTML = '<p class="empty">Chargement…</p>';
+  await reloadTerritory(true);
+  startTimers();
+}
+
+/* `force` : un changement de territoire ou une action doit passer même si
+   une requête périodique est encore en vol. */
+async function reloadTerritory(force = false) {
+  const id = state.territoryId;
+  if (!id) return;
+  if (reloading && !force) return;
+  reloading = true;
+  try {
+    await doReloadTerritory(id);
+  } finally {
+    reloading = false;
+  }
+}
+
+async function doReloadTerritory(id) {
+  let territory;
+  try {
+    territory = await api.territory(id);
+  } catch (e) {
+    handleApiError(e, 'Territoire indisponible');
+    return;
+  }
+
+  /* Le reste est complémentaire : un échec ne doit pas vider la scène. */
+  const [events, ships, defenses, systemTerritories] = await Promise.all([
+    api.territoryEvents(id).catch(() => []),
+    api.territoryShips(id).catch(() => []),
+    api.territoryDefenses(id).catch(() => []),
+    territory.system ? api.systemTerritories(territory.system.id).catch(() => []) : Promise.resolve([]),
+  ]);
+
+  /* Le territoire a pu changer pendant les allers-retours : ne rien peindre
+     par-dessus la sélection courante. */
+  if (id !== state.territoryId) return;
+
+  state.territory = territory;
+  state.events = Array.isArray(events) ? events : [];
+  state.ships = Array.isArray(ships) ? ships : [];
+  state.defenses = Array.isArray(defenses) ? defenses : [];
+  state.systemTerritories = Array.isArray(systemTerritories) ? systemTerritories : [];
+
+  renderCommand();
+}
+
+function handleApiError(e, context) {
+  if (e instanceof ApiError && e.status === 401) {
+    toast('Session expirée, reconnectez-vous.', 'err', 'Authentification');
+    showView('login');
+    return;
+  }
+  toast(e && e.message ? e.message : 'Erreur inattendue', 'err', context);
+}
+
+function renderCommand() {
+  const t = state.territory;
+  if (!t) return;
+
+  $('#sys-name').textContent = (t.system && t.system.name) || `Système ${t.system ? t.system.id : '—'}`;
+  $('#terr-title').textContent = `${territoryLabel(t)} · ${territorySubtitle(t)}`;
+  const updated = parseUtc(t.updated_at);
+  $('#terr-updated').textContent = updated ? `MAJ ${updated.toLocaleTimeString('fr-FR')}` : '';
+
+  renderResources();
+  renderRail();
+  renderTabs();
+  renderTabBody();
+}
+
+/* ---------- bandeau de ressources ---------- */
+
+function hourlyGains() {
+  const totals = {};
+  RESOURCES.forEach((r) => {
+    totals[r.key] = 0;
+  });
+  Object.values((state.territory && state.territory.buildings) || {}).forEach((b) => {
+    Object.entries(normalizeResourceMap(b.gain)).forEach(([k, v]) => {
+      if (k in totals) totals[k] += v;
+    });
+  });
+  return totals;
+}
+
+function renderResources() {
+  const res = (state.territory && state.territory.resources) || {};
+  const gains = hourlyGains();
+  $('#res-grid').innerHTML = RESOURCES.map((r) => {
+    const delta = gains[r.key] || 0;
+    return `<div class="chip" style="--chip-accent:var(--res-${r.key})" title="${esc(r.label)}">
+      <span class="k">${r.code}</span>
+      <span class="v">${esc(fmtNumber(res[r.key] || 0))}</span>
+      ${delta ? `<span class="d${delta < 0 ? ' neg' : ''}">${esc(fmtDelta(delta))}/h</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- rail d'orbites ---------- */
+
+function renderRail() {
+  const rail = $('#orbit-rail');
+  const mine = new Set(state.myTerritories.map((t) => t.id));
+  const list = state.systemTerritories.length ? state.systemTerritories : [state.territory];
+
+  const orbs = [...list]
+    .sort((a, b) => (a.position || 0) - (b.position || 0))
+    .map((t) => {
+      const owned = mine.has(t.id);
+      const on = t.id === state.territoryId;
+      return `<button class="orb${on ? ' on' : ''}${owned ? '' : ' foreign'}"
+        data-orbit="${t.id}" data-owned="${owned ? '1' : '0'}"
+        title="${esc(territoryLabel(t))}${owned ? '' : ' — hors de votre contrôle'}">
+        <i style="background:${planetGradient(t.id || t.position || 1)}"></i>
+        <b>${esc(roman(t.position || 1))}</b>
+      </button>`;
+    })
+    .join('');
+
+  rail.innerHTML = `<span class="ov" style="text-align:center">Orbites</span>${orbs}`;
+}
+
+/* ---------- onglets ---------- */
+
+function renderTabs() {
+  document.querySelectorAll('#tabs .tab').forEach((el) => {
+    el.classList.toggle('on', el.dataset.tab === state.tab);
+  });
+}
+
+function renderTabBody() {
+  const host = $('#tab-body');
+  if (state.tab === 'buildings') host.innerHTML = renderBuildings();
+  else if (state.tab === 'shipyard') host.innerHTML = renderUnits('ship');
+  else host.innerHTML = renderUnits('defense');
+  updateProgressBars();
+}
+
+/* ---------- événements en cours ---------- */
+
+function eventsOfType(type) {
+  return state.events.filter((e) => bare(e.eventType) === type);
+}
+
+function eventFor(type, name) {
+  return eventsOfType(type).find((e) => e.extraArgs && e.extraArgs.name === name) || null;
+}
+
+function eventProgress(ev) {
+  const start = parseUtc(ev.createdAt);
+  const end = parseUtc(ev.finishingAt);
+  if (!start || !end) return { pct: 0, remaining: 0 };
+  const total = end - start;
+  const left = end - Date.now();
+  if (total <= 0) return { pct: 100, remaining: 0 };
+  return {
+    pct: Math.min(100, Math.max(0, ((total - Math.max(0, left)) / total) * 100)),
+    remaining: Math.max(0, left / 1000),
+  };
+}
+
+function progressMarkup(ev, label) {
+  if (!ev) return '';
+  const { pct, remaining } = eventProgress(ev);
+  return `<div class="bar" data-event="${ev.id}"><i style="width:${pct.toFixed(1)}%"></i></div>
+    <div class="bar-label" data-event-label="${ev.id}">
+      <span>${esc(label)}</span><span>${esc(fmtDuration(remaining))}</span>
+    </div>`;
+}
+
+/* Rafraîchi chaque seconde sans rejouer le rendu complet. */
+function updateProgressBars() {
+  let justFinished = false;
+  state.events.forEach((ev) => {
+    const bar = document.querySelector(`.bar[data-event="${ev.id}"] i`);
+    const label = document.querySelector(`[data-event-label="${ev.id}"] span:last-child`);
+    if (!bar) return;
+    const { pct, remaining } = eventProgress(ev);
+    bar.style.width = `${pct.toFixed(1)}%`;
+    if (label) label.textContent = fmtDuration(remaining);
+    if (remaining <= 0 && !settledEvents.has(ev.id)) {
+      settledEvents.add(ev.id);
+      justFinished = true;
+    }
+  });
+  return justFinished;
+}
+
+/* ---------- onglet Buildings ---------- */
+
+function costMarkup(costs, resources) {
+  return Object.entries(costs)
+    .map(([key, value]) => {
+      const meta = RESOURCES.find((r) => r.key === key);
+      const affordable = (resources[key] || 0) >= value;
+      return `<span class="cost${affordable ? '' : ' no'}">${esc(meta ? meta.label : humanize(key))} <b>${esc(
+        fmtNumber(value)
+      )}</b></span>`;
+    })
+    .join('');
+}
+
+function gainMarkup(gains) {
+  return Object.entries(gains)
+    .map(([key, value]) => {
+      const meta = RESOURCES.find((r) => r.key === key);
+      return `<span class="cost yield">${esc(meta ? meta.label : humanize(key))} <b>${esc(
+        fmtDelta(value)
+      )} / h</b></span>`;
+    })
+    .join('');
+}
+
+function renderBuildings() {
+  const t = state.territory;
+  const buildings = t.buildings || {};
+  const resources = t.resources || {};
+  const names = Object.keys(buildings).sort();
+  if (!names.length) return '<p class="empty">Aucun bâtiment sur ce territoire.</p>';
+
+  return names
+    .map((name) => {
+      const b = buildings[name];
+      const costs = normalizeResourceMap(b.cost);
+      const gains = normalizeResourceMap(b.gain);
+      const affordable = Object.entries(costs).every(([k, v]) => (resources[k] || 0) >= v);
+      const ev = eventFor('building', name);
+      const cls = ev ? 'row busy' : affordable ? 'row' : 'row off';
+
+      return `<div class="${cls}">
+      <div class="ico">${icon(name)}</div>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="row-name">${esc(humanize(name))}</span>
+          <span class="lvl">LVL ${esc(b.level)}</span>
+          <button class="btn btn--sm${affordable && !ev ? ' btn--pri' : ''}"
+            data-build-building="${esc(name)}" ${ev || !affordable ? 'disabled' : ''}>
+            ${ev ? 'En cours' : 'Upgrade'}
+          </button>
+        </div>
+        <div class="costs">
+          ${costMarkup(costs, resources)}
+          ${gainMarkup(gains)}
+          <span class="cost">Durée <b>${esc(fmtDuration(b.duration))}</b></span>
+        </div>
+        <p class="desc">${esc(BUILDING_DESC[name] || 'Structure planétaire.')}</p>
+        ${progressMarkup(ev, `Niveau ${Number(b.level) + 1} en construction`)}
+      </div>
+    </div>`;
+    })
+    .join('');
+}
+
+/* ---------- onglets Shipyard / Orbital Defences ---------- */
+
+function renderUnits(kind) {
+  const t = state.territory;
+  const resources = t.resources || {};
+  const catalog = kind === 'ship' ? state.catalog.ships : state.catalog.defenses;
+  const owned = kind === 'ship' ? state.ships : state.defenses;
+
+  if (!catalog || !catalog.length) {
+    return '<p class="empty">Catalogue indisponible.</p>';
+  }
+
+  const counts = {};
+  (owned || []).forEach((u) => {
+    counts[u.type] = u.quantity;
+  });
+
+  const shipyardLevel = ((t.buildings || {}).shipyard || {}).level || 0;
+
+  return catalog
+    .map((u) => {
+      const costs = normalizeResourceMap(u.cost);
+      const affordable = Object.entries(costs).every(([k, v]) => (resources[k] || 0) >= v);
+      const ev = eventFor(kind, u.name);
+      /* Purement informatif : `Territory.build` ne vérifie que le coût,
+         pas les prérequis technologiques. On n'interdit donc rien ici. */
+      const locked = describeRequirements(u.requirements);
+      const cls = ev ? 'row busy' : affordable ? 'row' : 'row off';
+      const unitSeconds = u.integrity ? (u.integrity / 2500) * (1 + shipyardLevel) * 60 : 0;
+
+      return `<div class="${cls}">
+      <div class="ico">${icon(u.name)}</div>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="row-name">${esc(humanize(u.name))}</span>
+          <span class="lvl">×${esc(fmtNumber(counts[u.name] || 0))}</span>
+          <input class="qty" type="number" min="1" max="999" value="1"
+            data-qty="${esc(u.name)}" aria-label="Quantité ${esc(humanize(u.name))}">
+          <button class="btn btn--sm${affordable ? ' btn--pri' : ''}"
+            data-build-unit="${esc(u.name)}" data-kind="${kind}" ${affordable ? '' : 'disabled'}>
+            Construire
+          </button>
+        </div>
+        <div class="costs">
+          ${costMarkup(costs, resources)}
+          <span class="cost">Intégrité <b>${esc(fmtNumber(u.integrity || 0))}</b></span>
+          ${unitSeconds ? `<span class="cost">Unité <b>${esc(fmtDuration(unitSeconds))}</b></span>` : ''}
+        </div>
+        <p class="desc">${esc(
+          locked || `Coût unitaire. La durée d'assemblage dépend du niveau du chantier (LVL ${shipyardLevel}).`
+        )}</p>
+        ${progressMarkup(ev, `${(ev && ev.extraArgs && ev.extraArgs.quantity) || ''} restant(s) en assemblage`)}
+      </div>
+    </div>`;
+    })
+    .join('');
+}
+
+function describeRequirements(req) {
+  if (!req || !req.technologies) return null;
+  const parts = Object.entries(req.technologies).map(([k, v]) => `${humanize(k)} ${v}`);
+  return parts.length ? `Requiert : ${parts.join(', ')}.` : null;
+}
+
+/* ============================================================
+   actions
+   ============================================================ */
+
+async function upgradeBuilding(name) {
+  try {
+    await api.upgradeBuilding(state.territoryId, name);
+    toast(`${humanize(name)} : construction lancée.`, 'info', 'Chantier');
+    await reloadTerritory(true);
+  } catch (e) {
+    handleApiError(e, 'Construction refusée');
+  }
+}
+
+async function buildUnit(kind, name, quantity) {
+  const qty = Math.max(1, Math.min(999, Number(quantity) || 1));
+  try {
+    if (kind === 'ship') await api.buildShips(state.territoryId, name, qty);
+    else await api.buildDefenses(state.territoryId, name, qty);
+    toast(`${qty} × ${humanize(name)} : assemblage lancé.`, 'info', 'Chantier');
+    await reloadTerritory(true);
+  } catch (e) {
+    handleApiError(e, 'Assemblage refusé');
+  }
+}
+
+/* ============================================================
+   minuteries
+   ============================================================ */
+
+function startTimers() {
+  stopTimers();
+  /* barres de progression : local, une fois par seconde */
+  tickTimer = setInterval(() => {
+    if (updateProgressBars()) reloadTerritory();
+  }, 1000);
+  /* état serveur : toutes les 30 s, pour les ressources produites */
+  pollTimer = setInterval(reloadTerritory, 30000);
+}
+
+function stopTimers() {
+  if (tickTimer) clearInterval(tickTimer);
+  if (pollTimer) clearInterval(pollTimer);
+  tickTimer = null;
+  pollTimer = null;
+}
+
+/* ============================================================
+   câblage
+   ============================================================ */
+
+function initEvents() {
+  $('#tabs').addEventListener('click', (ev) => {
+    const tab = ev.target.closest('.tab');
+    if (!tab) return;
+    state.tab = tab.dataset.tab;
+    renderTabs();
+    renderTabBody();
+  });
+
+  $('#orbit-rail').addEventListener('click', (ev) => {
+    const orb = ev.target.closest('.orb');
+    if (!orb) return;
+    if (orb.dataset.owned !== '1') {
+      toast("Ce territoire n'est pas sous votre contrôle.", 'err', 'Orbite');
+      return;
+    }
+    const id = Number(orb.dataset.orbit);
+    if (id !== state.territoryId) selectTerritory(id);
+  });
+
+  $('#tab-body').addEventListener('click', (ev) => {
+    const building = ev.target.closest('[data-build-building]');
+    if (building) {
+      upgradeBuilding(building.dataset.buildBuilding);
+      return;
+    }
+    const unit = ev.target.closest('[data-build-unit]');
+    if (unit) {
+      const name = unit.dataset.buildUnit;
+      const input = document.querySelector(`[data-qty="${CSS.escape(name)}"]`);
+      buildUnit(unit.dataset.kind, name, input ? input.value : 1);
+    }
+  });
+
+  $('#pick-list').addEventListener('click', (ev) => {
+    const pick = ev.target.closest('[data-territory]');
+    if (pick) {
+      selectTerritory(Number(pick.dataset.territory));
+      return;
+    }
+    if (ev.target.closest('[data-action="logout"]')) logout();
+  });
+
+  $('#btn-refresh').addEventListener('click', () => reloadTerritory(true));
+  $('#btn-logout').addEventListener('click', () => logout());
+  $('#btn-switch').addEventListener('click', () => {
+    stopTimers();
+    renderPicker();
+    showView('pick');
+  });
+}
+
+/* ============================================================
+   démarrage
+   ============================================================ */
+
+async function enterGame() {
+  const [territories, catalog] = await Promise.all([
+    api.myTerritories().catch(() => []),
+    api.catalog().catch(() => ({ ships: [], defenses: [] })),
+  ]);
+  state.myTerritories = territories;
+  state.catalog = catalog || { ships: [], defenses: [] };
+
+  if (territories.length === 1) {
+    await selectTerritory(territories[0].id);
+  } else {
+    renderPicker();
+    showView('pick');
+  }
+}
+
+async function boot() {
+  initTheme();
+  initLogin();
+  initEvents();
+
+  try {
+    state.user = await api.me();
+    await enterGame();
+  } catch (e) {
+    showView('login');
+  }
+}
+
+boot();

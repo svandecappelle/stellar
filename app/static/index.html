@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stellar — Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Roboto:wght@400;500;700&family=Saira+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="theme-nebula">
+
+<!-- ==================== LOGIN ==================== -->
+<section id="view-login" class="stage">
+  <div class="stage-in">
+    <div class="panel panel--hazard">
+      <div class="split">
+        <div class="brand">
+          <span class="ov">Nebula Command</span>
+          <h1>Stellar</h1>
+          <p>Console de commandement. Authentifiez-vous pour accéder à vos territoires,
+             à leurs ressources et à leurs chaînes de construction.</p>
+          <div class="theme-pick" id="login-theme-pick" style="margin-top:18px"></div>
+        </div>
+
+        <form id="login-form" autocomplete="on">
+          <span class="ov">Accès opérateur</span>
+          <div class="field">
+            <label for="login-user">Utilisateur</label>
+            <input id="login-user" name="username" type="text" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="login-pass">Mot de passe</label>
+            <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <div class="field">
+            <label></label>
+            <button class="btn btn--pri" type="submit" id="login-submit">Se connecter</button>
+          </div>
+          <p class="err-text hidden" id="login-error"></p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SÉLECTION DE TERRITOIRE ==================== -->
+<section id="view-pick" class="stage hidden">
+  <div class="stage-in">
+    <div class="panel panel--hazard">
+      <div class="split">
+        <div class="brand">
+          <span class="ov">Territoires sous contrôle</span>
+          <h1>Stellar</h1>
+          <p id="pick-sub">Choisissez le territoire à administrer.</p>
+          <div class="theme-pick" id="pick-theme-pick" style="margin-top:18px"></div>
+        </div>
+        <div class="menu-btns" id="pick-list"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SCÈNE SYSTÈME ==================== -->
+<section id="view-command" class="scene hidden">
+
+  <div class="topbar">
+    <div class="sysbox">
+      <span class="ov">Système</span>
+      <span class="val" id="sys-name">—</span>
+    </div>
+
+    <div class="resbar">
+      <span class="ov">Ressources du territoire</span>
+      <div class="res-grid" id="res-grid"></div>
+    </div>
+
+    <div class="acts">
+      <div class="theme-pick" id="cmd-theme-pick"></div>
+      <button class="btn" id="btn-switch">Territoires</button>
+      <button class="btn" id="btn-refresh">Rafraîchir</button>
+      <button class="btn btn--dgr" id="btn-logout">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="body-cols">
+    <div class="rail" id="orbit-rail">
+      <span class="ov" style="text-align:center">Orbites</span>
+    </div>
+
+    <div class="panel panel--hazard">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Développement planétaire</span>
+          <span class="t" id="terr-title">—</span>
+        </div>
+        <span class="loading" id="terr-updated"></span>
+      </div>
+      <div class="rule"></div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab on" data-tab="buildings">Buildings</button>
+        <button class="tab" data-tab="shipyard">Shipyard</button>
+        <button class="tab" data-tab="defences">Orbital Defences</button>
+      </div>
+
+      <div id="tab-body"><p class="empty">Chargement…</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

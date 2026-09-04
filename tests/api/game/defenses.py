@@ -31,8 +31,9 @@ class TestDefenses:
             me = base_universe["users"][0]['model']
             technology = Technology.get(user=me, type=TechnologyType.energy).level = 8
             territory.add(type=ResourceType.credits, amount=300000)
-            territory.add(type=ResourceType.mater, amount=300000)
             territory.add(type=ResourceType.tritium, amount=300000)
+            for material in ResourceType.materials():
+                territory.add(type=material, amount=300000)
             # increase energy
             territory.add(type=BuildingType.power_station, amount=10)
             territory.add(type=ResourceType.population, amount=200)
@@ -114,7 +115,7 @@ class TestRaiseDefenses:
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
         # 
-        territory.mater = 0
+        territory.iron = 0
         session.commit()
 
         response = client.post(

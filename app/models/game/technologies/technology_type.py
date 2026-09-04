@@ -11,7 +11,8 @@ class TechnologyType(enum.Enum):
     computer = {
         "name": "computer",
         "base_cost": {
-            "mater": 400,
+            "silicium": 500,
+            "cristal": 200,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -20,7 +21,8 @@ class TechnologyType(enum.Enum):
     optical = {
         "name": "optical",
         "base_cost": {
-            "mater": 400,
+            "cristal": 600,
+            "silicium": 300,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -29,7 +31,8 @@ class TechnologyType(enum.Enum):
     chemistry = {
         "name": "chemistry",
         "base_cost": {
-            "mater": 400,
+            "carbon": 700,
+            "silicium": 200,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -38,7 +41,8 @@ class TechnologyType(enum.Enum):
     alliage = {
         "name": "alliage",
         "base_cost": {
-            "mater": 400,
+            "titanium": 500,
+            "iron": 900,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -47,7 +51,8 @@ class TechnologyType(enum.Enum):
     energy = {
         "name": "energy",
         "base_cost": {
-            "mater": 400,
+            "uranium": 400,
+            "iron": 500,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -56,8 +61,9 @@ class TechnologyType(enum.Enum):
     distorsion = {
         "name": "distorsion",
         "base_cost": {
-            "mater": 400,
-            "credits": 600,
+            "neutronium": 60,
+            "cristal": 500,
+            "credits": 1200,
             "energy": 0,
             "population": 0
         }
@@ -65,7 +71,8 @@ class TechnologyType(enum.Enum):
     atom = {
         "name": "atom",
         "base_cost": {
-            "mater": 400,
+            "uranium": 700,
+            "titanium": 300,
             "credits": 600,
             "energy": 0,
             "population": 0
@@ -105,19 +112,14 @@ class TechnologyType(enum.Enum):
         :param level:
         :return:
         """
+        # Driven by whatever the technology actually costs: each line now has
+        # its own materials, so enumerating four fixed keys no longer works.
+        equation = TechnologyEquations.get(
+            tech_type=self, equation_type=EquationType.price
+        )
         return {
-            "mater": TechnologyEquations.get(
-                tech_type=self, equation_type=EquationType.price
-            )(level, self.base_cost['mater']),
-            "credits": TechnologyEquations.get(
-                tech_type=self, equation_type=EquationType.price
-            )(level, self.base_cost['credits']),
-            "energy": TechnologyEquations.get(
-                tech_type=self, equation_type=EquationType.price
-            )(level, self.base_cost['energy']),
-            "population": TechnologyEquations.get(
-                tech_type=self, equation_type=EquationType.price
-            )(level, self.base_cost['population'])
+            resource: equation(level, base)
+            for resource, base in self.base_cost.items()
         }
 
 

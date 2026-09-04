@@ -73,7 +73,7 @@ class TestFactions:
         for techno in territory.user.technologies:
             techno.increase(territory=territory, now=True)
         gain_without_faction = {
-            ResourceType.mater: territory.get_hourly_gain(ResourceType.mater),
+            ResourceType.silicium: territory.get_hourly_gain(ResourceType.silicium),
             ResourceType.credits: territory.get_hourly_gain(ResourceType.credits),
             ResourceType.tritium: territory.get_hourly_gain(ResourceType.tritium)
         }
@@ -88,7 +88,7 @@ class TestFactions:
         res = client.put(f'/api/faction/{id}')
         assert res.status_code == 204
         gain = {
-            ResourceType.mater: territory.get_hourly_gain(ResourceType.mater),
+            ResourceType.silicium: territory.get_hourly_gain(ResourceType.silicium),
             ResourceType.credits: territory.get_hourly_gain(ResourceType.credits),
             ResourceType.tritium: territory.get_hourly_gain(ResourceType.tritium)
         }
@@ -100,7 +100,7 @@ class TestFactions:
         new_tech_durations = {x['type']: x['duration'] for x in response.json}
         # Test advantages
         if faction == 'Technocrats':
-            resource_bonus = ResourceType.mater
+            resource_bonus = ResourceType.silicium
             for tech, duration in tech_durations.items():
                 assert new_tech_durations[tech] == duration - (10 / 100 * duration)
         if faction == 'Warriors':

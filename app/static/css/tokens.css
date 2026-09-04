@@ -113,7 +113,30 @@
   --cut:none; --cut-sm:none; --r:0px; --knob-r:0;
 }
 
-/* ---------- couleurs de ressources, par thème ---------- */
-.theme-nebula   { --res-mater:#8AB5C9; --res-credits:#F2D173; --res-energy:#70F5DE; --res-population:#E5AEF5; --res-tritium:#F58C82; }
-.theme-admiralty{ --res-mater:#8AB5C9; --res-credits:#E3A340; --res-energy:#6FBFA8; --res-population:#B08FC4; --res-tritium:#C48A7A; }
-.theme-drydock  { --res-mater:#7FA6BC; --res-credits:#FFC24D; --res-energy:#4FD6B8; --res-population:#B77FD6; --res-tritium:#FF6B1A; }
+/* ---------- couleurs de ressources ----------
+   Sémantiques et donc communes aux trois directions : c'est le code à deux
+   lettres qui identifie la ressource, la couleur ne fait que la rappeler.
+   Chaque thème ne réaccorde que les teintes qui jurent avec sa palette. */
+:root{
+  --res-iron:#8AB5C9;
+  --res-carbon:#9AA0A6;
+  --res-silicium:#C9B98A;
+  --res-titanium:#D8DEE9;
+  --res-cristal:#7FE0F5;
+  --res-uranium:#8FD94F;
+  --res-hydrogen:#F5A2C0;
+  --res-neutronium:#B06BFF;
+
+  --res-credits:#F2D173;
+  --res-energy:#70F5DE;
+  --res-population:#E5AEF5;
+  --res-tritium:#F58C82;
+}
+.theme-admiralty{
+  --res-credits:#E3A340; --res-energy:#6FBFA8; --res-population:#B08FC4; --res-tritium:#C48A7A;
+  --res-cristal:#7FB8C4; --res-uranium:#8FBF6E;
+}
+.theme-drydock  {
+  --res-credits:#FFC24D; --res-energy:#4FD6B8; --res-population:#B77FD6; --res-tritium:#FF6B1A;
+  --res-iron:#7FA6BC; --res-uranium:#7ED957;
+}

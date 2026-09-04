@@ -51,6 +51,16 @@ button{font:inherit;color:inherit}
   font-family:var(--f-disp);font-size:15px;font-weight:700;color:var(--fg-hi);
   letter-spacing:var(--val-track);line-height:1.2;margin-top:2px;display:block;
 }
+/* profil de gisements : ce que ce monde-ci sait sortir du sol */
+.deposits{
+  display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;
+  font-family:var(--f-num);font-size:10.5px;color:var(--fg-dim);
+}
+.deposits b{color:var(--dep-accent,var(--fg));font-weight:600}
+.deposits .rich{color:var(--good);font-weight:700}
+/* matériau absent du sous-sol : présent au stock, mais qui ne remontera pas */
+.chip--barren{opacity:.55}
+.chip--barren .v{color:var(--fg-dim)}
 
 /* ---------- btn ---------- */
 .btn{
@@ -151,12 +161,14 @@ button{font:inherit;color:inherit}
   font-family:var(--f-disp);font-size:10px;font-weight:700;letter-spacing:var(--ov-track);
   text-transform:uppercase;color:var(--fg-dim);width:96px;flex:none;
 }
+.field select,
 .field input[type=text],.field input[type=password]{
   flex:1;height:38px;padding:0 12px;min-width:0;
   background:var(--ico-bg);color:var(--fg-hi);
   border:var(--bw) solid var(--bc);border-radius:var(--r);
   font-family:var(--f-body);font-size:13px;
 }
+.field select:focus,
 .field input:focus{border-color:var(--acc);outline:none;box-shadow:var(--glow)}
 
 /* ---------- rail d'orbites ---------- */

@@ -1,0 +1,23 @@
+Amerald: desert
+Arkas: telluric
+Bistar: desert
+Dagon: telluric
+Gataca: telluric
+Gerta: ice
+Hoth: ice
+Huazes: telluric
+Hypatia: telluric
+Jaspet: asteroid
+Manthra: oceanic
+Netou: desert
+Sugah: desert
+Tadmor: desert
+Teratoma: desert
+Titawin: telluric
+Tokcitee: telluric
+Vendara: telluric
+Wadow: oceanic
+Xagobah: telluric
+# Les geantes gazeuses n'ont pas de prefab : elles sont
+# construites a la volee. "GasGiant" est le planeteScheme que le client envoie.
+GasGiant: gas_giant

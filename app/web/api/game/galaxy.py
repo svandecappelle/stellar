@@ -81,8 +81,30 @@ def get_galaxy_detail(name):
         galaxy = Galaxy.get(session=db.session, name=name)
     except NoResultFound:
         get_logger().warn(f"Galaxy {name} does not exists")
-        raise NotFoundError(404, 'Galaxy does not exists')
+        raise NotFoundError('Galaxy does not exists')
     return galaxy
+
+
+@app.route('/api/galaxy/<string:name>/territories', methods=['GET'])
+@login_required
+@serialize
+@json_description(file='descriptions/territories.json')
+def get_galaxy_territories(name):
+    """
+    Territoires du joueur dans cette galaxie.
+    ---
+    Un territoire appartient a un systeme, qui appartient a une galaxie : c'est
+    la portee naturelle de la liste. Remplace /api/territories, qui renvoie les
+    territoires de toutes les galaxies confondues.
+    """
+    if not Galaxy.exists(session=db.session, name=name):
+        raise NotFoundError('Galaxy does not exists')
+
+    territories = [t for t in current_user.get().territories if t.galaxy_name == name]
+    return {
+        'galaxy_name': name,
+        'territories': territories,
+    }
 
 
 @app.route('/api/galaxy/<string:name>/systems', methods=['GET'])
@@ -92,7 +114,7 @@ def get_galaxy_systems(name):
     try:
         galaxy = Galaxy.get(session=db.session, name=name)
     except NoResultFound:
-        raise NotFoundError(404, 'Galaxy does not exists')
+        raise NotFoundError('Galaxy does not exists')
     only_mine = request.args.get('mine', "false")
     if only_mine.lower() in ['true']:
         systems = System.all(galaxy=galaxy, user=current_user.get())

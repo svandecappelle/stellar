@@ -14,6 +14,7 @@ from config.configuration import AppConfig
 from app.models.base import Base
 from app.models.game.galaxy import Galaxy
 from app.models.game.system import System
+from app.models.game.planet import PlanetArchetype
 from app.models.game.territory import Territory
 from app.models.user import User
 from app.models.role import RoleType
@@ -119,6 +120,11 @@ def base_universe(session):
             galaxy=galaxy,
             position="1_1_1",
         )
+        # Archetype and deposits are drawn at random in game: pin them here so
+        # extraction yields stay comparable from one run to the next.
+        for territory in s.territories:
+            territory.archetype = PlanetArchetype.telluric
+            territory.deposits = {m: 1.0 for m in PlanetArchetype.telluric.materials}
         u = User.new(
             username=usr['username'],
             password=usr['password'],

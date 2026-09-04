@@ -12,7 +12,8 @@ class ShipType(enum.Enum):
     DefenseSatellite = {
         "name": "DefenseSatellite",
         "base_cost": {
-            "mater": 3000,
+            "iron": 2500,
+            "silicium": 500,
             "credits": 50,
             "energy": 0,
             "population": 1
@@ -23,7 +24,8 @@ class ShipType(enum.Enum):
     Fighter = {
         "name": "Fighter",
         "base_cost": {
-            "mater": 3000,
+            "iron": 2000,
+            "titanium": 800,
             "credits": 50,
             "energy": 0,
             "population": 1
@@ -34,8 +36,10 @@ class ShipType(enum.Enum):
     Interceptor = {
         "name": "Interceptor",
         "base_cost": {
-            "mater": 3000,
-            "credits": 50,
+            "iron": 2500,
+            "titanium": 1200,
+            "silicium": 400,
+            "credits": 80,
             "energy": 0,
             "population": 1
         },
@@ -45,10 +49,12 @@ class ShipType(enum.Enum):
     Cruiser = {
         "name": "Cruiser",
         "base_cost": {
-            "mater": 3000,
-            "credits": 50,
+            "iron": 6000,
+            "titanium": 3000,
+            "silicium": 800,
+            "credits": 200,
             "energy": 0,
-            "population": 1
+            "population": 3
         },
         "integrity": 27000,
         "requirements": {}
@@ -56,10 +62,13 @@ class ShipType(enum.Enum):
     Frigate = {
         "name": "Frigate",
         "base_cost": {
-            "mater": 3000,
-            "credits": 50,
+            "iron": 12000,
+            "titanium": 6000,
+            "silicium": 1500,
+            "cristal": 400,
+            "credits": 500,
             "energy": 0,
-            "population": 1
+            "population": 5
         },
         "integrity": 60000,
         "requirements": {}
@@ -67,21 +76,28 @@ class ShipType(enum.Enum):
     MotherShip = {
         "name": "MotherShip",
         "base_cost": {
-            "mater": 3000,
-            "credits": 50,
+            "iron": 40000,
+            "titanium": 20000,
+            "silicium": 5000,
+            "cristal": 2000,
+            "neutronium": 200,
+            "credits": 3000,
             "energy": 0,
-            "population": 1
+            "population": 20
         },
         "integrity": 120000,
         "requirements": {}
     }
     OrbitalStation = {
-        "name": "MotherShip",
+        "name": "OrbitalStation",
         "base_cost": {
-            "mater": 3000,
-            "credits": 50,
+            "iron": 60000,
+            "titanium": 25000,
+            "silicium": 6000,
+            "neutronium": 500,
+            "credits": 5000,
             "energy": 0,
-            "population": 1
+            "population": 25
         },
         "integrity": 10000000,
         "requirements": {}

@@ -14,8 +14,10 @@ from flask import jsonify, send_from_directory
 from app.application import app, login_required
 from app.models.game.buildings import BuildingType
 from app.models.game.defense import DefenseType
+from app.models.game.planet import PlanetArchetype, scheme_map
 from app.models.game.ship import ShipType
 from app.models.game.technologies.technology_type import TechnologyType
+from app.models.game.territory import ResourceType
 
 STATIC_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static')
 
@@ -50,6 +52,12 @@ def get_catalog():
     territory payload does not already carry (ship and defense costs).
     """
     return jsonify({
+        'resources': [r.name for r in ResourceType],
+        'materials': [r.name for r in ResourceType.materials()],
+        'archetypes': PlanetArchetype.serialize_all(),
+        # Table planeteScheme -> archetype : le lien entre l'apparence tiree par
+        # le client et ce que la planete produit.
+        'planet_schemes': scheme_map(),
         'buildings': [b.name for b in BuildingType],
         'ships': [_unit_entry(s) for s in ShipType],
         'defenses': [_unit_entry(d) for d in DefenseType],

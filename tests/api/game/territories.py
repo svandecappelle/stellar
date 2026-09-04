@@ -33,7 +33,7 @@ class TestTerritory:
         assert response.json[0].get('id') is not None
 
     @pytest.mark.parametrize('resource', (
-        (ResourceType.mater, 10000),
+        (ResourceType.iron, 10000),
         (ResourceType.credits, 8000),
         (ResourceType.population, 100),
         (ResourceType.tritium, 100),
@@ -54,7 +54,7 @@ class TestTerritory:
         assert territory.resources[resource[0]] == resource[1]
 
     @pytest.mark.parametrize('resource', (
-        (ResourceType.mater, 10000, BuildingType.mater_extractor),
+        (ResourceType.iron, 10000, BuildingType.mater_extractor),
         (ResourceType.credits, 8000, BuildingType.economical_center),
         # (ResourceType.population, 100, None),  # TODO define how population can increase
         (ResourceType.tritium, 100, BuildingType.rafinery)
@@ -93,7 +93,7 @@ class TestTerritory:
             assert territory.resources[resource[0]] > resource_amount
 
     @pytest.mark.parametrize('resource', (
-            (ResourceType.mater, 10000, BuildingType.mater_extractor),
+            (ResourceType.iron, 10000, BuildingType.mater_extractor),
             (ResourceType.credits, 8000, BuildingType.economical_center),
             # (ResourceType.population, 100, None),  # TODO define how population can increase
             (ResourceType.tritium, 100, BuildingType.rafinery)

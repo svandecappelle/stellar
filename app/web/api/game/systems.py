@@ -32,10 +32,15 @@ def create_system(id):
     for t in territories:
         if not t.get('characteristics'):
             raise ex.BadRequest("Territory characteristics is required")
+        # Le client tire l'apparence de la planete, et l'apparence dit
+        # l'archetype : une geante gazeuse n'est pas une planete tellurique.
+        # Sans archetype fourni, le serveur en tire un lui-meme.
         Territory.create(
             system_id=system.id,
             position_in_system=t.get('position'),
             characteristics=t.get('characteristics'),
+            archetype=t.get('archetype'),
+            name=t.get('name'),
         )
     db.session.commit()
     return system

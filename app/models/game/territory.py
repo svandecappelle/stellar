@@ -4,7 +4,7 @@ from datetime import datetime
 import enum
 import math
 
-from sqlalchemy import Column, Integer, JSON, String, DateTime, ForeignKey, func
+from sqlalchemy import Column, Enum, Integer, JSON, String, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 
 from app.application import db
@@ -13,17 +13,48 @@ from app.models.game.buildings import BuildingType, Building
 from app.models.game.community.faction import FactionAdvantageScope
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
+from app.models.game.planet import PlanetArchetype
 from app.models.game.ship import Ship, ShipType
 from app.models.game.system import System
 from logger import logger
 
 
 class ResourceType(enum.Enum):
-    mater = "mater"
+    # Raw materials, extracted by the mater_extractor. Which of them a given
+    # territory can produce at all depends on its planet archetype.
+    iron = "iron"
+    carbon = "carbon"
+    silicium = "silicium"
+    titanium = "titanium"
+    cristal = "cristal"
+    uranium = "uranium"
+    hydrogen = "hydrogen"
+    neutronium = "neutronium"
+
+    # Produced by dedicated buildings, not by extraction.
     credits = "credits"
     energy = "energy"
     population = "population"
     tritium = "tritium"
+
+    def __str__(self):
+        # Without this, `str(ResourceType.iron)` yields "ResourceType.iron" and
+        # every serialized cost/gain key carries the class prefix, which no
+        # client can map onto a field name.
+        return self.name
+
+    @classmethod
+    def materials(cls):
+        """Extractable materials, in display order."""
+        return [
+            cls.iron, cls.carbon, cls.silicium, cls.titanium,
+            cls.cristal, cls.uranium, cls.hydrogen, cls.neutronium,
+        ]
+
+    @classmethod
+    def stocks(cls):
+        """Resources persisted as a column on the territory."""
+        return cls.materials() + [cls.credits, cls.population, cls.tritium]
 
 
 class Territory(Base):
@@ -36,10 +67,23 @@ class Territory(Base):
     name = Column(String, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    mater = Column(Integer, default=10000, nullable=False)
+    iron = Column(Integer, default=10000, nullable=False)
+    carbon = Column(Integer, default=4000, nullable=False)
+    silicium = Column(Integer, default=2500, nullable=False)
+    titanium = Column(Integer, default=0, nullable=False)
+    cristal = Column(Integer, default=0, nullable=False)
+    uranium = Column(Integer, default=0, nullable=False)
+    hydrogen = Column(Integer, default=0, nullable=False)
+    neutronium = Column(Integer, default=0, nullable=False)
+
     credits = Column(Integer, default=8000, nullable=False)
     tritium = Column(Integer, default=100, nullable=False)
     population = Column(Integer, default=100, nullable=False)
+
+    # Planet archetype: decides which materials can be extracted here.
+    archetype = Column(Enum(PlanetArchetype), nullable=True)
+    # Per-material richness drawn at creation: {"iron": 1.12, ...}
+    deposits = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -59,20 +103,30 @@ class Territory(Base):
     )
     user = relationship("User", back_populates="territories")
 
-    def __init__(self, system, position_in_system, characteristics={}):
+    #: Resources that accrue over time. Population has no producer yet.
+    PRODUCED_RESOURCES = ResourceType.materials() + [ResourceType.credits, ResourceType.tritium]
+
+    def __init__(self, system, position_in_system, characteristics={}, archetype=None):
         self.system_id = system.id
         self.position_in_system = position_in_system
         self.characteristics = json.dumps(characteristics)
+        # Resolu par `create` a partir du prefab quand il y en a un ; sinon
+        # tire ici. L'archetype commande l'extraction, il n'est donc jamais
+        # simplement recopie de ce que le client annonce.
+        self.archetype = archetype or PlanetArchetype.draw()
+        self.deposits = self.archetype.roll_deposits()
 
     def __repr__(self):
         return '<id {}>'.format(self.id)
 
     @classmethod
-    def create(cls, system_id, position_in_system, characteristics={}):
+    def create(cls, system_id, position_in_system, characteristics={}, archetype=None, name=None):
         """
         Allocate a free position.
         ---
         :param position:
+        :param archetype: forced archetype, drawn at random when omitted
+        :param name: nom affichable du monde, tel que le client l'a baptise
         :return:
         """
         system = System.get(
@@ -80,11 +134,24 @@ class Territory(Base):
         )
         if not Territory.available(system, position_in_system):
             raise ValueError("Position is not available")
+        if isinstance(archetype, str):
+            archetype = PlanetArchetype.get_by_name(archetype)
+        # `planeteScheme` porte le prefab tire par le client, et c'est lui qui
+        # fait le lien avec l'archetype : quand il est connu de la table, il
+        # tranche. Un client ne peut donc pas annoncer une apparence de monde
+        # glace et un archetype de geante gazeuse.
+        from_scheme = PlanetArchetype.for_scheme((characteristics or {}).get('planeteScheme'))
+        if from_scheme is not None:
+            archetype = from_scheme
         territory = Territory(
             system=system,
             position_in_system=position_in_system,
             characteristics=characteristics,
+            archetype=archetype,
         )
+        # Le nom envoye par le client etait jete : tous les territoires
+        # revenaient sans nom, et les listes affichaient du vide.
+        territory.name = name
         db.session.add(system)
         db.session.flush()
 
@@ -210,12 +277,10 @@ class Territory(Base):
         time_elapsed = (datetime.utcnow() - self.updated_at).seconds / 60 / 60  # in hours
         increased_resources = {}
 
-        for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
+        for r in self.PRODUCED_RESOURCES:
             increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
+            setattr(self, r.name, (getattr(self, r.name) or 0) + increased_resources[r])
 
-        self.mater += increased_resources[ResourceType.mater]
-        self.credits += increased_resources[ResourceType.credits]
-        self.tritium += increased_resources[ResourceType.tritium]
         logger.info(f"Resources increased for territory {self.id}", infos=dict(
             increased_resources=increased_resources,
             time_elapsed=time_elapsed,
@@ -236,12 +301,9 @@ class Territory(Base):
                 time_elapsed = (self.updated_at - event.finishing_at).seconds / 60 / 60  # in hours
                 increased_resources = {}
 
-                for r in (ResourceType.mater, ResourceType.credits, ResourceType.tritium):
+                for r in self.PRODUCED_RESOURCES:
                     increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
-
-                self.mater += increased_resources[ResourceType.mater]
-                self.credits += increased_resources[ResourceType.credits]
-                self.tritium += increased_resources[ResourceType.tritium]
+                    setattr(self, r.name, (getattr(self, r.name) or 0) + increased_resources[r])
 
             # apply_modification_building
             self.add(type=building_type, amount=amount)
@@ -270,6 +332,9 @@ class Territory(Base):
         if buildings:
             for b in buildings:
                 hourly_gain += b.get_hourly_gain[resource_type]
+        if resource_type == ResourceType.energy:
+            # Volcanic crusts are worth drilling, icy ones are not.
+            hourly_gain *= self.planet_archetype.energy_factor
         if self.user.faction:
             hourly_gain = self.user.faction.apply(
                 obj=hourly_gain,
@@ -285,14 +350,9 @@ class Territory(Base):
             territory_id=self.id
         ))
         if isinstance(type, ResourceType):
-            if type == ResourceType.mater:
-                self.mater += amount
-            if type == ResourceType.credits:
-                self.credits += amount
-            if type == ResourceType.tritium:
-                self.tritium += amount
-            if type == ResourceType.population:
-                self.population += amount
+            # Energy is computed from buildings, never stocked.
+            if type in ResourceType.stocks():
+                setattr(self, type.name, (getattr(self, type.name) or 0) + amount)
 
         if isinstance(type, BuildingType):
             building = self.get_building(building_type=type)
@@ -396,12 +456,48 @@ class Territory(Base):
         Get current resource state on territory
         :return:
         """
+        stocks = {r: getattr(self, r.name) or 0 for r in ResourceType.stocks()}
+        stocks[ResourceType.energy] = self.energy
+        return stocks
+
+    @property
+    def galaxy_name(self):
+        """
+        Galaxie du territoire.
+        ---
+        Un territoire appartient a un systeme, qui appartient a une galaxie :
+        c'est la portee reelle de tout ce qu'un joueur possede.
+        """
+        return self.system.galaxy_name if self.system else None
+
+    @property
+    def planet_archetype(self):
+        """Archetype of the world, telluric for rows predating the split."""
+        return self.archetype or PlanetArchetype.telluric
+
+    @property
+    def deposit_richness(self):
+        """Raw richness drawn for this world, 1.0 for rows predating the split."""
+        deposits = self.deposits or {}
+        if isinstance(deposits, str):  # JSON column written as text
+            deposits = json.loads(deposits)
         return {
-            ResourceType.mater: self.mater,
-            ResourceType.credits: self.credits,
-            ResourceType.energy: self.energy,
-            ResourceType.population: self.population,
-            ResourceType.tritium: self.tritium
+            material: float(deposits.get(material, 1.0))
+            for material in self.planet_archetype.materials
+        }
+
+    @property
+    def material_yields(self):
+        """
+        Extraction multiplier per material on this exact world.
+        ---
+        Archetype ratio x deposit richness. A material the archetype does not
+        produce is simply absent: no extractor level can conjure it.
+        """
+        richness = self.deposit_richness
+        return {
+            material: ratio * richness.get(material, 1.0)
+            for material, ratio in self.planet_archetype.yields.items()
         }
 
     @property
@@ -410,9 +506,19 @@ class Territory(Base):
             'id': self.id,
             'name': self.name,
             'position': self.position_in_system,
+            # Remonte a la racine du territoire : les listes cross-systeme
+            # (/api/territories) n'ont pas a fouiller le systeme pour savoir
+            # de quelle galaxie releve chaque monde.
+            'galaxy_name': self.galaxy_name,
             'system': self.system.serialize,
             'buildings': {b.type.name: b for b in self.buildings},
             'characteristics': json.loads(self.characteristics) if self.characteristics else {},
+            'archetype': self.planet_archetype.name,
+            'archetype_label': self.planet_archetype.label,
+            # `deposits` is the raw richness drawn for this world, `yields` the
+            # extraction multiplier actually applied (archetype x richness).
+            'deposits': self.deposit_richness,
+            'yields': self.material_yields,
             'resources': {
                 k.name: v for k, v in self.resources.items()
             },

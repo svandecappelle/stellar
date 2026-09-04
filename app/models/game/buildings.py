@@ -9,18 +9,23 @@ from sqlalchemy.orm import relationship
 
 
 class BuildingType(enum.Enum):
+    # NOTE the cost keys must match `ResourceType` member names exactly:
+    # they used to read 'credit' where the enum says 'credits', so every
+    # building was silently free of credits.
     academy = {
         'cost': {
-            'mater': lambda n: 200 * pow(2, n - 1),
-            'credit': lambda n: 400 * pow(2, n - 1),
+            'silicium': lambda n: 200 * pow(2, n - 1),
+            'cristal': lambda n: 120 * pow(2, n - 1),
+            'credits': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
         },
         'time': lambda x: 5 * pow(3, x)
     }
     economical_center = {
         'cost': {
-            'mater': lambda n: 48 * pow(1.6, n - 1),
-            'credit': lambda n: 24 * pow(1.6, n - 1),
+            'iron': lambda n: 48 * pow(1.6, n - 1),
+            'silicium': lambda n: 30 * pow(1.6, n - 1),
+            'credits': lambda n: 24 * pow(1.6, n - 1),
             'energy': lambda n: 10 * n * pow(1.1, n)
         },
         'gain': {
@@ -30,27 +35,30 @@ class BuildingType(enum.Enum):
     }
     factory = {
         'cost': {
-            'mater': lambda n: 400 * pow(2, n - 1),
-            'credit': lambda n: 120 * pow(2, n - 1),
+            'iron': lambda n: 400 * pow(2, n - 1),
+            'titanium': lambda n: 150 * pow(2, n - 1),
+            'credits': lambda n: 120 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
         },
         'time': lambda x: 5 * pow(3, x)
     }
+    # The one extractor. What it actually pulls out of the ground is decided
+    # by the planet archetype, not by the building: see `Building.get_hourly_gain`.
     mater_extractor = {
         'cost': {
-            'mater': lambda n: 60 * pow(1.5, n - 1),
-            'credit': lambda n: 15 * pow(1.5, n - 1),
+            'iron': lambda n: 60 * pow(1.5, n - 1),
+            'carbon': lambda n: 30 * pow(1.5, n - 1),
+            'credits': lambda n: 15 * pow(1.5, n - 1),
             'energy': lambda n: 10 * n * pow(1.1, n)
         },
-        'gain': {
-            'mater': lambda n: max(30, 30 * n * pow(1.1, n))
-        },
+        'extraction': lambda n: max(30, 30 * n * pow(1.1, n)),
         'time': lambda x: 5 * pow(3, x)
     }
     power_station = {
         'cost': {
-            'mater': lambda n: 75 * pow(1.6, n - 1),
-            'credit': lambda n: 30 * pow(1.6, n - 1),
+            'iron': lambda n: 75 * pow(1.6, n - 1),
+            'carbon': lambda n: 40 * pow(1.6, n - 1),
+            'credits': lambda n: 30 * pow(1.6, n - 1),
         },
         'gain': {
             'energy': lambda n: 13 + 20 * n * pow(1.1, n)
@@ -59,8 +67,9 @@ class BuildingType(enum.Enum):
     }
     rafinery = {
         'cost': {
-            'mater': lambda n: 75 * pow(1.6, n - 1),
-            'credit': lambda n: 30 * pow(1.6, n - 1),
+            'iron': lambda n: 75 * pow(1.6, n - 1),
+            'silicium': lambda n: 40 * pow(1.6, n - 1),
+            'credits': lambda n: 30 * pow(1.6, n - 1),
             'energy': lambda n: 20 * n * pow(1.1, n)
         },
         'gain': {
@@ -70,8 +79,9 @@ class BuildingType(enum.Enum):
     }
     shipyard = {
         'cost': {
-            'mater': lambda n: 200 * pow(2, n - 1),
-            'credit': lambda n: 400 * pow(2, n - 1),
+            'iron': lambda n: 200 * pow(2, n - 1),
+            'titanium': lambda n: 200 * pow(2, n - 1),
+            'credits': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
         },
         'time': lambda x: 5 * pow(3, x)
@@ -127,6 +137,20 @@ class BuildingType(enum.Enum):
         from app.models.game.territory import ResourceType
         return [ResourceType(g) for g in self.value.get('gain', {}).keys()]
 
+    @property
+    def is_extractor(self):
+        return 'extraction' in self.value
+
+    def get_extraction(self, level):
+        """
+        Base extraction rate at that level, before the planet has its say.
+        ---
+        :return: a scalar, not a per-resource mapping: which materials this
+                 becomes depends on the territory the building stands on.
+        """
+        extraction_func = self.value.get('extraction')
+        return extraction_func(level) if extraction_func is not None else 0
+
     def duration(self, level):
         """
         Get the duration of level technology
@@ -162,13 +186,32 @@ class Building(Base):
         """
         Get hourly gain of a resource building
         ---
-        :return:
+        An extractor produces whatever its planet holds: the base rate is split
+        across the archetype materials, weighted by the local deposits.
         """
-        return self.type.get_hourly_gain(level=self.level)
+        from app.models.game.territory import ResourceType
+
+        gains = self.type.get_hourly_gain(level=self.level)
+        if self.type.is_extractor:
+            extraction = self.type.get_extraction(level=self.level)
+            for material, factor in self.territory.material_yields.items():
+                gains[ResourceType(material)] = extraction * factor
+        return gains
 
     @property
     def type_of_resource(self):
-        return self.type.type_of_resource
+        """
+        Resources this building feeds on this territory.
+        ---
+        Territory-aware on purpose: the same extractor yields titanium on an
+        asteroid and nothing but hydrogen on a gas giant.
+        """
+        from app.models.game.territory import ResourceType
+
+        types = list(self.type.type_of_resource)
+        if self.type.is_extractor:
+            types += [ResourceType(m) for m in self.territory.material_yields.keys()]
+        return types
 
     @property
     def cost(self):

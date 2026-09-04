@@ -7,8 +7,9 @@ from app.application import login_required
 from app.application import json_description
 
 from app.models.game.community.faction import Faction
+from app.models.game.planet import PlanetArchetype
 from app.models.game.territory import Territory
-from app.web.api.exceptions import BadRequestError, ConflictError
+from app.web.api.exceptions import BadRequestError, ConflictError, NotFoundError
 
 @app.route('/api/events', methods=['GET'])
 @login_required
@@ -26,16 +27,29 @@ def get_my_events():
 @serialize
 @json_description(file='descriptions/territories.json')
 def affect_first_territory(id):
+    """
+    Attribue au joueur son monde de depart.
+    ---
+    Le premier monde est toujours tellurique : c'est le seul archetype qui
+    produit a la fois du fer, du carbone et du silicium, donc le seul sur
+    lequel une colonie tient debout sans rien importer.
+    """
     user = current_user.get()
-    
-    if not user.territories:
-        territory = Territory.get(id=id)
-        if territory.user_id:
-            raise ConflictError("Territory already has an owner")
-        territory.assign(user=user)
-    else:
+
+    if user.territories:
         raise ConflictError("User already has a territory")
 
+    territory = Territory.get(id=id)
+    if not territory:
+        raise NotFoundError("Territory does not exist")
+    if territory.user_id:
+        raise ConflictError("Territory already has an owner")
+    if territory.planet_archetype != PlanetArchetype.telluric:
+        raise BadRequestError(
+            "A starting world must be telluric, not %s" % territory.planet_archetype.name
+        )
+
+    territory.assign(user=user)
     db.session.commit()
     return user.territories[0]
 
@@ -44,6 +58,14 @@ def affect_first_territory(id):
 @serialize
 @json_description(file='descriptions/territories.json')
 def get_territories():
+    """
+    Tous les territoires du joueur, galaxies confondues.
+    ---
+    Pour travailler dans une galaxie donnee, prefer
+    /api/galaxy/<name>/territories : un territoire est toujours rattache a une
+    galaxie via son systeme. Cette route reste pour la seule question qui ne se
+    pose pas dans une galaxie : ou le joueur possede-t-il quelque chose ?
+    """
     return {
         'territories': current_user.get().territories
     }

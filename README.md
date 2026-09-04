@@ -26,10 +26,43 @@
 * stop stack and remove database volume
   * `docker compose down -v`
 
+## Resources and planet archetypes
+* Twelve resources. Eight are **materials** pulled out of the ground —
+  `iron`, `carbon`, `silicium`, `titanium`, `cristal`, `uranium`, `hydrogen`,
+  `neutronium` — the other four (`credits`, `energy`, `population`, `tritium`)
+  come from a dedicated building and exist everywhere.
+* There is a **single** `mater_extractor`. What it produces is decided by the
+  territory, not by the building: a gas giant yields hydrogen and nothing else,
+  whatever its level.
+* Each territory is drawn a **`PlanetArchetype`** at creation (server-side, see
+  `app/models/game/planet.py`). The archetype sets which materials exist there
+  and their base ratios; a per-territory **deposit roll** then varies richness
+  by ±25%, with a 12% chance of a rich vein doubling one material.
+* Neutronium comes only from `anomaly` worlds, ~1% of territories: it gates the
+  Mother Ship, the Orbital Station and the `distorsion` technology.
+* `GET /api/territory/<id>` exposes `archetype`, `archetype_label`, the raw
+  `deposits` and the applied `yields`. `GET /api/catalog` lists every archetype
+  with its yield table.
+* Territories are scoped to a galaxy through their system, so every serialized
+  territory carries `galaxy_name` at the root, and the list is read per galaxy:
+  * `GET /api/galaxy/<name>/territories` — the player's territories in that
+    galaxy. This is the one to use inside a galaxy.
+  * `GET /api/territories` — every territory the player holds, all galaxies
+    mixed. Only for the question a galaxy cannot answer: where does this
+    player own anything at all?
+* Migration: the schema is normally created by `Base.metadata.create_all`
+  (`initialize.py`), so a **fresh** database needs nothing. A database that
+  already holds territories needs `alembic upgrade head`, which adds the new
+  columns and splits the old `mater` stock across iron/carbon/silicium. In dev,
+  `docker compose down -v` is the shortcut.
+
 ## Web UI (console)
 * Served by the API itself, same origin, so the Flask-Login session cookie applies
 * Open `http://localhost:9000/`
-* Sign in with a game account, then pick one of your territories
+* Pick a galaxy on the sign-in screen, then one of your territories in it
+* The galaxy lives in the URL (`/?galaxy=Milky+Way`): the link is shareable and
+  reloadable, and switching galaxies works from the address bar as well as from
+  the selector on the picker screen
 * Screens: resource bar, orbit rail for the system, and the Buildings /
   Shipyard / Orbital Defences panel with live construction progress
 * Three visual directions ship together (Nebula Grid, Admiralty, Drydock);

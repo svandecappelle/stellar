@@ -12,7 +12,7 @@ class DefenseType(enum.Enum):
     FlackCannon = {
         "name": "FlackCannon",
         "base_cost": {
-            "mater": 3000,
+            "iron": 3000,
             "credits": 50,
             "energy": 0,
             "population": 1
@@ -23,7 +23,8 @@ class DefenseType(enum.Enum):
     MissileBattery = {
         "name": "MissileBattery",
         "base_cost": {
-            "mater": 3500,
+            "iron": 3000,
+            "carbon": 800,
             "credits": 150,
             "energy": 0,
             "population": 2
@@ -34,7 +35,9 @@ class DefenseType(enum.Enum):
     LaserArtillery = {
         "name": "LaserArtillery",
         "base_cost": {
-            "mater": 2400,
+            "iron": 2000,
+            "cristal": 900,
+            "silicium": 600,
             "credits": 600,
             "energy": 1,
             "population": 1
@@ -49,7 +52,9 @@ class DefenseType(enum.Enum):
     IonArtillery = {
         "name": "IonArtillery",
         "base_cost": {
-            "mater": 3500,
+            "iron": 3000,
+            "uranium": 800,
+            "silicium": 1000,
             "credits": 1000,
             "energy": 5,
             "population": 2
@@ -64,7 +69,9 @@ class DefenseType(enum.Enum):
     Coilgun = {
         "name": "Coilgun",
         "base_cost": {
-            "mater": 5000,
+            "iron": 4000,
+            "titanium": 1500,
+            "uranium": 600,
             "credits": 2000,
             "energy": 5,
             "population": 3
@@ -80,10 +87,13 @@ class DefenseType(enum.Enum):
     Shield = {
     	"name": "Shield",
     	"base_cost": {
-    		"mater": 10000,
-    		"credits": 10000,
-    		"energy": 100,
-    		"population": 5
+            "iron": 8000,
+            "cristal": 3000,
+            "uranium": 1500,
+            "neutronium": 100,
+            "credits": 10000,
+            "energy": 100,
+            "population": 5
     	},
     	"integrity": 200000,
         "requirements": {

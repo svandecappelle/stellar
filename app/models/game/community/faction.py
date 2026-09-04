@@ -93,7 +93,8 @@ class Faction(Base):
             advantage_scope=FactionAdvantageScope.Resource,
             advantage_scope_args={
                 'percentage': 1,
-                'scope': ResourceType.mater.name,
+                # Technocrats lean on the material their research runs on.
+                'scope': ResourceType.silicium.name,
             }
         )
 

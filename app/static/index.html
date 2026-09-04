@@ -28,6 +28,10 @@
         <form id="login-form" autocomplete="on">
           <span class="ov">Accès opérateur</span>
           <div class="field">
+            <label for="login-galaxy">Galaxie</label>
+            <select id="login-galaxy" name="galaxy"></select>
+          </div>
+          <div class="field">
             <label for="login-user">Utilisateur</label>
             <input id="login-user" name="username" type="text" autocomplete="username" required>
           </div>
@@ -55,6 +59,10 @@
           <span class="ov">Territoires sous contrôle</span>
           <h1>Stellar</h1>
           <p id="pick-sub">Choisissez le territoire à administrer.</p>
+          <div class="field">
+            <label for="pick-galaxy">Galaxie</label>
+            <select id="pick-galaxy"></select>
+          </div>
           <div class="theme-pick" id="pick-theme-pick" style="margin-top:18px"></div>
         </div>
         <div class="menu-btns" id="pick-list"></div>
@@ -68,7 +76,7 @@
 
   <div class="topbar">
     <div class="sysbox">
-      <span class="ov">Système</span>
+      <span class="ov" id="galaxy-name">Système</span>
       <span class="val" id="sys-name">—</span>
     </div>
 
@@ -95,6 +103,7 @@
         <div>
           <span class="ov">Développement planétaire</span>
           <span class="t" id="terr-title">—</span>
+          <span class="deposits" id="terr-deposits"></span>
         </div>
         <span class="loading" id="terr-updated"></span>
       </div>

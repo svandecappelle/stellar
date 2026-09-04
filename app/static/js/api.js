@@ -64,8 +64,19 @@ export const api = {
   /* ---- catalogue statique (coûts des vaisseaux / défenses) ---- */
   catalog: () => request('/api/catalog'),
 
+  /* ---- galaxies ---- */
+  galaxies: () => request('/api/galaxies'),
+
   /* ---- territoires ---- */
-  myTerritories: () => request('/api/territories').then((r) => (r && r.territories) || []),
+  /* Un territoire appartient a un systeme, qui appartient a une galaxie : on
+     lit donc la liste par galaxie. Sans galaxie choisie, on retombe sur la
+     liste tous horizons, seule reponse a "ou ai-je quelque chose ?". */
+  myTerritories: (galaxy) =>
+    request(
+      galaxy
+        ? `/api/galaxy/${encodeURIComponent(galaxy)}/territories`
+        : '/api/territories'
+    ).then((r) => (r && r.territories) || []),
   /* /update recalcule les ressources côté serveur avant de sérialiser :
      c'est le seul appel qui garantit un état à jour. */
   territory: (id) => request(`/api/territory/${id}/update`, { method: 'POST' }),

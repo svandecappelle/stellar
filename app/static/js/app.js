@@ -16,19 +16,32 @@ const THEMES = [
 ];
 const THEME_STORAGE_KEY = 'stellar.theme';
 
-/* ---------- ressources ---------- */
+/* ---------- ressources ----------
+   `material: true` = extraite du sol, donc soumise à l'archétype de la
+   planète. Les autres sont produites par un bâtiment dédié, partout. */
 const RESOURCES = [
-  { key: 'mater', code: 'MT', label: 'Mater' },
+  { key: 'iron', code: 'FE', label: 'Fer', material: true },
+  { key: 'carbon', code: 'CB', label: 'Carbone', material: true },
+  { key: 'silicium', code: 'SI', label: 'Silicium', material: true },
+  { key: 'titanium', code: 'TI', label: 'Titane', material: true },
+  { key: 'cristal', code: 'CY', label: 'Cristal', material: true },
+  { key: 'uranium', code: 'UR', label: 'Uranium', material: true },
+  { key: 'hydrogen', code: 'HY', label: 'Hydrogène', material: true },
+  { key: 'neutronium', code: 'NE', label: 'Neutronium', material: true },
   { key: 'credits', code: 'CR', label: 'Crédits' },
   { key: 'energy', code: 'EN', label: 'Énergie' },
   { key: 'population', code: 'PO', label: 'Population' },
   { key: 'tritium', code: 'TR', label: 'Tritium' },
 ];
 
+const RESOURCE_BY_KEY = Object.fromEntries(RESOURCES.map((r) => [r.key, r]));
+
 /* ---------- descriptions (texte d'interface, pas de règles de jeu) ---------- */
 const BUILDING_DESC = {
   power_station: "Installation de production d'énergie. Alimente l'ensemble des systèmes planétaires.",
-  mater_extractor: 'Complexe minier de surface. Extrait le mater des couches exploitables du territoire.',
+  mater_extractor:
+    "Complexe minier de surface. Ce qu'il remonte dépend entièrement du sous-sol : "
+    + "une géante gazeuse ne donnera jamais de titane, quel que soit son niveau.",
   rafinery: 'Raffinerie de tritium. Transforme les volatils captés en carburant de vol.',
   economical_center: 'Centre économique. Convertit l’activité du territoire en crédits.',
   factory: 'Usine planétaire. Réduit la durée de toutes les constructions du territoire.',
@@ -49,6 +62,10 @@ const state = {
   defenses: [],
   catalog: { ships: [], defenses: [] },
   tab: 'buildings',
+  /* Galaxie de travail. Un territoire appartient a un systeme, qui appartient
+     a une galaxie : tout ce qu'on liste en decoule. */
+  galaxy: null,
+  galaxies: [],
 };
 
 let tickTimer = null;
@@ -63,6 +80,29 @@ let settledEvents = new Set();
    ============================================================ */
 
 const $ = (sel) => document.querySelector(sel);
+
+/* ---------- la galaxie vit dans l'URL ----------
+   ?galaxy=Milky+Way : le lien est partageable, rechargeable, et passer d'une
+   galaxie a l'autre se fait aussi bien depuis la barre d'adresse que depuis
+   le selecteur. */
+function galaxyFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get('galaxy') || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function syncUrl() {
+  try {
+    const url = new URL(window.location.href);
+    if (state.galaxy) url.searchParams.set('galaxy', state.galaxy);
+    else url.searchParams.delete('galaxy');
+    window.history.replaceState({ galaxy: state.galaxy }, '', url);
+  } catch (e) {
+    /* pas d'historique disponible : la vue reste juste, l'URL ne suit pas */
+  }
+}
 
 function esc(value) {
   return String(value === null || value === undefined ? '' : value).replace(
@@ -173,6 +213,51 @@ function initTheme() {
 }
 
 /* ============================================================
+   galaxies
+   ============================================================ */
+
+async function loadGalaxies() {
+  const known = await api.galaxies().catch(() => []);
+  state.galaxies = Array.isArray(known) ? known.map((g) => g.name).filter(Boolean) : [];
+
+  // Priorite : ce que dit l'URL, puis la galaxie deja choisie, puis la premiere.
+  const wanted = galaxyFromUrl() || state.galaxy;
+  state.galaxy =
+    (wanted && state.galaxies.includes(wanted) && wanted) || state.galaxies[0] || wanted || null;
+
+  fillGalaxySelect($('#login-galaxy'));
+  fillGalaxySelect($('#pick-galaxy'));
+  syncUrl();
+}
+
+function fillGalaxySelect(select) {
+  if (!select) return;
+  if (!state.galaxies.length) {
+    select.innerHTML = '<option value="">Aucune galaxie</option>';
+    return;
+  }
+  select.innerHTML = state.galaxies
+    .map(
+      (name) =>
+        `<option value="${esc(name)}"${name === state.galaxy ? ' selected' : ''}>${esc(name)}</option>`
+    )
+    .join('');
+}
+
+/* Changer de galaxie relit les possessions : ce sont deux jeux de territoires
+   sans rapport, et rien de la galaxie precedente ne doit rester a l'ecran. */
+async function switchGalaxy(name) {
+  if (!name || name === state.galaxy) return;
+  state.galaxy = name;
+  state.territoryId = null;
+  state.territory = null;
+  syncUrl();
+  fillGalaxySelect($('#login-galaxy'));
+  fillGalaxySelect($('#pick-galaxy'));
+  if (state.user) await enterGame();
+}
+
+/* ============================================================
    navigation entre vues
    ============================================================ */
 
@@ -196,6 +281,11 @@ function initLogin() {
     btn.disabled = true;
     btn.textContent = 'Connexion…';
     try {
+      const chosen = $('#login-galaxy').value;
+      if (chosen) {
+        state.galaxy = chosen;
+        syncUrl();
+      }
       state.user = await api.login($('#login-user').value.trim(), $('#login-pass').value);
       $('#login-pass').value = '';
       await enterGame();
@@ -230,12 +320,13 @@ function renderPicker() {
   const list = $('#pick-list');
   $('#pick-sub').textContent = state.myTerritories.length
     ? 'Choisissez le territoire à administrer.'
-    : "Aucun territoire ne vous est attribué pour l'instant.";
+    : `Aucun territoire ne vous est attribué dans ${state.galaxy || 'cette galaxie'}.`;
 
   if (!state.myTerritories.length) {
     list.innerHTML = `<p class="empty">Aucun territoire attribué à ${esc(
       (state.user && state.user.username) || 'ce compte'
-    )}.<br>Réclamez une planète depuis le client de jeu, puis revenez ici.</p>
+    )} dans ${esc(state.galaxy || 'cette galaxie')}.<br>
+    Réclamez une planète depuis le client de jeu, ou choisissez une autre galaxie ci-contre.</p>
     <button class="menu-btn menu-btn--dgr" data-action="logout">Déconnexion <span class="kb">ESC</span></button>`;
     return;
   }
@@ -245,11 +336,23 @@ function renderPicker() {
       .map(
         (t, i) => `<button class="menu-btn" data-territory="${t.id}">
         ${esc(territoryLabel(t))}
-        <span class="kb">${esc((t.system && t.system.name) || `SYS ${t.system ? t.system.id : '—'}`)} · ${i + 1}</span>
+        <span class="kb">${esc(
+          [galaxyOf(t), (t.system && t.system.name) || `SYS ${t.system ? t.system.id : '—'}`]
+            .filter(Boolean)
+            .join(' · ')
+        )}</span>
       </button>`
       )
       .join('') +
     `<button class="menu-btn menu-btn--dgr" data-action="logout">Déconnexion <span class="kb">ESC</span></button>`;
+}
+
+/* Un territoire appartient a un systeme, qui appartient a une galaxie. Le
+   serveur remonte `galaxy_name` a la racine ; `system.galaxy` reste le repli
+   pour les charges utiles plus anciennes. */
+function galaxyOf(t) {
+  if (!t) return null;
+  return t.galaxy_name || (t.system && t.system.galaxy) || null;
 }
 
 function territoryLabel(t) {
@@ -260,8 +363,39 @@ function territoryLabel(t) {
 }
 
 function territorySubtitle(t) {
+  if (t.archetype_label) return t.archetype_label;
   const scheme = t.characteristics && t.characteristics.planeteScheme;
   return scheme ? humanize(scheme) : 'Territoire';
+}
+
+/* Le profil de gisements : le rendement réel de CE monde, archétype x veines.
+   C'est ce qui distingue deux planètes du même type. */
+function renderDeposits() {
+  const host = $('#terr-deposits');
+  const yields = (state.territory && state.territory.yields) || {};
+  const richness = (state.territory && state.territory.deposits) || {};
+  const entries = Object.entries(yields).sort((a, b) => b[1] - a[1]);
+
+  if (!entries.length) {
+    host.innerHTML = '<span>Aucun gisement exploitable sur ce monde.</span>';
+    return;
+  }
+
+  host.innerHTML =
+    '<span>Gisements</span>' +
+    entries
+      .map(([key, factor]) => {
+        const meta = RESOURCE_BY_KEY[key];
+        // Au-delà du plafond de tirage ordinaire (1.25), c'est une veine riche.
+        const rich = (richness[key] || 1) > 1.3;
+        return `<span style="--dep-accent:var(--res-${esc(key)})" title="${esc(
+          (meta && meta.label) || key
+        )}">
+        <b>${esc((meta && meta.label) || humanize(key))}</b>
+        <span class="${rich ? 'rich' : ''}">×${esc(factor.toFixed(2))}${rich ? ' veine riche' : ''}</span>
+      </span>`;
+      })
+      .join('');
 }
 
 /* ============================================================
@@ -335,11 +469,14 @@ function renderCommand() {
   const t = state.territory;
   if (!t) return;
 
+  // La galaxie surtitre le systeme : c'est la portee reelle du territoire.
+  $('#galaxy-name').textContent = galaxyOf(t) || 'Système';
   $('#sys-name').textContent = (t.system && t.system.name) || `Système ${t.system ? t.system.id : '—'}`;
   $('#terr-title').textContent = `${territoryLabel(t)} · ${territorySubtitle(t)}`;
   const updated = parseUtc(t.updated_at);
   $('#terr-updated').textContent = updated ? `MAJ ${updated.toLocaleTimeString('fr-FR')}` : '';
 
+  renderDeposits();
   renderResources();
   renderRail();
   renderTabs();
@@ -361,17 +498,35 @@ function hourlyGains() {
   return totals;
 }
 
+/* Douze ressources ne tiennent pas dans un bandeau lisible. On n'affiche un
+   matériau que si le monde en produit ou s'il en reste en stock : la barre
+   raconte alors ce qu'est la planète, au lieu d'aligner huit zéros. */
+function visibleResources() {
+  const res = (state.territory && state.territory.resources) || {};
+  const yields = (state.territory && state.territory.yields) || {};
+  return RESOURCES.filter(
+    (r) => !r.material || yields[r.key] > 0 || (res[r.key] || 0) > 0
+  );
+}
+
 function renderResources() {
   const res = (state.territory && state.territory.resources) || {};
+  const yields = (state.territory && state.territory.yields) || {};
   const gains = hourlyGains();
-  $('#res-grid').innerHTML = RESOURCES.map((r) => {
-    const delta = gains[r.key] || 0;
-    return `<div class="chip" style="--chip-accent:var(--res-${r.key})" title="${esc(r.label)}">
+  $('#res-grid').innerHTML = visibleResources()
+    .map((r) => {
+      const delta = gains[r.key] || 0;
+      const barren = r.material && !(yields[r.key] > 0);
+      const title = barren
+        ? `${r.label} — non extractible sur ce monde`
+        : r.label;
+      return `<div class="chip${barren ? ' chip--barren' : ''}" style="--chip-accent:var(--res-${r.key})" title="${esc(title)}">
       <span class="k">${r.code}</span>
       <span class="v">${esc(fmtNumber(res[r.key] || 0))}</span>
       ${delta ? `<span class="d${delta < 0 ? ' neg' : ''}">${esc(fmtDelta(delta))}/h</span>` : ''}
     </div>`;
-  }).join('');
+    })
+    .join('');
 }
 
 /* ---------- rail d'orbites ---------- */
@@ -687,6 +842,19 @@ function initEvents() {
     if (ev.target.closest('[data-action="logout"]')) logout();
   });
 
+  $('#login-galaxy').addEventListener('change', (ev) => {
+    state.galaxy = ev.target.value || null;
+    syncUrl();
+    fillGalaxySelect($('#pick-galaxy'));
+  });
+  $('#pick-galaxy').addEventListener('change', (ev) => switchGalaxy(ev.target.value));
+
+  // Retour arriere du navigateur : l'URL fait foi.
+  window.addEventListener('popstate', () => {
+    const wanted = galaxyFromUrl();
+    if (wanted && wanted !== state.galaxy) switchGalaxy(wanted);
+  });
+
   $('#btn-refresh').addEventListener('click', () => reloadTerritory(true));
   $('#btn-logout').addEventListener('click', () => logout());
   $('#btn-switch').addEventListener('click', () => {
@@ -702,7 +870,7 @@ function initEvents() {
 
 async function enterGame() {
   const [territories, catalog] = await Promise.all([
-    api.myTerritories().catch(() => []),
+    api.myTerritories(state.galaxy).catch(() => []),
     api.catalog().catch(() => ({ ships: [], defenses: [] })),
   ]);
   state.myTerritories = territories;
@@ -720,6 +888,10 @@ async function boot() {
   initTheme();
   initLogin();
   initEvents();
+
+  // Route publique : la liste des galaxies s'obtient avant toute connexion,
+  // ce qui permet de choisir la sienne sur l'ecran de login.
+  await loadGalaxies();
 
   try {
     state.user = await api.me();

@@ -81,7 +81,10 @@ class System(Base):
             from app.models.game.territory import Territory
 
             for i in range(nb_territories):
-                Territory.create(galaxy=galaxy, system_id=system.id, position_in_system=i + 1)
+                # La galaxie n'est pas passee au territoire : il la tient de son
+                # systeme. `Territory.create` n'a jamais accepte ce mot-cle, et
+                # la creation des territoires levait donc un TypeError.
+                Territory.create(system_id=system.id, position_in_system=i + 1)
         return system
 
     @property

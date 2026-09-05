@@ -67,6 +67,19 @@ export const api = {
   /* ---- galaxies ---- */
   galaxies: () => request('/api/galaxies'),
 
+  /* ---- reglages de galaxie ----
+     Lisibles par tout joueur : ils decident des durees et des rendements qu'il
+     a sous les yeux. `can_edit` dit s'il peut y toucher — moderateur de cette
+     galaxie, ou administrateur. La description des parametres vient du serveur
+     avec les valeurs : le formulaire se construit a partir d'elle. */
+  galaxySettings: (galaxy) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/settings`),
+  saveGalaxySettings: (galaxy, settings) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/settings`, {
+      method: 'POST',
+      body: { settings },
+    }),
+
   /* ---- territoires ---- */
   /* Un territoire appartient a un systeme, qui appartient a une galaxie : on
      lit donc la liste par galaxie. Sans galaxie choisie, on retombe sur la

@@ -14,9 +14,48 @@ from app.models.game.community.faction import FactionAdvantageScope
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.planet import PlanetArchetype
+from app.models.game.settings import GalaxySettings
 from app.models.game.ship import Ship, ShipType
 from app.models.game.system import System
 from logger import logger
+
+
+# ── Vivres, population et stabilite ───────────────────────────────────────────
+#
+# Trois grandeurs liees par une seule boucle, jouee a chaque `update_view` :
+#
+#   la ferme remplit la reserve de vivres  ->  la population mange  ->  si elle
+#   a mange a sa faim elle croit et le monde s'apaise ; sinon elle stagne et la
+#   stabilite descend, ce qui fait baisser toute la production du territoire.
+#
+# Les constantes sont ici, en clair, plutot que dispersees dans le calcul :
+# c'est la table de reglage du cycle de vie, et le seul endroit ou en changer
+# le rythme.
+
+#: Vivres consommes par habitant et par heure. 100 habitants mangent 5/h.
+FOOD_PER_POPULATION_HOUR = 0.05
+
+#: Croissance horaire d'une population bien nourrie et loin de sa limite.
+POPULATION_GROWTH_RATE = 0.02
+
+#: Population de reference quand le monde est vide : sans elle, une planete
+#: tombee a zero habitant ne repartirait jamais (0 x 2% = 0).
+POPULATION_SEED = 10
+
+STABILITY_MAX = 100
+STABILITY_MIN = 0
+
+#: Points de stabilite regagnes par heure sur un monde nourri.
+STABILITY_RECOVERY_HOUR = 2.0
+
+#: Points perdus par heure sur un monde totalement affame. Une famine partielle
+#: en perd d'autant moins qu'elle a mange.
+STABILITY_DECAY_HOUR = 5.0
+
+#: Part de la production encore assuree a stabilite nulle. Un monde en colere
+#: tourne au ralenti, il ne s'arrete pas : sinon rien ne pourrait plus le sortir
+#: de la.
+STABILITY_FLOOR_FACTOR = 0.5
 
 
 class ResourceType(enum.Enum):
@@ -34,6 +73,7 @@ class ResourceType(enum.Enum):
     # Produced by dedicated buildings, not by extraction.
     credits = "credits"
     energy = "energy"
+    food = "food"
     population = "population"
     tritium = "tritium"
 
@@ -54,7 +94,7 @@ class ResourceType(enum.Enum):
     @classmethod
     def stocks(cls):
         """Resources persisted as a column on the territory."""
-        return cls.materials() + [cls.credits, cls.population, cls.tritium]
+        return cls.materials() + [cls.credits, cls.food, cls.population, cls.tritium]
 
 
 class Territory(Base):
@@ -80,6 +120,15 @@ class Territory(Base):
     tritium = Column(Integer, default=100, nullable=False)
     population = Column(Integer, default=100, nullable=False)
 
+    # Reserve de vivres. Elle se remplit par la ferme et se vide a chaque heure
+    # vecue par la population : c'est la seule ressource qui se consomme toute
+    # seule, sans que le joueur ne construise quoi que ce soit.
+    food = Column(Integer, default=1000, nullable=False)
+
+    # Stabilite, de 0 a 100. Un monde nourri revient a 100 ; un monde affame y
+    # descend, et ce qu'il produit descend avec elle.
+    stability = Column(Integer, default=STABILITY_MAX, nullable=False)
+
     # Planet archetype: decides which materials can be extracted here.
     archetype = Column(Enum(PlanetArchetype), nullable=True)
     # Per-material richness drawn at creation: {"iron": 1.12, ...}
@@ -103,8 +152,11 @@ class Territory(Base):
     )
     user = relationship("User", back_populates="territories")
 
-    #: Resources that accrue over time. Population has no producer yet.
-    PRODUCED_RESOURCES = ResourceType.materials() + [ResourceType.credits, ResourceType.tritium]
+    #: Resources that accrue over time from buildings. La population n'y figure
+    #: pas : elle ne sort d'aucun batiment, elle croit d'elle-meme tant qu'elle
+    #: mange — voir `_run_life_cycle`.
+    PRODUCED_RESOURCES = ResourceType.materials() + [
+        ResourceType.credits, ResourceType.food, ResourceType.tritium]
 
     def __init__(self, system, position_in_system, characteristics={}, archetype=None):
         self.system_id = system.id
@@ -226,38 +278,88 @@ class Territory(Base):
         :return:
         """
         self.user_id = user.id
+        # La relation, et pas seulement la cle : `population_capacity` lit la
+        # production, qui lit la faction du joueur. Renseignee ici, elle est
+        # disponible tout de suite ; laissee a la cle seule, elle ne le serait
+        # qu'apres un flush.
+        self.user = user
+
+        # Le stock de depart est celui du monde au moment ou on s'y installe :
+        # les colonnes portent des valeurs par defaut, la galaxie decide de leur
+        # echelle. Applique ici plutot qu'a la creation du territoire, parce
+        # qu'un monde inhabite n'a pas de stock de depart — il a un stock.
+        multiplier = GalaxySettings.value(self.galaxy_name, 'starting_resources_multiplier')
+        if multiplier != 1.0:
+            for resource in ResourceType.stocks():
+                held = getattr(self, resource.name, 0) or 0
+                setattr(self, resource.name, int(round(held * multiplier)))
+
+        # Un monde ne commence pas en famine. La population de depart est la
+        # meme partout, le plafond non : sur un caillou irradie elle serait
+        # affamee des la premiere heure, et le monde serait ingouvernable avant
+        # d'avoir servi. On s'y installe donc a la mesure de ce qu'il porte —
+        # un avant-poste sur un caillou, une colonie sur un monde tempere.
+        capacity = self.population_capacity
+        if 0 < capacity < (self.population or 0):
+            self.population = capacity
 
     def update_view(self):
         """
-        Update the last viewing of object increasing its resource using a diff between now and previous state
-        This will unstack the events system on territory concerned and generate a diff between each events finishes
+        Rattraper le temps ecoule depuis la derniere vue du territoire.
         ---
-        :return:
+        Le rattrapage est chronologique, et il doit l'etre : chaque chantier
+        termine change ce que le territoire produit, donc decoupe la periode en
+        tranches ou la production n'est pas la meme. On avance de chantier en
+        chantier, en creditant la tranche qui le precede aux niveaux d'alors,
+        puis on monte le batiment. La derniere tranche va jusqu'a maintenant,
+        aux niveaux courants.
+
+        La borne de depart est lue une fois, au tout debut : `updated_at` porte
+        un `onupdate`, et le moindre commit intermediaire la ramenerait a
+        maintenant. La periode a rattraper se refermait alors sur elle-meme au
+        milieu du calcul, et le rattrapage dependait de si la ligne etait sale.
         """
         logger.info(f"Updating territory {self.id} view")
         if not self.user_id:
             return
         now = datetime.utcnow()
-        resource_building = (
-            BuildingType.mater_extractor,
-            BuildingType.economical_center,
-            BuildingType.rafinery
-        )
-        for event_detail in self.territory_events:
-            event = event_detail
-            if event.finishing_at <= now:
-                # first apply buildings and tech modifications
-                # generate diff of resource from previous building level to new finished
-                self._apply_modification(event=event)
+        credited_until = self.updated_at
 
-            elif event.event_type in (PositionalEventType.defense, PositionalEventType.ship):
+        # Du plus ancien au plus recent : l'ordre de la relation ne dit rien de
+        # l'ordre des fins de chantier, et deux niveaux rattrapes a l'envers ne
+        # produisent pas la meme chose.
+        finished = sorted(
+            (e for e in self.territory_events if e.finishing_at <= now),
+            key=lambda e: e.finishing_at
+        )
+
+        elapsed = 0.0
+        for event in finished:
+            # La tranche qui precede le chantier, aux niveaux d'avant lui.
+            elapsed += self._credit_production(since=credited_until, until=event.finishing_at)
+            credited_until = event.finishing_at
+
+            # Puis le chantier : c'est ici que le niveau monte.
+            self._apply_modification(event=event)
+            event.archive()
+
+            # TODO other events ...
+
+        for event in self.territory_events:
+            if event.finishing_at <= now:
+                continue
+            if event.event_type in (PositionalEventType.defense, PositionalEventType.ship):
                 # apply all def / ships increase
                 duration_for_one = event.extra_args.get("unitaryDuration")
                 quantity = event.extra_args.get("quantity")
                 last_refresh = event.extra_args.get("lastRefresh", event.created_at)
                 if type(last_refresh) == str:
                     last_refresh = datetime.fromisoformat(last_refresh)
-                quantity_builded = math.floor(min(quantity, (now - last_refresh).seconds / duration_for_one))
+                # `total_seconds()` et non `.seconds` : ce dernier ne rend que le
+                # reste au-dela des journees entieres, et une commande laissee
+                # deux jours ne sortait donc rien de ces deux jours.
+                built_for = max(0.0, (now - last_refresh).total_seconds())
+                quantity_builded = math.floor(min(quantity, built_for / duration_for_one))
                 extra_args = event.extra_args
                 # left quantity
                 extra_args["quantity"] = quantity - quantity_builded
@@ -265,47 +367,71 @@ class Territory(Base):
                 event.extra_args = extra_args
 
                 if quantity_builded >= 1:
-                    # generate diff of resource from previous building level to new finished
                     self._apply_modification(event=event, amount=quantity_builded)
-            
-            if event.finishing_at <= now:
-                # Archive the event if finished
-                event.archive()
 
-                # TODO other events ...
+        # La derniere tranche, aux niveaux atteints apres tous les chantiers.
+        elapsed += self._credit_production(since=credited_until, until=now)
+
+        # Apres la production, et pas avant : la recolte de la periode ecoulee
+        # est disponible pour la nourrir. L'ordre inverse affamerait un monde
+        # dont les fermes suffisent pourtant tout juste.
+        self._run_life_cycle(hours=elapsed)
+
+        logger.info(f"Territory {self.id} caught up", infos=dict(
+            time_elapsed=elapsed,
+            events_applied=len(finished),
+            user_id=self.user_id,
+            food=self.food,
+            population=self.population,
+            stability=self.stability,
+        ))
         db.session.commit()
-        time_elapsed = (datetime.utcnow() - self.updated_at).seconds / 60 / 60  # in hours
-        increased_resources = {}
 
+    def _credit_production(self, since, until):
+        """
+        Crediter la production des batiments entre deux instants.
+        ---
+        Aux niveaux courants : c'est a l'appelant de decouper la periode aux
+        moments ou ces niveaux changent.
+
+        `total_seconds()` et non `.seconds` : un `timedelta` range les journees
+        a part, et `.seconds` n'est que le reste. Une absence de trois jours
+        rendait zero heure, une de vingt-cinq heures en rendait une. Une borne a
+        l'envers — horloge qui recule, chantier anterieur a la derniere vue — ne
+        retire rien non plus : elle ne credite rien.
+
+        :return: les heures effectivement creditees
+        """
+        hours = max(0.0, (until - since).total_seconds()) / 3600.0
+        if hours <= 0:
+            return 0.0
+
+        increased_resources = {}
         for r in self.PRODUCED_RESOURCES:
-            increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
+            increased_resources[r] = self.get_hourly_gain(resource_type=r) * hours
             setattr(self, r.name, (getattr(self, r.name) or 0) + increased_resources[r])
 
         logger.info(f"Resources increased for territory {self.id}", infos=dict(
             increased_resources=increased_resources,
-            time_elapsed=time_elapsed,
+            time_elapsed=hours,
             user_id=self.user_id,
         ))
-        db.session.commit()
+        return hours
 
     def _apply_modification(self, event, amount=1):
-        resource_building = (
-            BuildingType.mater_extractor,
-            BuildingType.economical_center,
-            BuildingType.rafinery
-        )
+        """
+        Appliquer un chantier : monter le batiment, livrer les unites.
+        ---
+        Ne credite aucune production. C'est `update_view` qui tient la
+        chronologie, et lui seul sait quelle tranche de temps se joue a quels
+        niveaux. Cette methode le faisait aussi, sur
+        `(updated_at - finishing_at)` : une soustraction a l'envers, dont
+        `.seconds` rendait le complement a vingt-quatre heures. Un batiment
+        termine une heure apres la derniere vue offrait ainsi vingt-trois heures
+        de production, en plus de la periode deja creditee par ailleurs.
+        """
         if event.event_type == PositionalEventType.building:
             building_type = BuildingType.get_by_name(event.extra_args['name'])
-            if building_type in resource_building:
-                # There is an event on resource triggered before actual refresh
-                time_elapsed = (self.updated_at - event.finishing_at).seconds / 60 / 60  # in hours
-                increased_resources = {}
-
-                for r in self.PRODUCED_RESOURCES:
-                    increased_resources[r] = self.get_hourly_gain(resource_type=r) * time_elapsed
-                    setattr(self, r.name, (getattr(self, r.name) or 0) + increased_resources[r])
-
-            # apply_modification_building
             self.add(type=building_type, amount=amount)
         elif event.event_type in (PositionalEventType.ship, PositionalEventType.defense):
             if event.event_type == PositionalEventType.defense:
@@ -313,6 +439,157 @@ class Territory(Base):
             elif event.event_type == PositionalEventType.ship:
                 el_type = ShipType.get_by_name(event.extra_args['name'])
             self.add(type=el_type, amount=amount)
+
+    def _run_life_cycle(self, hours):
+        """
+        Faire manger la population, la faire croitre, et regler la stabilite.
+        ---
+        Une seule passe, jouee sur les heures ecoulees depuis la derniere vue du
+        territoire. Trois effets, dans cet ordre, parce que chacun depend du
+        precedent :
+
+          · on prend dans la reserve ce que la population reclame. Si la reserve
+            ne suffit pas, on prend tout ce qu'il y a et le reste est une famine ;
+          · une population rassasiee croit vers ce que les fermes peuvent
+            nourrir, une population affamee stagne — elle ne meurt pas, la
+            famine se paie en stabilite, pas en habitants ;
+          · la stabilite remonte vers 100 quand on mange, descend quand on jeune,
+            d'autant plus vite que la disette est severe.
+
+        :param hours: heures ecoulees, en flottant
+        """
+        if hours <= 0:
+            return
+
+        needed = self.food_upkeep * hours
+        available = max(0.0, float(self.food or 0))
+        eaten = min(needed, available)
+        # Laisse le flottant tel quel, comme le fait la boucle de production
+        # juste au-dessus : c'est la colonne Integer qui tronque a l'ecriture.
+        # Arrondir ici ferait disparaitre les fractions d'un tour trop court.
+        self.food = available - eaten
+
+        # Sans bouche a nourrir il n'y a pas de famine : un monde vide est
+        # parfaitement stable, il n'est simplement pas peuple.
+        fed = 1.0 if needed <= 0 else eaten / needed
+
+        stability = float(self.stability if self.stability is not None else STABILITY_MAX)
+
+        if fed >= 1.0:
+            self._grow_population(hours=hours)
+            self.stability = min(STABILITY_MAX, stability + STABILITY_RECOVERY_HOUR * hours)
+        else:
+            # La population stagne : aucune croissance n'est appliquee ici. La
+            # famine se paie en stabilite, jamais en habitants.
+            self.stability = max(
+                STABILITY_MIN, stability - STABILITY_DECAY_HOUR * (1.0 - fed) * hours)
+
+    def _grow_population(self, hours):
+        """
+        Croissance logistique vers ce que les fermes savent nourrir.
+        ---
+        La limite n'est pas un chiffre pose a la main : c'est exactement le
+        nombre d'habitants que la recolte horaire couvre. Construire une ferme
+        est donc la seule facon de faire monter une population — et une planete
+        sterile n'en portera jamais beaucoup, quel que soit son niveau
+        d'equipement.
+        """
+        capacity = self.population_capacity
+        population = float(self.population or 0)
+        if capacity <= 0 or population >= capacity:
+            return
+
+        # POPULATION_SEED tient lieu de plancher : une planete repeuplee a zero
+        # doit pouvoir repartir, or 0 x taux vaut 0.
+        base = max(population, POPULATION_SEED)
+        growth = POPULATION_GROWTH_RATE * base * (1.0 - population / capacity) * hours
+        self.population = min(float(capacity), population + growth)
+
+    @property
+    def food_upkeep(self):
+        """Vivres consommes par heure par la population en place."""
+        return (self.population or 0) * FOOD_PER_POPULATION_HOUR
+
+    @property
+    def population_capacity(self):
+        """
+        Habitants que ce monde peut porter.
+        ---
+        Ce que la recolte horaire nourrit, corrige par l'habitabilite.
+
+        L'habitabilite joue donc deux fois : une premiere sur ce que la ferme
+        sort du sol, une seconde ici. C'est voulu. Sans la seconde, un monde
+        accueillant ne serait qu'un monde qui recolte un peu plus, et l'ecart
+        entre une planete temperee et un caillou irradie ne se verrait pas —
+        or c'est precisement ce que le joueur choisit quand il colonise.
+
+        Zero pour un monde sans proprietaire : la production depend du joueur
+        (sa faction notamment), et un monde inhabite n'en a pas.
+        """
+        if not self.user_id or not FOOD_PER_POPULATION_HOUR:
+            return 0
+        harvest = self.get_hourly_gain(resource_type=ResourceType.food)
+        fed = harvest / FOOD_PER_POPULATION_HOUR
+        return int(fed * self.planet_archetype.habitability_factor)
+
+    @property
+    def population_growth(self):
+        """
+        Croissance horaire annoncee au joueur, zero pendant une famine.
+        ---
+        Meme formule que `_grow_population`, sur une heure : c'est ce que le
+        client affiche a cote de la population, et il ne doit pas promettre une
+        croissance que le prochain tour ne rendra pas.
+        """
+        if not self.user_id or self.is_starving:
+            return 0.0
+        capacity = self.population_capacity
+        population = float(self.population or 0)
+        if capacity <= 0 or population >= capacity:
+            return 0.0
+        base = max(population, POPULATION_SEED)
+        return POPULATION_GROWTH_RATE * base * (1.0 - population / capacity)
+
+    @property
+    def food_balance(self):
+        """Solde horaire de vivres : recolte moins consommation."""
+        if not self.user_id:
+            return 0.0
+        return self.get_hourly_gain(resource_type=ResourceType.food) - self.food_upkeep
+
+    @property
+    def is_starving(self):
+        """
+        La reserve est vide et la recolte ne couvre pas les besoins.
+
+        C'est l'etat que le joueur doit voir venir : population figee, stabilite
+        qui descend, production qui suit.
+        """
+        return (self.food or 0) <= 0 and self.food_balance < 0
+
+    @property
+    def stability_score(self):
+        """
+        Stabilite affichable : un entier de 0 a 100.
+
+        La colonne porte un flottant entre deux ecritures — le tour de jeu y
+        ajoute des fractions d'heure — et un client qui attend un entier ne
+        saurait pas quoi en faire.
+        """
+        stability = self.stability if self.stability is not None else STABILITY_MAX
+        return int(max(STABILITY_MIN, min(STABILITY_MAX, stability)))
+
+    @property
+    def stability_factor(self):
+        """
+        Ce que la stabilite laisse de la production, entre STABILITY_FLOOR_FACTOR
+        et 1.0.
+
+        Un monde a 100 produit exactement ce qu'il produisait avant que la
+        stabilite existe : les territoires deja en jeu ne perdent rien.
+        """
+        return STABILITY_FLOOR_FACTOR + (1.0 - STABILITY_FLOOR_FACTOR) * (
+            self.stability_score / float(STABILITY_MAX))
 
     def get_building(self, building_type):
         """
@@ -426,7 +703,11 @@ class Territory(Base):
         if not self.match_prerequisite(element.cost):
             raise ValueError(f"Cannot build {item['quantity']} {element.name}. Prerequisites not reached.")
 
-        unitary_duration = element.duration(shipyard=shipyard)
+        # Meme acceleration que les batiments : ce sont des chantiers du meme
+        # territoire, et les separer donnerait une galaxie rapide sur ses
+        # batiments et lente sur ses flottes.
+        unitary_duration = element.duration(shipyard=shipyard) / GalaxySettings.value(
+            self.galaxy_name, 'build_time_divider')
         return PositionalEvent.create(
             territory=self,
             user=self.user,
@@ -519,8 +800,26 @@ class Territory(Base):
             # extraction multiplier actually applied (archetype x richness).
             'deposits': self.deposit_richness,
             'yields': self.material_yields,
-            'resources': {
-                k.name: v for k, v in self.resources.items()
-            },
+            'resources': dict(
+                {k.name: v for k, v in self.resources.items()},
+                # La stabilite voyage avec les ressources parce que le client
+                # l'affiche a cote d'elles, mais elle ne s'echange ni ne se
+                # depense : elle n'est pas un `ResourceType`.
+                stability=self.stability_score,
+            ),
+            # Ce que la population prend chaque heure, en face de ce que les
+            # batiments rendent. Sans ca le client afficherait une recolte brute
+            # et le joueur ne comprendrait pas pourquoi sa reserve fond.
+            'upkeep': {ResourceType.food.name: self.food_upkeep},
+            'stability': self.stability_score,
+            # Le profil du monde : ce que le joueur lit pour juger une
+            # planete avant de s'y installer. Des nombres, pas des phrases —
+            # les libelles sont au client, les regles au serveur.
+            'habitability': self.planet_archetype.habitability,
+            'habitability_factor': self.planet_archetype.habitability_factor,
+            'energy_factor': self.planet_archetype.energy_factor,
+            'population_capacity': self.population_capacity,
+            'population_growth': self.population_growth,
+            'starving': self.is_starving,
             'updated_at': self.updated_at.isoformat(),
         }

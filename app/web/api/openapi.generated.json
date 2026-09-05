@@ -431,6 +431,179 @@
         ]
       }
     },
+    "/api/galaxy/{name}/free-system": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/galaxy/{name}/free-system"
+      }
+    },
+    "/api/galaxy/{name}/settings": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "can_edit": {},
+                    "defaults": {},
+                    "galaxy_name": {},
+                    "moderators": {},
+                    "overrides": {},
+                    "parameters": {},
+                    "settings": {},
+                    "updated_at": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "settings",
+                    "defaults",
+                    "overrides",
+                    "parameters",
+                    "can_edit",
+                    "moderators",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/galaxy/{name}/settings"
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "can_edit": {
+                      "type": "boolean"
+                    },
+                    "defaults": {},
+                    "galaxy_name": {},
+                    "moderators": {},
+                    "parameters": {},
+                    "settings": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "settings",
+                    "defaults",
+                    "parameters",
+                    "can_edit",
+                    "moderators"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /api/galaxy/{name}/settings"
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "can_edit": {
+                      "type": "boolean"
+                    },
+                    "defaults": {},
+                    "galaxy_name": {},
+                    "moderators": {},
+                    "parameters": {},
+                    "settings": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "settings",
+                    "defaults",
+                    "parameters",
+                    "can_edit",
+                    "moderators"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "PUT /api/galaxy/{name}/settings"
+      }
+    },
     "/api/galaxy/{name}/systems": {
       "get": {
         "parameters": [
@@ -477,6 +650,41 @@
         "tags": [
           "Galaxy"
         ]
+      }
+    },
+    "/api/galaxy/{name}/territories": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "galaxy_name": {},
+                    "territories": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "territories"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/galaxy/{name}/territories"
       }
     },
     "/api/mon/ping": {
@@ -827,22 +1035,32 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "archetype": {},
+                    "archetype_label": {},
                     "buildings": {},
                     "characteristics": {},
+                    "deposits": {},
+                    "galaxy_name": {},
                     "id": {},
                     "name": {},
                     "position": {},
                     "resources": {},
                     "system": {},
-                    "updated_at": {}
+                    "updated_at": {},
+                    "yields": {}
                   },
                   "required": [
                     "id",
                     "name",
                     "position",
+                    "galaxy_name",
                     "system",
                     "buildings",
                     "characteristics",
+                    "archetype",
+                    "archetype_label",
+                    "deposits",
+                    "yields",
                     "resources",
                     "updated_at"
                   ],
@@ -881,6 +1099,43 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "archetype": {},
+                    "archetype_label": {},
+                    "buildings": {},
+                    "characteristics": {},
+                    "deposits": {},
+                    "galaxy_name": {},
+                    "id": {},
+                    "name": {},
+                    "position": {},
+                    "resources": {},
+                    "system": {},
+                    "updated_at": {},
+                    "yields": {}
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "position",
+                    "galaxy_name",
+                    "system",
+                    "buildings",
+                    "characteristics",
+                    "archetype",
+                    "archetype_label",
+                    "deposits",
+                    "yields",
+                    "resources",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
             "description": "Assigned territory"
           },
           "401": {
@@ -914,22 +1169,32 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "archetype": {},
+                    "archetype_label": {},
                     "buildings": {},
                     "characteristics": {},
+                    "deposits": {},
+                    "galaxy_name": {},
                     "id": {},
                     "name": {},
                     "position": {},
                     "resources": {},
                     "system": {},
-                    "updated_at": {}
+                    "updated_at": {},
+                    "yields": {}
                   },
                   "required": [
                     "id",
                     "name",
                     "position",
+                    "galaxy_name",
                     "system",
                     "buildings",
                     "characteristics",
+                    "archetype",
+                    "archetype_label",
+                    "deposits",
+                    "yields",
                     "resources",
                     "updated_at"
                   ],
@@ -991,6 +1256,26 @@
         "tags": [
           "Territories"
         ]
+      }
+    },
+    "/api/territory/{territory_id}/defenses": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "territory_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/territory/{territory_id}/defenses"
       }
     },
     "/api/territory/{territory_id}/events": {
@@ -1117,22 +1402,32 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "archetype": {},
+                    "archetype_label": {},
                     "buildings": {},
                     "characteristics": {},
+                    "deposits": {},
+                    "galaxy_name": {},
                     "id": {},
                     "name": {},
                     "position": {},
                     "resources": {},
                     "system": {},
-                    "updated_at": {}
+                    "updated_at": {},
+                    "yields": {}
                   },
                   "required": [
                     "id",
                     "name",
                     "position",
+                    "galaxy_name",
                     "system",
                     "buildings",
                     "characteristics",
+                    "archetype",
+                    "archetype_label",
+                    "deposits",
+                    "yields",
                     "resources",
                     "updated_at"
                   ],

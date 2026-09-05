@@ -257,6 +257,34 @@ button{font:inherit;color:inherit}
 .toast.err{border-left-color:var(--bad);color:var(--bad-fg)}
 .toast .ov{margin-bottom:2px}
 
+/* ---------- moderation de galaxie ----------
+   Un formulaire de reglages, pas un tableau de bord : une ligne par parametre,
+   son explication au-dessus du champ, ses bornes a cote. Le champ desactive est
+   le mode lecture — un joueur non moderateur voit a quel rythme il joue sans
+   pouvoir y toucher. */
+.mod-intro{color:var(--fg-dim);font-size:12.5px;margin:0 0 var(--sp-3);max-width:70ch}
+.mod-field{padding:12px 0;border-bottom:1px solid var(--rule)}
+.mod-field:last-child{border-bottom:none}
+.mod-field__head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.mod-field__head label{
+  font-family:var(--f-disp);font-size:13px;font-weight:700;color:var(--fg-hi);
+}
+.mod-field__help{color:var(--fg-dim);font-size:12px;margin:4px 0 8px;max-width:80ch}
+.mod-field__row{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.mod-field__row input[type=number]{
+  width:120px;height:38px;padding:0 12px;
+  background:var(--ico-bg);color:var(--fg-hi);
+  border:var(--bw) solid var(--bc);border-radius:var(--r);
+  font-family:var(--f-num);font-size:13px;
+}
+.mod-field__row input:focus{border-color:var(--acc);outline:none;box-shadow:var(--glow)}
+.mod-field__row input:disabled{opacity:.55;cursor:not-allowed}
+.mod-field__bounds,.mod-field__state{
+  font-family:var(--f-num);font-size:10.5px;color:var(--fg-dim);
+  letter-spacing:.08em;text-transform:uppercase;
+}
+.mod-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-4)}
+
 /* ---------- etats ---------- */
 .empty{padding:26px;text-align:center;color:var(--fg-dim);font-size:12.5px}
 .loading{color:var(--fg-dim);font-size:11px;font-family:var(--f-num);letter-spacing:.1em;text-transform:uppercase}

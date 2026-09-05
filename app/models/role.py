@@ -44,6 +44,10 @@ class Role(Base):
         data = {
             'user_id': self.user_id,
             'type': self.role_type,
+            # La portee dit ou le role vaut : '*' partout, sinon le nom d'une
+            # galaxie. Sans elle, un client ne pouvait pas savoir de quelle
+            # partie un moderateur est moderateur.
+            'scope': self.scope,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'deleted_at': self.created_at.isoformat() if self.created_at else None

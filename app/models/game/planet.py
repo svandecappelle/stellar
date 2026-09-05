@@ -64,6 +64,12 @@ DEPOSIT_MAX = 1.25
 RICH_VEIN_CHANCE = 0.12
 RICH_VEIN_FACTOR = 2.0
 
+#: Habitabilite d'un monde de reference, celui qui ne donne ni bonus ni malus.
+#: Aucun archetype ne s'y trouve exactement : c'est un etalon, pas une moyenne.
+#: Le deplacer rend toute la galaxie plus accueillante ou plus hostile d'un
+#: coup, sans toucher au classement des archetypes entre eux.
+HABITABILITY_NEUTRAL = 50
+
 
 class PlanetArchetype(enum.Enum):
     """
@@ -78,54 +84,63 @@ class PlanetArchetype(enum.Enum):
         'weight': 22,
         'yields': {'iron': 1.4, 'carbon': 0.9, 'silicium': 0.8, 'titanium': 0.7, 'cristal': 0.4},
         'energy_factor': 1.0,
+        'habitability': 60,
     }
     volcanic = {
         'label': 'Volcanique',
         'weight': 12,
         'yields': {'iron': 1.8, 'titanium': 1.1, 'silicium': 0.5},
         'energy_factor': 1.25,
+        'habitability': 25,
     }
     oceanic = {
         'label': 'Océanique',
         'weight': 12,
         'yields': {'carbon': 1.7, 'silicium': 0.9, 'iron': 0.5},
         'energy_factor': 1.0,
+        'habitability': 80,
     }
     desert = {
         'label': 'Désertique',
         'weight': 12,
         'yields': {'silicium': 1.9, 'cristal': 0.6, 'iron': 0.7},
         'energy_factor': 1.1,
+        'habitability': 30,
     }
     ice = {
         'label': 'Glacée',
         'weight': 11,
         'yields': {'hydrogen': 1.3, 'carbon': 1.0, 'iron': 0.4},
         'energy_factor': 0.9,
+        'habitability': 20,
     }
     gas_giant = {
         'label': 'Géante gazeuse',
         'weight': 14,
         'yields': {'hydrogen': 2.6},
         'energy_factor': 1.0,
+        'habitability': 8,
     }
     asteroid = {
         'label': 'Astéroïde',
         'weight': 9,
         'yields': {'titanium': 1.6, 'iron': 1.5, 'uranium': 0.5, 'cristal': 0.5},
         'energy_factor': 0.8,
+        'habitability': 5,
     }
     irradiated = {
         'label': 'Irradiée',
         'weight': 7,
         'yields': {'uranium': 1.9, 'iron': 0.9},
         'energy_factor': 1.1,
+        'habitability': 13,
     }
     anomaly = {
         'label': 'Anomalie',
         'weight': 1,
         'yields': {'neutronium': 0.6, 'cristal': 1.0, 'titanium': 0.7},
         'energy_factor': 1.0,
+        'habitability': 25,
     }
 
     def __str__(self):
@@ -147,6 +162,28 @@ class PlanetArchetype(enum.Enum):
     @property
     def energy_factor(self):
         return self.value.get('energy_factor', 1.0)
+
+    @property
+    def habitability(self):
+        """
+        A quel point ce monde se laisse habiter, en pourcentage.
+
+        C'est le seul chiffre que le joueur ait a lire pour juger un monde, et
+        celui d'ou sortent les deux effets : ce que la ferme y recolte, et
+        combien d'habitants une meme recolte y fait vivre.
+        """
+        return self.value.get('habitability', HABITABILITY_NEUTRAL)
+
+    @property
+    def habitability_factor(self):
+        """
+        Multiplicateur tire de l'habitabilite, 1.0 pour un monde de reference.
+
+        Au-dessus de HABITABILITY_NEUTRAL c'est un bonus, en dessous un malus :
+        le joueur doit pouvoir lire le pourcentage comme un avantage ou un
+        handicap, pas comme une penalite dans tous les cas.
+        """
+        return self.habitability / float(HABITABILITY_NEUTRAL)
 
     def produces(self, material):
         return material in self.value['yields']
@@ -211,6 +248,8 @@ class PlanetArchetype(enum.Enum):
                 'weight': a.value['weight'],
                 'yields': a.yields,
                 'energy_factor': a.energy_factor,
+                'habitability': a.habitability,
+                'habitability_factor': a.habitability_factor,
             }
             for a in cls
         ]

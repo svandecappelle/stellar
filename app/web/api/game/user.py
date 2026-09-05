@@ -36,12 +36,17 @@ def affect_first_territory(id):
     """
     user = current_user.get()
 
-    if user.territories:
-        raise ConflictError("User already has a territory")
-
     territory = Territory.get(id=id)
     if not territory:
         raise NotFoundError("Territory does not exist")
+
+    # Un monde de depart par galaxie, pas un pour toute la partie : un joueur
+    # installe ailleurs arrive ici sans rien posseder dans celle-ci, et le
+    # refus global lui interdisait de s'installer une seconde fois.
+    galaxy_name = territory.galaxy_name
+    if any(t.galaxy_name == galaxy_name for t in user.territories):
+        raise ConflictError("User already has a territory in this galaxy")
+
     if territory.user_id:
         raise ConflictError("Territory already has an owner")
     if territory.planet_archetype != PlanetArchetype.telluric:
@@ -51,7 +56,9 @@ def affect_first_territory(id):
 
     territory.assign(user=user)
     db.session.commit()
-    return user.territories[0]
+    # Celui qu'on vient d'attribuer, pas le premier de la liste : le joueur
+    # peut deja tenir un monde dans une autre galaxie.
+    return territory
 
 @app.route('/api/territories', methods=['GET'])
 @login_required

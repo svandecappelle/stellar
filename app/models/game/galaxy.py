@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 from app.models.base import Base
+from app.models.game.settings import GalaxySettings
 from sqlalchemy import Column, Integer, VARCHAR, DateTime, ForeignKey, String
 from sqlalchemy.orm import relationship
 
@@ -17,6 +18,10 @@ class Galaxy(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     systems = relationship("System")
+
+    #: Reglages de jeu de cette galaxie, absents tant que rien n'a ete change.
+    #: Voir `GalaxySettings`, qui rend les defauts quand la ligne manque.
+    settings = relationship("GalaxySettings", uselist=False)
 
     def __init__(self, name, sector_number=10, properties: dict=None):
         self.name = name

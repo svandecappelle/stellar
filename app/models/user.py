@@ -73,6 +73,38 @@ class User(Base):
         role = Role.create(user=self, role_type=role_type, scope=scope)
         self.roles.append(role)
 
+    def has_role(self, role_type, scope=None):
+        """
+        Ce joueur porte-t-il ce role, ici ?
+        ---
+        :param role_type: RoleType attendu
+        :param scope: portee demandee — un nom de galaxie, ou None pour « ou que
+                      ce soit ». Un role de portee '*' vaut partout : c'est
+                      ainsi qu'est pose le role d'administrateur.
+        """
+        for role in self.roles:
+            if role.deleted_at is not None:
+                continue
+            if role.role_type != role_type.value:
+                continue
+            if role.scope == "*" or scope is None or role.scope == scope:
+                return True
+        return False
+
+    def moderates(self, galaxy_name):
+        """
+        Peut-il regler cette galaxie ?
+        ---
+        Le createur de la galaxie en est moderateur ; un administrateur les
+        modere toutes, sa portee etant '*'.
+        """
+        from app.models.role import RoleType
+
+        return (
+            self.has_role(RoleType.admin)
+            or self.has_role(RoleType.moderator, scope=galaxy_name)
+        )
+
     def affect_faction(self, faction):
         """
         ---

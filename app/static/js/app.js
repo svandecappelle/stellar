@@ -30,6 +30,7 @@ const RESOURCES = [
   { key: 'neutronium', code: 'NE', label: 'Neutronium', material: true },
   { key: 'credits', code: 'CR', label: 'Crédits' },
   { key: 'energy', code: 'EN', label: 'Énergie' },
+  { key: 'food', code: 'FD', label: 'Nourriture' },
   { key: 'population', code: 'PO', label: 'Population' },
   { key: 'tritium', code: 'TR', label: 'Tritium' },
 ];
@@ -47,6 +48,9 @@ const BUILDING_DESC = {
   factory: 'Usine planétaire. Réduit la durée de toutes les constructions du territoire.',
   shipyard: "Complexe de construction spatiale. Débloque l'assemblage des vaisseaux et des défenses.",
   academy: 'Académie de recherche. Prérequis des programmes technologiques avancés.',
+  farm: "Ferme planetaire. Seule source de nourriture, et la nourriture est ce qui fait "
+    + "croitre la population : reserve vide, la croissance s'arrete et la stabilite "
+    + "descend. Son rendement depend de la fertilite du monde.",
 };
 
 /* ---------- état ---------- */
@@ -66,6 +70,9 @@ const state = {
      a une galaxie : tout ce qu'on liste en decoule. */
   galaxy: null,
   galaxies: [],
+  /* Reglages de la galaxie courante et droit d'y toucher, tels que le serveur
+     les rend. Relus a chaque changement de galaxie. */
+  moderation: null,
 };
 
 let tickTimer = null;
@@ -262,10 +269,177 @@ async function switchGalaxy(name) {
    ============================================================ */
 
 function showView(name) {
-  ['login', 'pick', 'command'].forEach((v) => {
+  ['login', 'pick', 'command', 'moderation'].forEach((v) => {
     $(`#view-${v}`).classList.toggle('hidden', v !== name);
   });
   if (name !== 'command') stopTimers();
+}
+
+/* ============================================================
+   modération de galaxie
+
+   Les réglages décident des durées et des rendements : tout joueur peut les
+   lire, seul un modérateur de la galaxie peut les changer. La vue n'affiche
+   donc pas un formulaire au hasard — elle affiche celui que le serveur décrit,
+   bornes comprises, et se met en lecture seule quand `can_edit` est faux.
+   ============================================================ */
+
+/* Relu à chaque changement de galaxie : le droit de modérer se porte sur une
+   galaxie, pas sur un compte. */
+async function refreshModeration() {
+  state.moderation = null;
+  if (!state.galaxy) {
+    applyModerationAccess();
+    return;
+  }
+
+  try {
+    state.moderation = await api.galaxySettings(state.galaxy);
+  } catch (e) {
+    /* Réglages illisibles : la partie reste jouable, le bouton reste caché. */
+    state.moderation = null;
+  }
+  applyModerationAccess();
+}
+
+function applyModerationAccess() {
+  const allowed = !!(state.moderation && state.moderation.can_edit);
+  ['#btn-moderation', '#pick-moderation'].forEach((sel) => {
+    const el = $(sel);
+    if (el) el.classList.toggle('hidden', !allowed);
+  });
+}
+
+async function openModeration() {
+  if (!state.galaxy) return;
+
+  stopTimers();
+  showView('moderation');
+  $('#mod-error').classList.add('hidden');
+  $('#mod-fields').innerHTML = '<p class="empty">Chargement…</p>';
+
+  try {
+    state.moderation = await api.galaxySettings(state.galaxy);
+  } catch (e) {
+    handleApiError(e, 'Réglages indisponibles');
+    return;
+  }
+
+  renderModeration();
+  applyModerationAccess();
+}
+
+function renderModeration(values = null) {
+  const data = state.moderation;
+  if (!data) return;
+
+  const settings = values || data.settings || {};
+  const editable = !!data.can_edit;
+
+  $('#mod-galaxy').textContent = data.galaxy_name || state.galaxy || '—';
+
+  const moderators = Array.isArray(data.moderators) ? data.moderators : [];
+  $('#mod-moderators').innerHTML = moderators.length
+    ? `<span class="dep"><span class="ov">Modérateurs</span><span>${esc(
+        moderators.join(', ')
+      )}</span></span>`
+    : `<span class="dep"><span class="ov">Modérateurs</span><span>aucun</span></span>`;
+
+  const updated = parseUtc(data.updated_at);
+  $('#mod-updated').textContent = updated
+    ? `Modifié le ${updated.toLocaleString()}`
+    : 'Jamais modifié';
+
+  $('#mod-fields').innerHTML = (data.parameters || [])
+    .map((parameter) => {
+      const value = settings[parameter.key];
+      const isDefault = Number(value) === Number(parameter.default);
+      return `<div class="mod-field">
+        <div class="mod-field__head">
+          <label for="mod-${esc(parameter.key)}">${esc(parameter.label)}</label>
+          <span class="kb">${esc(parameter.key)}</span>
+        </div>
+        <p class="mod-field__help">${esc(parameter.description)}</p>
+        <div class="mod-field__row">
+          <input id="mod-${esc(parameter.key)}" name="${esc(parameter.key)}" type="number"
+                 value="${esc(value)}" step="${esc(parameter.step)}"
+                 min="${esc(parameter.min)}" max="${esc(parameter.max)}"
+                 ${editable ? '' : 'disabled'}>
+          <span class="mod-field__bounds">${esc(parameter.min)} – ${esc(parameter.max)}</span>
+          <span class="mod-field__state">${
+            isDefault ? 'valeur par défaut' : `défaut ${esc(parameter.default)}`
+          }</span>
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  $('#mod-save').classList.toggle('hidden', !editable);
+  $('#mod-reset').classList.toggle('hidden', !editable);
+}
+
+/* Le formulaire entier part à chaque enregistrement : le serveur ignore ce qui
+   n'a pas bougé et efface ce qui revient au défaut. */
+function readModerationForm() {
+  const data = state.moderation;
+  const values = {};
+  (data.parameters || []).forEach((parameter) => {
+    const field = $(`#mod-${parameter.key}`);
+    if (field) values[parameter.key] = Number(field.value);
+  });
+  return values;
+}
+
+async function saveModeration(values) {
+  const err = $('#mod-error');
+  const btn = $('#mod-save');
+  err.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Enregistrement…';
+
+  try {
+    const saved = await api.saveGalaxySettings(state.galaxy, values);
+    state.moderation = Object.assign({}, state.moderation, saved);
+    renderModeration();
+    toast(`Réglages de ${state.galaxy} enregistrés.`, 'info', 'Modération');
+  } catch (e) {
+    err.textContent = e instanceof ApiError ? e.message : 'Enregistrement impossible';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enregistrer';
+  }
+}
+
+function leaveModeration() {
+  if (state.territoryId) {
+    showView('command');
+    startTimers();
+    reloadTerritory(true);
+    return;
+  }
+  renderPicker();
+  showView('pick');
+}
+
+function initModeration() {
+  $('#mod-form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    saveModeration(readModerationForm());
+  });
+
+  $('#mod-reset').addEventListener('click', () => {
+    const data = state.moderation;
+    if (!data) return;
+    /* Remise à zéro explicite : on envoie les défauts, le serveur efface les
+       réglages plutôt que d'enregistrer des valeurs qui ne changent rien. */
+    renderModeration(data.defaults || {});
+    saveModeration(Object.assign({}, data.defaults || {}));
+  });
+
+  $('#mod-back').addEventListener('click', leaveModeration);
+  $('#btn-moderation').addEventListener('click', openModeration);
+  $('#pick-moderation').addEventListener('click', openModeration);
 }
 
 /* ============================================================
@@ -869,9 +1043,12 @@ function initEvents() {
    ============================================================ */
 
 async function enterGame() {
+  // Le droit de moderer se porte sur une galaxie : il se relit a chaque
+  // entree, pas une fois pour la session.
   const [territories, catalog] = await Promise.all([
     api.myTerritories(state.galaxy).catch(() => []),
     api.catalog().catch(() => ({ ships: [], defenses: [] })),
+    refreshModeration(),
   ]);
   state.myTerritories = territories;
   state.catalog = catalog || { ships: [], defenses: [] };
@@ -888,6 +1065,7 @@ async function boot() {
   initTheme();
   initLogin();
   initEvents();
+  initModeration();
 
   // Route publique : la liste des galaxies s'obtient avant toute connexion,
   // ce qui permet de choisir la sienne sur l'ecran de login.

@@ -47,6 +47,10 @@
   territory carries `galaxy_name` at the root, and the list is read per galaxy:
   * `GET /api/galaxy/<name>/territories` — the player's territories in that
     galaxy. This is the one to use inside a galaxy.
+  * `GET /api/galaxy/<name>/free-system` — a randomly picked system where no
+    player holds anything. Used to seat a new player: they enter it and the
+    client settles a telluric world there. Nothing is reserved, so two players
+    served at once can get the same system; the territory claim settles it.
   * `GET /api/territories` — every territory the player holds, all galaxies
     mixed. Only for the question a galaxy cannot answer: where does this
     player own anything at all?

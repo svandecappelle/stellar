@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 
 from app.models.base import Base
+from app.models.game.settings import GalaxySettings
 
 from sqlalchemy import Column, Integer, DateTime, ForeignKey, Enum
 from sqlalchemy.orm import relationship
@@ -30,6 +31,22 @@ class BuildingType(enum.Enum):
         },
         'gain': {
             'credits': lambda n: max(3, 30 * n * pow(1.1, n))
+        },
+        'time': lambda x: 5 * pow(3, x)
+    }
+    # La ferme est le seul producteur de nourriture. Ce qu'elle rend depend du
+    # monde sur lequel elle est posee : voir `PlanetArchetype.habitability`, applique
+    # dans `Building.get_hourly_gain`. Comme la centrale, elle donne un fond de
+    # recolte des le niveau 0 — un monde habite mange avant de savoir construire.
+    farm = {
+        'cost': {
+            'iron': lambda n: 50 * pow(1.5, n - 1),
+            'carbon': lambda n: 60 * pow(1.5, n - 1),
+            'credits': lambda n: 20 * pow(1.5, n - 1),
+            'energy': lambda n: 8 * n * pow(1.1, n)
+        },
+        'gain': {
+            'food': lambda n: 15 + 25 * n * pow(1.1, n)
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -188,14 +205,47 @@ class Building(Base):
         ---
         An extractor produces whatever its planet holds: the base rate is split
         across the archetype materials, weighted by the local deposits.
+
+        Les reglages de la galaxie sont appliques ici, et nulle part ailleurs :
+        c'est cette valeur que le territoire additionne, que l'API serialise et
+        que le client de jeu affiche. Plus haut, la production creditee et la
+        production annoncee auraient fini par differer.
         """
         from app.models.game.territory import ResourceType
 
+        galaxy_name = self.territory.galaxy_name if self.territory else None
         gains = self.type.get_hourly_gain(level=self.level)
+
         if self.type.is_extractor:
             extraction = self.type.get_extraction(level=self.level)
+            extraction *= GalaxySettings.value(galaxy_name, 'extraction_multiplier')
             for material, factor in self.territory.material_yields.items():
                 gains[ResourceType(material)] = extraction * factor
+
+        overall = GalaxySettings.value(galaxy_name, 'resource_gain_multiplier')
+        if overall != 1.0:
+            gains = {resource: gain * overall for resource, gain in gains.items()}
+
+        # La recolte depend du monde : une geante gazeuse ne nourrit personne,
+        # quel que soit le niveau de la ferme.
+        if self.territory is not None and gains.get(ResourceType.food):
+            gains[ResourceType.food] *= self.territory.planet_archetype.habitability_factor
+
+        # Un monde qui gronde produit moins. Deux exceptions, et elles ont la
+        # meme raison : sans elles, une famine serait sans retour.
+        #
+        #   · la nourriture, parce qu'elle est la seule sortie d'une famine ;
+        #   · l'energie, parce qu'elle n'est pas un stock mais un plafond. La
+        #     rogner retirerait au joueur des batiments qu'il a deja payes, et
+        #     l'empecherait de monter la ferme qui le sauverait.
+        spared = (ResourceType.food, ResourceType.energy)
+        unrest = self.territory.stability_factor if self.territory else 1.0
+        if unrest != 1.0:
+            gains = {
+                resource: gain if resource in spared else gain * unrest
+                for resource, gain in gains.items()
+            }
+
         return gains
 
     @property
@@ -215,7 +265,20 @@ class Building(Base):
 
     @property
     def cost(self):
-        return self.type.get_cost(level=self.level + 1)
+        """
+        Cout du niveau suivant, tel que la galaxie le pratique.
+        ---
+        Un seul endroit, lu par la verification de prerequis comme par la
+        serialisation : le joueur paie ce qui lui est annonce.
+        """
+        galaxy_name = self.territory.galaxy_name if self.territory else None
+        multiplier = GalaxySettings.value(galaxy_name, 'building_cost_multiplier')
+        costs = self.type.get_cost(level=self.level + 1)
+
+        if multiplier == 1.0:
+            return costs
+
+        return {resource: amount * multiplier for resource, amount in costs.items()}
 
     @property
     def consumption(self):
@@ -230,7 +293,10 @@ class Building(Base):
         :return:
         """
         current_factory_level = self.territory.get_building(building_type=BuildingType.factory).level
-        return self.type.duration(level=self.level) * (1 / (current_factory_level + 1))
+        duration = self.type.duration(level=self.level) * (1 / (current_factory_level + 1))
+
+        galaxy_name = self.territory.galaxy_name if self.territory else None
+        return duration / GalaxySettings.value(galaxy_name, 'build_time_divider')
 
     @property
     def serialize(self):

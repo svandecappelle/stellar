@@ -63,10 +63,53 @@
             <label for="pick-galaxy">Galaxie</label>
             <select id="pick-galaxy"></select>
           </div>
+          <!-- Le créateur d'une galaxie la modère avant d'y posséder quoi que
+               ce soit : l'accès aux réglages ne peut pas dépendre d'un
+               territoire, et vit donc aussi sur cet écran. -->
+          <div class="field">
+            <label></label>
+            <button class="btn hidden" type="button" id="pick-moderation">Réglages de la galaxie</button>
+          </div>
           <div class="theme-pick" id="pick-theme-pick" style="margin-top:18px"></div>
         </div>
         <div class="menu-btns" id="pick-list"></div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== MODÉRATION ====================
+     Réglages de jeu d'une galaxie. La vue n'est atteignable que si le serveur
+     a répondu `can_edit` — le bouton qui y mène reste caché sinon, et la route
+     refuse l'écriture de toute façon. -->
+<section id="view-moderation" class="stage hidden">
+  <div class="stage-in">
+    <div class="panel panel--hazard">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Modération de galaxie</span>
+          <span class="t" id="mod-galaxy">—</span>
+          <span class="deposits" id="mod-moderators"></span>
+        </div>
+        <span class="loading" id="mod-updated"></span>
+      </div>
+      <div class="rule"></div>
+
+      <p class="mod-intro">
+        Ces réglages ne changent que le rythme de cette galaxie : les tables de
+        coûts et de durées restent les mêmes pour tout le monde. La valeur 1
+        laisse le jeu tel quel.
+      </p>
+
+      <form id="mod-form">
+        <div id="mod-fields"></div>
+        <div class="mod-actions">
+          <button class="btn btn--pri" type="submit" id="mod-save">Enregistrer</button>
+          <button class="btn" type="button" id="mod-reset">Valeurs par défaut</button>
+          <button class="btn" type="button" id="mod-back">Retour</button>
+        </div>
+        <p class="err-text hidden" id="mod-error"></p>
+      </form>
     </div>
   </div>
 </section>
@@ -87,6 +130,7 @@
 
     <div class="acts">
       <div class="theme-pick" id="cmd-theme-pick"></div>
+      <button class="btn hidden" id="btn-moderation">Réglages</button>
       <button class="btn" id="btn-switch">Territoires</button>
       <button class="btn" id="btn-refresh">Rafraîchir</button>
       <button class="btn btn--dgr" id="btn-logout">Déconnexion</button>

@@ -18,6 +18,12 @@ class PositionalEventType(enum.Enum):
     defense = "defense"
     ship = "ship"
 
+    def __str__(self):
+        # `eventType` etait serialise "PositionalEventType.building" : le prefixe
+        # de classe n'apparie aucun champ, cote client il fallait le retirer a la
+        # main. Meme correctif que sur ResourceType.
+        return self.name
+
 
 class Event:
 

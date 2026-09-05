@@ -76,7 +76,7 @@ class PlanetArchetype(enum.Enum):
     telluric = {
         'label': 'Tellurique',
         'weight': 22,
-        'yields': {'iron': 1.4, 'carbon': 0.9, 'silicium': 0.8},
+        'yields': {'iron': 1.4, 'carbon': 0.9, 'silicium': 0.8, 'titanium': 0.7, 'cristal': 0.4},
         'energy_factor': 1.0,
     }
     volcanic = {

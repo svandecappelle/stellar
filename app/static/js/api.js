@@ -94,16 +94,46 @@ export const api = {
      c'est le seul appel qui garantit un état à jour. */
   territory: (id) => request(`/api/territory/${id}/update`, { method: 'POST' }),
   territoryEvents: (id) => request(`/api/territory/${id}/events`),
-  territoryShips: (id) => request(`/api/territory/${id}/ships`),
   territoryDefenses: (id) => request(`/api/territory/${id}/defenses`),
 
   /* ---- systèmes ---- */
   systemTerritories: (id) =>
     request(`/api/system/${id}/territories`).then((r) => (r && r.territories) || []),
 
+  /* ---- flottes ----
+     Un vaisseau assemble quitte la planete pour l'espace du systeme, ou il
+     appartient a une flotte : il n'y a donc plus de vaisseaux a lire sur un
+     territoire, et `/api/territory/<id>/ships` n'existe plus. Ce qui tient
+     l'orbite d'une planete se reconnait au champ `orbiting_territory_id`.
+
+     La position est en coordonnees Unity : la console ne l'affiche que pour
+     situer une flotte, elle ne la pose jamais — elle n'a pas de scene. */
+  systemFleets: (systemId) =>
+    request(`/api/system/${systemId}/fleets`).then((r) => (r && r.fleets) || []),
+  createFleet: (systemId, body = {}) =>
+    request(`/api/system/${systemId}/fleet`, { method: 'POST', body }),
+  renameFleet: (fleetId, name) =>
+    request(`/api/fleet/${fleetId}`, { method: 'POST', body: { name } }),
+  /* territoryId null detache la flotte de son orbite. */
+  orbitFleet: (fleetId, territoryId) =>
+    request(`/api/fleet/${fleetId}/orbit`, {
+      method: 'POST',
+      body: { territory_id: territoryId },
+    }),
+  disbandFleet: (fleetId) => request(`/api/fleet/${fleetId}`, { method: 'DELETE' }),
+  transferShips: (fleetId, targetId, type, quantity) =>
+    request(`/api/fleet/${fleetId}/transfer`, {
+      method: 'POST',
+      body: { to: targetId, items: [{ type, quantity }] },
+    }),
+
   /* ---- constructions ---- */
   upgradeBuilding: (territoryId, building) =>
     request(`/api/territory/${territoryId}/${building}`, { method: 'POST' }),
+  /* `spawn` est le point d'apparition Unity de la flotte que le serveur creera
+     s'il n'en trouve aucune en orbite a la livraison. La console n'a pas de
+     scene et n'en fournit donc pas : la flotte naitra a l'origine du repere,
+     et Unity la reposera des que le joueur la manoeuvrera. */
   buildShips: (territoryId, type, quantity) =>
     request(`/api/territory/${territoryId}/ship`, {
       method: 'POST',

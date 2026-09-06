@@ -62,7 +62,10 @@ const state = {
   territory: null,
   systemTerritories: [],
   events: [],
-  ships: [],
+  /* Les flottes du systeme, avec leur position Unity et ce qu'elles portent.
+     Il n'y a plus de vaisseaux a lire sur un territoire : ce qui sort du
+     chantier part en orbite, dans une flotte. */
+  fleets: [],
   defenses: [],
   catalog: { ships: [], defenses: [] },
   tab: 'buildings',
@@ -610,11 +613,12 @@ async function doReloadTerritory(id) {
   }
 
   /* Le reste est complémentaire : un échec ne doit pas vider la scène. */
-  const [events, ships, defenses, systemTerritories] = await Promise.all([
+  const systemId = territory.system ? territory.system.id : null;
+  const [events, fleets, defenses, systemTerritories] = await Promise.all([
     api.territoryEvents(id).catch(() => []),
-    api.territoryShips(id).catch(() => []),
+    systemId ? api.systemFleets(systemId).catch(() => []) : Promise.resolve([]),
     api.territoryDefenses(id).catch(() => []),
-    territory.system ? api.systemTerritories(territory.system.id).catch(() => []) : Promise.resolve([]),
+    systemId ? api.systemTerritories(systemId).catch(() => []) : Promise.resolve([]),
   ]);
 
   /* Le territoire a pu changer pendant les allers-retours : ne rien peindre
@@ -623,7 +627,7 @@ async function doReloadTerritory(id) {
 
   state.territory = territory;
   state.events = Array.isArray(events) ? events : [];
-  state.ships = Array.isArray(ships) ? ships : [];
+  state.fleets = Array.isArray(fleets) ? fleets : [];
   state.defenses = Array.isArray(defenses) ? defenses : [];
   state.systemTerritories = Array.isArray(systemTerritories) ? systemTerritories : [];
 
@@ -739,8 +743,136 @@ function renderTabBody() {
   const host = $('#tab-body');
   if (state.tab === 'buildings') host.innerHTML = renderBuildings();
   else if (state.tab === 'shipyard') host.innerHTML = renderUnits('ship');
+  else if (state.tab === 'fleets') host.innerHTML = renderFleets();
   else host.innerHTML = renderUnits('defense');
   updateProgressBars();
+}
+
+/* ============================================================
+   flottes
+   ============================================================
+   Un vaisseau assemble ne reste pas sur la planete : il part en orbite, dans
+   une flotte, et c'est la flotte qui porte une position — des coordonnees
+   Unity que le serveur garde telles quelles. La console n'a pas de scene :
+   elle montre ces coordonnees, elle n'en pose jamais.
+
+   L'orbite est declaree et non deduite d'une distance, et c'est elle qui
+   decide a quelle flotte revient un vaisseau qui sort de chantier : une seule
+   flotte en orbite le prend, aucune ou plusieurs, le serveur en cree une. */
+
+/* Les flottes qui tiennent l'orbite d'un territoire. */
+function fleetsInOrbitOf(territoryId) {
+  return state.fleets.filter((f) => f.orbiting_territory_id === territoryId);
+}
+
+/* Ce que le joueur a en orbite de la planete courante, par type. */
+function shipsInOrbit() {
+  const counts = {};
+  fleetsInOrbitOf(state.territoryId).forEach((f) => {
+    Object.entries(f.composition || {}).forEach(([type, n]) => {
+      counts[type] = (counts[type] || 0) + n;
+    });
+  });
+  return counts;
+}
+
+/* Ce que le joueur a dans tout le systeme, par type. */
+function shipsInSystem() {
+  const counts = {};
+  state.fleets.forEach((f) => {
+    Object.entries(f.composition || {}).forEach(([type, n]) => {
+      counts[type] = (counts[type] || 0) + n;
+    });
+  });
+  return counts;
+}
+
+function territoryById(id) {
+  return (
+    state.systemTerritories.find((t) => t.id === id)
+    || (state.territory && state.territory.id === id ? state.territory : null)
+  );
+}
+
+function orbitLabel(fleet) {
+  if (!fleet.orbiting_territory_id) return 'En transit';
+  const t = territoryById(fleet.orbiting_territory_id);
+  return t ? `Orbite de ${territoryLabel(t)}` : `Orbite du territoire ${fleet.orbiting_territory_id}`;
+}
+
+function fmtPosition(p) {
+  if (!p) return '—';
+  const axis = (v) => (Math.round((Number(v) || 0) * 10) / 10).toLocaleString('fr-FR');
+  return `${axis(p.x)} / ${axis(p.y)} / ${axis(p.z)}`;
+}
+
+function renderFleets() {
+  if (!state.fleets.length) {
+    return `<p class="empty">Aucune flotte dans ce système. Le premier vaisseau
+      assemblé en fera naître une, en orbite de la planète qui l'a produit.</p>`;
+  }
+
+  const others = (fleet) => state.fleets.filter((f) => f.id !== fleet.id);
+
+  return state.fleets
+    .map((f) => {
+      const here = f.orbiting_territory_id === state.territoryId;
+      const composition = Object.entries(f.composition || {});
+
+      /* Le transfert n'a de sens qu'avec une autre flotte pour destination :
+         c'est le geste que reclame la regle de sortie de chantier, quand le
+         serveur a cree une flotte neuve faute de pouvoir choisir. */
+      const targets = others(f);
+      const targetSelect = targets.length
+        ? `<select class="qty" data-transfer-target="${f.id}" aria-label="Flotte destinataire">
+            ${targets.map((t) => `<option value="${t.id}">${esc(t.name || `Flotte ${t.id}`)}</option>`).join('')}
+          </select>`
+        : '';
+
+      const ships = composition.length
+        ? composition
+            .map(
+              ([type, n]) => `<div class="row-head">
+          <span class="ico">${icon(type)}</span>
+          <span class="row-name">${esc(humanize(type))}</span>
+          <span class="lvl">×${esc(fmtNumber(n))}</span>
+          ${
+            targets.length
+              ? `<input class="qty" type="number" min="1" max="${n}" value="${n}"
+                   data-transfer-qty="${f.id}-${esc(type)}" aria-label="Quantité à transférer">
+                 <button class="btn btn--sm" data-transfer="${f.id}" data-type="${esc(type)}"
+                   title="Transférer vers une autre flotte du système">Transférer</button>`
+              : ''
+          }
+        </div>`
+            )
+            .join('')
+        : '<p class="desc">Flotte vide.</p>';
+
+      return `<div class="row">
+      <div class="ico">${icon('fleet')}</div>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="row-name">${esc(f.name || `Flotte ${f.id}`)}</span>
+          <span class="lvl">${esc(fmtNumber(f.size || 0))} vaisseau(x)</span>
+          <button class="btn btn--sm" data-fleet-rename="${f.id}">Renommer</button>
+          ${
+            here
+              ? `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="">Quitter l'orbite</button>`
+              : `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="${state.territoryId}">Amarrer ici</button>`
+          }
+          ${f.size ? '' : `<button class="btn btn--sm" data-fleet-disband="${f.id}">Dissoudre</button>`}
+        </div>
+        <div class="costs">
+          <span class="cost">${esc(orbitLabel(f))}</span>
+          <span class="cost" title="Coordonnées Unity conservées par le serveur">Position <b>${esc(fmtPosition(f.position))}</b></span>
+        </div>
+        ${ships}
+        ${targetSelect ? `<div class="costs"><span class="cost">Destinataire</span>${targetSelect}</div>` : ''}
+      </div>
+    </div>`;
+    })
+    .join('');
 }
 
 /* ---------- événements en cours ---------- */
@@ -864,16 +996,21 @@ function renderUnits(kind) {
   const t = state.territory;
   const resources = t.resources || {};
   const catalog = kind === 'ship' ? state.catalog.ships : state.catalog.defenses;
-  const owned = kind === 'ship' ? state.ships : state.defenses;
 
   if (!catalog || !catalog.length) {
     return '<p class="empty">Catalogue indisponible.</p>';
   }
 
-  const counts = {};
-  (owned || []).forEach((u) => {
-    counts[u.type] = u.quantity;
-  });
+  /* Les defenses restent posees sur la planete ; les vaisseaux, non : ils
+     partent en orbite dans une flotte. Le compteur montre donc ce qui tient
+     l'orbite d'ici, et l'infobulle ce que porte tout le systeme. */
+  const counts = kind === 'ship' ? shipsInOrbit() : {};
+  const systemCounts = kind === 'ship' ? shipsInSystem() : {};
+  if (kind === 'defense') {
+    (state.defenses || []).forEach((u) => {
+      counts[u.type] = u.quantity;
+    });
+  }
 
   const shipyardLevel = ((t.buildings || {}).shipyard || {}).level || 0;
 
@@ -893,7 +1030,11 @@ function renderUnits(kind) {
       <div class="row-main">
         <div class="row-head">
           <span class="row-name">${esc(humanize(u.name))}</span>
-          <span class="lvl">×${esc(fmtNumber(counts[u.name] || 0))}</span>
+          <span class="lvl"${
+            kind === 'ship'
+              ? ` title="En orbite ici. Dans le système : ${esc(fmtNumber(systemCounts[u.name] || 0))}"`
+              : ''
+          }>×${esc(fmtNumber(counts[u.name] || 0))}</span>
           <input class="qty" type="number" min="1" max="999" value="1"
             data-qty="${esc(u.name)}" aria-label="Quantité ${esc(humanize(u.name))}">
           <button class="btn btn--sm${affordable ? ' btn--pri' : ''}"
@@ -946,6 +1087,62 @@ async function buildUnit(kind, name, quantity) {
   } catch (e) {
     handleApiError(e, 'Assemblage refusé');
   }
+}
+
+/* ---------- actions de flotte ---------- */
+
+function fleetById(id) {
+  return state.fleets.find((f) => f.id === id) || null;
+}
+
+async function runFleetAction(action, message) {
+  try {
+    await action();
+    toast(message, 'info', 'Flottes');
+    await reloadTerritory(true);
+  } catch (e) {
+    handleApiError(e, 'Flotte');
+  }
+}
+
+function renameFleet(id) {
+  const fleet = fleetById(id);
+  const name = window.prompt('Nom de la flotte', (fleet && fleet.name) || '');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) {
+    toast('Le nom ne peut pas être vide.', 'err', 'Flottes');
+    return;
+  }
+  runFleetAction(() => api.renameFleet(id, trimmed), `Flotte renommée « ${trimmed} ».`);
+}
+
+/* territoryId vide = la flotte quitte l'orbite. C'est cette declaration qui
+   dit au serveur ce qui se trouve en orbite quand un chantier livre : une
+   flotte partie sans se detacher continuerait de recevoir. */
+function setFleetOrbit(id, territoryId) {
+  runFleetAction(
+    () => api.orbitFleet(id, territoryId),
+    territoryId ? 'Flotte amarrée en orbite.' : "Flotte détachée de son orbite."
+  );
+}
+
+function disbandFleet(id) {
+  runFleetAction(() => api.disbandFleet(id), 'Flotte dissoute.');
+}
+
+function transferShips(fleetId, type) {
+  const target = document.querySelector(`[data-transfer-target="${fleetId}"]`);
+  const qty = document.querySelector(`[data-transfer-qty="${CSS.escape(`${fleetId}-${type}`)}"]`);
+  if (!target || !target.value) {
+    toast('Aucune flotte destinataire dans ce système.', 'err', 'Flottes');
+    return;
+  }
+  const quantity = Math.max(1, Number(qty ? qty.value : 1) || 1);
+  runFleetAction(
+    () => api.transferShips(fleetId, Number(target.value), type, quantity),
+    `${quantity} × ${humanize(type)} transféré(s).`
+  );
 }
 
 /* ============================================================
@@ -1004,6 +1201,28 @@ function initEvents() {
       const name = unit.dataset.buildUnit;
       const input = document.querySelector(`[data-qty="${CSS.escape(name)}"]`);
       buildUnit(unit.dataset.kind, name, input ? input.value : 1);
+      return;
+    }
+
+    const rename = ev.target.closest('[data-fleet-rename]');
+    if (rename) {
+      renameFleet(Number(rename.dataset.fleetRename));
+      return;
+    }
+    const orbit = ev.target.closest('[data-fleet-orbit]');
+    if (orbit) {
+      const target = orbit.dataset.territory;
+      setFleetOrbit(Number(orbit.dataset.fleetOrbit), target ? Number(target) : null);
+      return;
+    }
+    const disband = ev.target.closest('[data-fleet-disband]');
+    if (disband) {
+      disbandFleet(Number(disband.dataset.fleetDisband));
+      return;
+    }
+    const transfer = ev.target.closest('[data-transfer]');
+    if (transfer) {
+      transferShips(Number(transfer.dataset.transfer), transfer.dataset.type);
     }
   });
 

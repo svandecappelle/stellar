@@ -1,0 +1,148 @@
+{
+    "/api/system/{id}/fleets": {
+        "tags": ["Fleets"],
+        "method": "GET",
+        "summary": "List the player's fleets in a system, with position and composition",
+        "responses": {
+            "200": {
+                "description": "Fleets of the system"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/system/{id}/fleet": {
+        "post": {
+            "tags": ["Fleets"],
+            "summary": "Create an empty fleet in a system",
+            "responses": {
+                "200": {
+                    "description": "Created fleet"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Territory does not exist"
+                }
+            }
+        }
+    },
+    "/api/fleet/{id}": {
+        "get": {
+            "tags": ["Fleets"],
+            "summary": "Get a fleet owned by the player",
+            "responses": {
+                "200": {
+                    "description": "Fleet details"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                }
+            }
+        },
+        "post": {
+            "tags": ["Fleets"],
+            "summary": "Update a fleet name, position or orbit",
+            "responses": {
+                "200": {
+                    "description": "Updated fleet"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                }
+            }
+        },
+        "delete": {
+            "tags": ["Fleets"],
+            "summary": "Disband an empty fleet",
+            "responses": {
+                "204": {
+                    "description": "Fleet disbanded"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                },
+                "409": {
+                    "description": "Fleet still holds ships"
+                }
+            }
+        }
+    },
+    "/api/fleet/{id}/position": {
+        "post": {
+            "tags": ["Fleets"],
+            "summary": "Store the Unity position of a fleet inside its system",
+            "responses": {
+                "200": {
+                    "description": "Updated fleet"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                }
+            }
+        }
+    },
+    "/api/fleet/{id}/orbit": {
+        "post": {
+            "tags": ["Fleets"],
+            "summary": "Anchor a fleet to a planet orbit, or detach it with a null territory_id",
+            "responses": {
+                "200": {
+                    "description": "Updated fleet"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet or territory does not exist"
+                }
+            }
+        }
+    },
+    "/api/fleet/{id}/transfer": {
+        "post": {
+            "tags": ["Fleets"],
+            "summary": "Move ships from one fleet to another inside the same system",
+            "responses": {
+                "200": {
+                    "description": "Source and target fleets"
+                },
+                "400": {
+                    "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                }
+            }
+        }
+    }
+}

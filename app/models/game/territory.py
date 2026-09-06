@@ -13,9 +13,10 @@ from app.models.game.buildings import BuildingType, Building
 from app.models.game.community.faction import FactionAdvantageScope
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
+from app.models.game.fleet import Fleet
 from app.models.game.planet import PlanetArchetype
 from app.models.game.settings import GalaxySettings
-from app.models.game.ship import Ship, ShipType
+from app.models.game.ship import ShipType
 from app.models.game.system import System
 from logger import logger
 
@@ -142,8 +143,12 @@ class Territory(Base):
     characteristics = Column(JSON, nullable=True)
 
     buildings = relationship("Building", back_populates="territory")
-    ships = relationship("Ship", back_populates="territory")
     defenses = relationship("Defense", back_populates="territory")
+
+    # Les vaisseaux ne pendent plus au territoire : ils appartiennent aux
+    # flottes du systeme, et se lisent par `Fleet.in_orbit_of`. Ce qu'un
+    # chantier planetaire produit se retrouve en orbite, dans une flotte --
+    # voir `app/models/game/fleet.py`.
 
     system = relationship("System", back_populates="territories")
     territory_events = relationship(
@@ -221,13 +226,6 @@ class Territory(Base):
                 type=d_type
             )
             territory.defenses.append(d)
-
-        for s_type in ShipType:
-            s = Ship(
-                territory_id=territory.id,
-                type=s_type
-            )
-            territory.ships.append(s)
 
         db.session.add(territory)
         db.session.flush()
@@ -418,7 +416,7 @@ class Territory(Base):
         ))
         return hours
 
-    def _apply_modification(self, event, amount=1):
+    def _apply_modification(self, event, amount=None):
         """
         Appliquer un chantier : monter le batiment, livrer les unites.
         ---
@@ -432,13 +430,55 @@ class Territory(Base):
         """
         if event.event_type == PositionalEventType.building:
             building_type = BuildingType.get_by_name(event.extra_args['name'])
-            self.add(type=building_type, amount=amount)
-        elif event.event_type in (PositionalEventType.ship, PositionalEventType.defense):
-            if event.event_type == PositionalEventType.defense:
-                el_type = DefenseType.get_by_name(event.extra_args['name'])
-            elif event.event_type == PositionalEventType.ship:
-                el_type = ShipType.get_by_name(event.extra_args['name'])
-            self.add(type=el_type, amount=amount)
+            self.add(type=building_type, amount=amount if amount is not None else 1)
+            return
+
+        if event.event_type not in (PositionalEventType.ship, PositionalEventType.defense):
+            return
+
+        # Un chantier arrive a terme livre tout ce qu'il lui restait a livrer.
+        # La boucle horaire ne credite que les unites sorties avant la derniere
+        # vue et decompte `quantity` a mesure ; ce qui reste dans ce champ au
+        # moment de l'archivage est precisement le solde. La valeur figee a 1
+        # qui se trouvait ici livrait une unite pour une commande de dix, et
+        # les neuf autres disparaissaient avec l'evenement.
+        delivered = amount if amount is not None else event.extra_args.get('quantity', 1)
+        if delivered <= 0:
+            return
+
+        if event.event_type == PositionalEventType.defense:
+            self.add(type=DefenseType.get_by_name(event.extra_args['name']), amount=delivered)
+        else:
+            self._deliver_ships(
+                event=event,
+                ship_type=ShipType.get_by_name(event.extra_args['name']),
+                amount=delivered,
+            )
+
+    def _deliver_ships(self, event, ship_type, amount):
+        """
+        Remettre a une flotte les vaisseaux qui sortent du chantier.
+        ---
+        Le territoire assemble, il ne detient pas : ce qui sort du chantier
+        appartient a une flotte du systeme. Laquelle est decide par
+        `Fleet.receive_construction`, sur ce qui se trouve en orbite d'ici.
+
+        La flotte retenue est notee sur l'evenement pour que les livraisons
+        suivantes de la meme commande la retrouvent, plutot que d'en creer une
+        par vaisseau.
+        """
+        args = event.extra_args
+        fleet = Fleet.receive_construction(
+            territory=self,
+            user=self.user,
+            memo_fleet_id=args.get('fleetId'),
+            spawn=args.get('spawn'),
+        )
+        fleet.add_ships(ship_type=ship_type, amount=amount)
+
+        if args.get('fleetId') != fleet.id:
+            args['fleetId'] = fleet.id
+            event.extra_args = args
 
     def _run_life_cycle(self, hours):
         """
@@ -637,9 +677,16 @@ class Territory(Base):
                 building.level += amount
 
         if isinstance(type, DefenseType):
-            next(filter(lambda d: d.type, self.defenses)).increment(count=amount)
-        if isinstance(type, ShipType):
-            next(filter(lambda s: s.type, self.ships)).increment(count=amount)
+            # `lambda d: d.type` est toujours vrai : le filtre ne filtrait rien
+            # et c'est la premiere ligne de defense qui montait, quelle que soit
+            # celle qu'on avait commandee. Une batterie de missiles livrait des
+            # canons flack.
+            defense = next((d for d in self.defenses if d.type == type), None)
+            if defense is not None:
+                defense.increment(count=amount)
+
+        # Les vaisseaux ne passent pas par ici : ils vont a une flotte, pas au
+        # territoire. Voir `_deliver_ships`.
 
     def match_prerequisite(self, prerequisites):
         """
@@ -689,10 +736,14 @@ class Territory(Base):
             )
             # TODO do it after event finished --> self.add(type=building_type, amount=1)
 
-    def build(self, type, item):
+    def build(self, type, item, spawn=None):
         """
         Build ships or defenses on the territory.
         ---
+        :param spawn: point d'apparition Unity {x, y, z} pour la flotte qui
+            recevra les vaisseaux, quand le serveur doit en creer une. Seul le
+            client connait la geometrie du systeme ; un client qui n'en a pas
+            (la console web) l'omet, et la flotte nait a l'origine du repere.
         """
         shipyard = self.get_building(building_type=BuildingType.shipyard)
 
@@ -708,17 +759,21 @@ class Territory(Base):
         # batiments et lente sur ses flottes.
         unitary_duration = element.duration(shipyard=shipyard) / GalaxySettings.value(
             self.galaxy_name, 'build_time_divider')
+        extra_args = {
+            "name": element.name,
+            "quantity": item["quantity"],
+            "initialQuantity": item["quantity"],
+            "unitaryDuration": unitary_duration
+        }
+        if type == PositionalEventType.ship and spawn is not None:
+            extra_args["spawn"] = spawn
+
         return PositionalEvent.create(
             territory=self,
             user=self.user,
             duration=unitary_duration * item["quantity"],
             event_type=type,
-            extra_args={
-                "name": element.name,
-                "quantity": item["quantity"],
-                "initialQuantity": item["quantity"],
-                "unitaryDuration": unitary_duration
-            }
+            extra_args=extra_args
         )
 
 

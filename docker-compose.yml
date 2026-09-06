@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:14-alpine
@@ -27,6 +25,49 @@ services:
         condition: service_healthy
     ports:
       - "9000:9000"
+
+  # Migration du schema, a la demande.
+  #
+  # Elle fait evoluer une base existante, elle ne la cree pas : la premiere
+  # revision de la chaine est un export de 2020 qui decrit un tout autre schema.
+  # Une base neuve sort de `Base.metadata.create_all` (voir `initialize.py`),
+  # qui la tamponne aussitot a la tete pour que la chaine reprenne la main.
+  #
+  # A la demande, et non au demarrage : une migration deplace des donnees, et
+  # la declencher automatiquement -- a plus forte raison depuis plusieurs
+  # instances a la fois -- est le genre de decision qui revient a l'operateur.
+  # L'application se contente d'avertir quand les revisions ne correspondent pas.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CONFIG: docker
+      ENV: docker
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "manage.py", "db", "upgrade"]
+    profiles: ["migrate"]
+
+  # Suite de tests, dans l'image de l'application : ce sont les versions du
+  # requirements.txt qui comptent, et un environnement local aux versions plus
+  # recentes ne dit rien de ce que fera la production.
+  #
+  # Aucun lien avec `db` : les tests montent leur schema dans une base SQLite en
+  # memoire (config/test.ini), il n'y a donc pas de Postgres a attendre.
+  #
+  # `no:cacheprovider` parce que l'image tourne en `nobody` et n'a rien a ecrire
+  # dans l'arborescence ; un profil pour que `docker compose up` ne lance pas la
+  # suite en meme temps que l'API.
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CONFIG: test
+    command: ["python", "-m", "pytest", "tests", "-p", "no:cacheprovider"]
+    profiles: ["test"]
 
 volumes:
   postgres_data:

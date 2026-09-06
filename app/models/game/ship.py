@@ -117,40 +117,51 @@ class ShipType(enum.Enum):
 
 class Ship(Base):
     """
-    Ship class define a territory ship in orbit
+    Un lot de vaisseaux d'un meme type au sein d'une flotte.
+
+    Le stock ne pend plus au territoire : un vaisseau assemble quitte la planete
+    pour l'espace du systeme, ou il appartient a une flotte. Voir
+    `app/models/game/fleet.py` pour la regle d'affectation a la sortie du
+    chantier, et pour la position — elle est portee par la flotte, seule chose
+    qui manoeuvre.
     """
-    __tablename__ = 'ship_territory'
+    __tablename__ = 'ship'
 
     id = Column(Integer, primary_key=True)
     type = Column(Enum(ShipType), nullable=False)
     count = Column(Integer, nullable=False, default=0)
 
-    territory_id = Column(Integer, ForeignKey("territory.id"), nullable=False)
+    fleet_id = Column(Integer, ForeignKey("fleet.id"), nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    territory = relationship("Territory", back_populates="ships")
+    fleet = relationship("Fleet", back_populates="ships")
 
-    def __init__(self, territory_id, type):
-        """
-        Append a ship on the territory
-        """
-        self.territory_id = territory_id
+    def __init__(self, fleet_id, type, count=0):
+        self.fleet_id = fleet_id
         self.type = type
-        self.count = 0
+        self.count = count
 
     def increment(self, count=1):
         """
-        Increase the number of ship into its related territory
+        Ajoute des vaisseaux au lot.
+        ---
+        Le compte demande, et non un par appel : la version precedente ignorait
+        son argument et incrementait toujours de un, si bien qu'une livraison de
+        six vaisseaux en posait un seul.
         """
-        self.count += 1
+        self.count += count
 
     def decrement(self, count):
         """
-        Decrement the number of ship into its related territory
+        Retire des vaisseaux du lot, sans jamais passer sous zero.
+        ---
+        Le ternaire etait dans le mauvais sens : quand on demandait plus que le
+        stock, il retirait tout de meme le montant demande et le compte passait
+        negatif.
         """
-        self.count -= count if count <= self.count else self.count
+        self.count -= min(count, self.count)
 
     @property
     def serialize(self):

@@ -7,6 +7,10 @@ from sqlalchemy.orm import relationship
 
 from app.application import db
 from app.models.base import Base
+# Importe pour que le mapper de `Fleet` soit enregistre des qu'un systeme
+# l'est : la relation ci-dessous le designe par son nom, et un module de
+# route qui ne lirait que les systemes echouerait a la configuration.
+from app.models.game.fleet import Fleet  # noqa: F401
 
 
 class System(Base):
@@ -27,6 +31,11 @@ class System(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     territories = relationship("Territory", back_populates="system")
+
+    # Les flottes stationnent dans le systeme, pas sur une planete : un vaisseau
+    # assemble quitte le chantier pour l'espace, et c'est la flotte qui porte sa
+    # position. Voir `app/models/game/fleet.py`.
+    fleets = relationship("Fleet", back_populates="system")
 
     def __init__(self, galaxy, position, characteristics={}):
         self.galaxy_name = galaxy.name
@@ -86,6 +95,22 @@ class System(Base):
                 # la creation des territoires levait donc un TypeError.
                 Territory.create(system_id=system.id, position_in_system=i + 1)
         return system
+
+    def army(self, user):
+        """
+        Ce qu'un joueur tient dans ce systeme, par type de vaisseau.
+        ---
+        La somme de ses flottes. La route qui appelait cette methode lisait un
+        attribut `army` qui n'a jamais existe : elle rendait une erreur 500 a
+        chaque appel.
+        """
+        total = {}
+        for fleet in self.fleets:
+            if fleet.user_id != user.id:
+                continue
+            for name, count in fleet.composition.items():
+                total[name] = total.get(name, 0) + count
+        return total
 
     @property
     def serialize(self):

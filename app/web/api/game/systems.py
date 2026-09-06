@@ -2,6 +2,7 @@
 
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g
+from flask_login import current_user
 
 from app.application import app, db, serialize
 from app.application import login_required
@@ -70,5 +71,11 @@ def get_territory_detail(id):
 @serialize
 @json_description(file='descriptions/systems.json')
 def get_system_army(id):
+    """
+    Ce que le joueur tient dans ce systeme, par type de vaisseau.
+    ---
+    La somme de ses flottes. Pour les avoir une par une, avec leur position et
+    l'orbite qu'elles tiennent, passer par `GET /api/system/<id>/fleets`.
+    """
     system = System.get(id=id)
-    return system.army
+    return system.army(user=current_user.get())

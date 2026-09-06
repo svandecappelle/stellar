@@ -37,16 +37,11 @@ def update_territory_view(territory_id):
     territory.update_view()
     return territory
 
-@app.route('/api/territory/<int:territory_id>/ships', methods=['GET'])
-@login_required
-@serialize
-@json_description(file='descriptions/territories.json')
-def get_territory_ships(territory_id):
-    me = current_user.get()
-    territory = Territory.get(id=territory_id, user=me)
-    if not territory:
-        raise ValueError("Territory does not owned by you")
-    return territory.ships
+# `GET /api/territory/<id>/ships` a ete retire : un vaisseau assemble quitte la
+# planete pour l'espace du systeme, ou il appartient a une flotte. Ce que le
+# joueur possede se lit desormais par `GET /api/system/<id>/fleets`, et ce qui
+# tient l'orbite d'une planete se reconnait au champ `orbiting_territory_id` de
+# chaque flotte.
 
 
 @app.route('/api/territory/<int:territory_id>/defenses', methods=['GET'])
@@ -98,14 +93,24 @@ def build(territory_id, building):
 @serialize
 @json_description(file='descriptions/territories.json')
 def build_defense_or_ship(territory_id):
+    """
+    Lance un chantier de vaisseaux ou de defenses.
+    ---
+    `spawn` est le point d'apparition Unity de la flotte que le serveur creera
+    si aucune ne tient l'orbite a la livraison. Le client seul connait la
+    geometrie du systeme, donc l'endroit ou une flotte doit apparaitre au-dessus
+    de cette planete ; la console web, qui n'en a pas, l'omet.
+    """
     type = PositionalEventType(request.path.split('/')[-1:][0])
-    items = request.json.get('items')
+    payload = request.json or {}
+    items = payload.get('items')
+    spawn = payload.get('spawn') if type == PositionalEventType.ship else None
     me = current_user.get()
     territory = Territory.get(id=territory_id, user=me)
     if not territory:
         raise ValueError("Territory does not owned by you")
     events = []
     for item in items:
-        events.append(territory.build(type, item))
+        events.append(territory.build(type, item, spawn=spawn))
     db.session.commit()
     return events

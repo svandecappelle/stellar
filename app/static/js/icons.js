@@ -24,6 +24,11 @@ const ICONS = {
   OrbitalStation: P('<circle cx="12" cy="12" r="4"/><path d="M2 12h6"/><path d="M16 12h6"/><path d="M4 9v6"/><path d="M20 9v6"/>'),
   DefenseSatellite: P('<circle cx="12" cy="12" r="3"/><path d="M5 5l4 4"/><path d="M19 19l-4-4"/><path d="M3 7h4V3"/><path d="M21 17h-4v4"/>'),
 
+  /* --- flottes ---
+     Une flotte n'est pas un vaisseau : trois fanions en formation, comme un
+     chevron tactique. */
+  fleet: P('<path d="M12 3 9 9h6l-3-6Z"/><path d="M6 12 4 16h4l-2-4Z"/><path d="M18 12l-2 4h4l-2-4Z"/><path d="M12 9v6"/><path d="M6 16h12"/>'),
+
   /* --- défenses --- */
   FlackCannon: P('<path d="M4 20h16"/><path d="M7 20v-4h6v4"/><path d="M10 16 18 8"/><path d="M15 5h5v5"/>'),
   MissileBattery: P('<path d="M4 20h16"/><path d="M7 20v-6h4v6"/><path d="M13 20v-6h4v6"/><path d="M9 14V8l0-4"/><path d="M15 14V8l0-4"/>'),

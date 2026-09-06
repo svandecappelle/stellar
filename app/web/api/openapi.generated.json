@@ -234,6 +234,249 @@
         ]
       }
     },
+    "/api/fleet/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "204": {
+            "description": "Fleet disbanded"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          },
+          "409": {
+            "description": "Fleet still holds ships"
+          }
+        },
+        "summary": "Disband an empty fleet",
+        "tags": [
+          "Fleets"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fleet details"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          }
+        },
+        "summary": "Get a fleet owned by the player",
+        "tags": [
+          "Fleets"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Updated fleet"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          }
+        },
+        "summary": "Update a fleet name, position or orbit",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
+    "/api/fleet/{id}/orbit": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Updated fleet"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet or territory does not exist"
+          }
+        },
+        "summary": "Anchor a fleet to a planet orbit, or detach it with a null territory_id",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
+    "/api/fleet/{id}/position": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Updated fleet"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          }
+        },
+        "summary": "Store the Unity position of a fleet inside its system",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
+    "/api/fleet/{id}/transfer": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Source and target fleets"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          }
+        },
+        "summary": "Move ships from one fleet to another inside the same system",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
     "/api/galaxies": {
       "get": {
         "responses": {
@@ -843,6 +1086,122 @@
         ]
       }
     },
+    "/api/system/{id}/fleet": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "composition": {},
+                    "created_at": {},
+                    "id": {},
+                    "name": {},
+                    "orbiting_territory_id": {},
+                    "position": {},
+                    "ships": {},
+                    "size": {},
+                    "system_id": {},
+                    "updated_at": {},
+                    "user_id": {}
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "system_id",
+                    "user_id",
+                    "position",
+                    "orbiting_territory_id",
+                    "ships",
+                    "composition",
+                    "size",
+                    "created_at",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created fleet"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Territory does not exist"
+          }
+        },
+        "summary": "Create an empty fleet in a system",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
+    "/api/system/{id}/fleets": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "fleets": {},
+                    "id": {}
+                  },
+                  "required": [
+                    "id",
+                    "fleets"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Fleets of the system"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "List the player's fleets in a system, with position and composition",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
     "/api/system/{id}/territories": {
       "get": {
         "parameters": [
@@ -1040,13 +1399,24 @@
                     "buildings": {},
                     "characteristics": {},
                     "deposits": {},
+                    "energy_factor": {},
                     "galaxy_name": {},
+                    "habitability": {},
+                    "habitability_factor": {},
                     "id": {},
                     "name": {},
+                    "population_capacity": {},
+                    "population_growth": {},
                     "position": {},
                     "resources": {},
+                    "stability": {},
+                    "starving": {},
                     "system": {},
                     "updated_at": {},
+                    "upkeep": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "yields": {}
                   },
                   "required": [
@@ -1062,6 +1432,14 @@
                     "deposits",
                     "yields",
                     "resources",
+                    "upkeep",
+                    "stability",
+                    "habitability",
+                    "habitability_factor",
+                    "energy_factor",
+                    "population_capacity",
+                    "population_growth",
+                    "starving",
                     "updated_at"
                   ],
                   "type": "object"
@@ -1108,13 +1486,24 @@
                     "buildings": {},
                     "characteristics": {},
                     "deposits": {},
+                    "energy_factor": {},
                     "galaxy_name": {},
+                    "habitability": {},
+                    "habitability_factor": {},
                     "id": {},
                     "name": {},
+                    "population_capacity": {},
+                    "population_growth": {},
                     "position": {},
                     "resources": {},
+                    "stability": {},
+                    "starving": {},
                     "system": {},
                     "updated_at": {},
+                    "upkeep": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "yields": {}
                   },
                   "required": [
@@ -1130,6 +1519,14 @@
                     "deposits",
                     "yields",
                     "resources",
+                    "upkeep",
+                    "stability",
+                    "habitability",
+                    "habitability_factor",
+                    "energy_factor",
+                    "population_capacity",
+                    "population_growth",
+                    "starving",
                     "updated_at"
                   ],
                   "type": "object"
@@ -1174,13 +1571,24 @@
                     "buildings": {},
                     "characteristics": {},
                     "deposits": {},
+                    "energy_factor": {},
                     "galaxy_name": {},
+                    "habitability": {},
+                    "habitability_factor": {},
                     "id": {},
                     "name": {},
+                    "population_capacity": {},
+                    "population_growth": {},
                     "position": {},
                     "resources": {},
+                    "stability": {},
+                    "starving": {},
                     "system": {},
                     "updated_at": {},
+                    "upkeep": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "yields": {}
                   },
                   "required": [
@@ -1196,6 +1604,14 @@
                     "deposits",
                     "yields",
                     "resources",
+                    "upkeep",
+                    "stability",
+                    "habitability",
+                    "habitability_factor",
+                    "energy_factor",
+                    "population_capacity",
+                    "population_growth",
+                    "starving",
                     "updated_at"
                   ],
                   "type": "object"
@@ -1230,11 +1646,6 @@
           "content": {
             "application/json": {
               "schema": {
-                "properties": {
-                  "items": {
-                    "type": "string"
-                  }
-                },
                 "type": "object"
               }
             }
@@ -1320,11 +1731,6 @@
           "content": {
             "application/json": {
               "schema": {
-                "properties": {
-                  "items": {
-                    "type": "string"
-                  }
-                },
                 "type": "object"
               }
             }
@@ -1343,32 +1749,6 @@
           }
         },
         "summary": "Build ships in territory",
-        "tags": [
-          "Territories"
-        ]
-      }
-    },
-    "/api/territory/{territory_id}/ships": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "territory_id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Ship list"
-          },
-          "401": {
-            "description": "Not authorized"
-          }
-        },
-        "summary": "Get ships in a territory",
         "tags": [
           "Territories"
         ]
@@ -1407,13 +1787,24 @@
                     "buildings": {},
                     "characteristics": {},
                     "deposits": {},
+                    "energy_factor": {},
                     "galaxy_name": {},
+                    "habitability": {},
+                    "habitability_factor": {},
                     "id": {},
                     "name": {},
+                    "population_capacity": {},
+                    "population_growth": {},
                     "position": {},
                     "resources": {},
+                    "stability": {},
+                    "starving": {},
                     "system": {},
                     "updated_at": {},
+                    "upkeep": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "yields": {}
                   },
                   "required": [
@@ -1429,6 +1820,14 @@
                     "deposits",
                     "yields",
                     "resources",
+                    "upkeep",
+                    "stability",
+                    "habitability",
+                    "habitability_factor",
+                    "energy_factor",
+                    "population_capacity",
+                    "population_growth",
+                    "starving",
                     "updated_at"
                   ],
                   "type": "object"

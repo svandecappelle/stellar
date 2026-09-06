@@ -142,15 +142,23 @@ class Defense(Base):
 
     def increment(self, count=1):
         """
-        Increase the number of ship into its related territory
+        Ajoute des pieces a la batterie.
+        ---
+        Le compte demande, et non un par appel : la version precedente ignorait
+        son argument et incrementait toujours de un, si bien qu'une livraison de
+        six pieces en posait une seule.
         """
-        self.count += 1
+        self.count += count
 
     def decrement(self, count):
         """
-        Decrement the number of ship into its related territory
+        Retire des pieces, sans jamais passer sous zero.
+        ---
+        Le ternaire etait dans le mauvais sens : quand on demandait plus que le
+        stock, il retirait tout de meme le montant demande et le compte passait
+        negatif.
         """
-        self.count -= count if count <= self.count else self.count
+        self.count -= min(count, self.count)
 
     @property
     def serialize(self):

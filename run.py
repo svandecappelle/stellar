@@ -60,8 +60,30 @@ class Starter(object):
                     cls.logger.info("[%s] imported" % route_file)
 
     @classmethod
+    def check_schema(cls):
+        """
+        Rapprocher le schema de la base des migrations du depot.
+
+        Un avertissement, jamais un arret : refuser de demarrer sur un schema en
+        retard rendrait le serveur injoignable au moment precis ou l'on veut s'y
+        connecter pour le reparer. Et une erreur de connexion ne doit pas non
+        plus empecher le demarrage — la base peut n'etre pas encore levee, le
+        serveur la retrouvera.
+        """
+        try:
+            import schema_version
+            from sqlalchemy import create_engine
+
+            engine = create_engine(dburi(), echo=False)
+            schema_version.warn_if_outdated(engine)
+            engine.dispose()
+        except Exception as e:
+            cls.logger.warning("Could not check the database schema version: %s" % e)
+
+    @classmethod
     def launch(cls):
         """Launch api server"""
+        cls.check_schema()
         cls.logger.info("Starting server")
         flaskrun(app,default_host="0.0.0.0", default_port="9000")
 

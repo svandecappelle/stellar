@@ -27,6 +27,29 @@ Python **3.12** is the reference version; the suite also passes on 3.11 and
   * with pipenv: `pipenv shell`
   * `pytest tests`
 
+### Two levels, and what each one is for
+* `tests/unit` — the game rules, read where they are written. No database, no
+  application, no request: the models are instantiated by hand and one reads
+  what they compute. That is where a wrong formula shows — what an extractor
+  pulls out of the ground, what a famine costs, which stars link to which —
+  without having to play a whole turn to reach it. The whole directory runs in
+  about a second (`pytest tests/unit`), which is what makes it worth running on
+  every save.
+  * `tests/unit/conftest.py` neutralises the `autouse` fixture that builds a
+    schema for every test, and holds the factories: an in-memory territory with
+    its buildings, a galaxy of made-up stars, galaxy settings without a row.
+  * Column defaults are applied by the database on write, so a model that was
+    never written has `None` where the game expects a starting stock. The
+    factories read those defaults from the column declarations rather than
+    restating them.
+* `tests/api` and `tests/utils` — the same rules seen through HTTP, on a real
+  schema: routes, permissions, status codes, and everything that only breaks
+  once several pieces are wired together.
+
+Two unit tests are marked `xfail(strict=True)`. They describe a defect as it
+should behave, fail today, and will report themselves the day they start
+passing — see `tests/unit/research.py`.
+
 ## Dependencies and Python version
 The stack was frozen at 2020 — Python 3.7 in the image, Python 3.8 in CI, and a
 55-line `pip freeze`. It broke the day GitHub moved `ubuntu-latest` to 24.04,

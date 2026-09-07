@@ -137,6 +137,19 @@ PARAMETERS = [
         maximum=100.0,
     ),
     Parameter(
+        key='fleet_speed_multiplier',
+        label='Vitesse des flottes',
+        description=(
+            "Multiplie la vitesse de deplacement entre systemes. 2 fait "
+            "voyager deux fois plus vite, 0.5 deux fois plus lentement. Sans "
+            "effet sur les trajets deja en cours, dont l'heure d'arrivee est "
+            "fixee au depart."
+        ),
+        default=1.0,
+        minimum=0.05,
+        maximum=1000.0,
+    ),
+    Parameter(
         key='starting_resources_multiplier',
         label='Stock de depart',
         description=(

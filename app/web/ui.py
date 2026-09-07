@@ -23,8 +23,24 @@ STATIC_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 
 @app.route('/', methods=['GET'])
-def ui_index():
-    """Serve the console entry point."""
+@app.route('/galaxy/<path:name>', methods=['GET'])
+def ui_index(name=None):
+    """
+    Serve the console entry point.
+    ---
+    The console keeps its place in the address bar — `/galaxy/<name>` for the
+    map, `/galaxy/<name>/territory/<id>` for a world — so a view can be
+    bookmarked, shared and reloaded. Those paths belong to the client router,
+    but the server has to answer them all the same: a reload asks the server
+    first, and without these routes a deep link would come back 404.
+
+    One `<path:>` rule covers both, and any deeper path the client router may
+    grow later. Nothing collides with the API, which lives under `/api`.
+
+    The name is not read here. Which galaxy is shown is the client's business,
+    and it re-reads it from `location.pathname`; the server only has to hand
+    over the same page.
+    """
     return send_from_directory(STATIC_ROOT, 'index.html')
 
 

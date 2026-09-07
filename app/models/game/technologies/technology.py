@@ -102,9 +102,15 @@ class Technology(Base):
         """
         Increase level of the technology
         ---
+        `now` monte le niveau sans rien facturer : c'est une faveur -- une
+        avance de partie, un avantage de faction -- pas un achat. La recherche
+        lancee par le joueur passe par l'autre branche, et se paie a la
+        commande comme un batiment.
+
         :return:
         """
         if not now:
+            territory.spend(self.type.price(self.level + 1))
             duration = self.next_level_duration
             return PositionalEvent.create(
                 territory=territory,

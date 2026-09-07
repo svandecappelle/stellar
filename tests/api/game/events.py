@@ -27,15 +27,24 @@ class TestEvents:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        territory_id = response.json['territories'][0].get('id')
+        assert territory_id is not None
+
+        # `computer` coute du cristal. Un monde tellurique en extrait, mais il
+        # n'en a rien en caisse a l'instant zero et on commande tout de suite :
+        # sans ce ravitaillement la recherche part en 400. Ce qui est mis a
+        # l'epreuve ici est la creation de l'evenement, pas le cout.
+        territory = Territory.get(id=territory_id)
+        territory.add(type=ResourceType.cristal, amount=300000)
+        session.commit()
 
         # Add event using increase a tech
         response = client.post(
-            f'/api/technology/computer/{response.json[0]["id"]}'
+            f'/api/technology/computer/{territory_id}'
         )
         assert response.status_code == 200
-        assert response.json['eventType'] == 'PositionalEventType.technology'
+        assert response.json['eventType'] == 'technology'
         assert response.json['extraArgs'] == {
             'type': 'computer'
         }

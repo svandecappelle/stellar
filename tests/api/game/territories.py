@@ -34,8 +34,8 @@ class TestTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        assert response.json['territories'][0].get('id') is not None
 
     @pytest.mark.parametrize('resource', (
         (ResourceType.iron, 10000),
@@ -52,11 +52,11 @@ class TestTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        assert response.json['territories'][0].get('id') is not None
 
         # Check starting resource
-        territory = Territory.get(id=response.json[0]["id"])
+        territory = Territory.get(id=response.json['territories'][0]["id"])
         assert territory.resources[resource[0]] == resource[1]
 
     @pytest.mark.parametrize('resource', (
@@ -72,11 +72,11 @@ class TestTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        assert response.json['territories'][0].get('id') is not None
 
         # Check starting resource and set level of building to 1
-        territory = Territory.get(id=response.json[0]["id"])
+        territory = Territory.get(id=response.json['territories'][0]["id"])
         territory.add(type=resource[2], amount=1)
         session.commit()
         assert territory.resources[resource[0]] == resource[1]
@@ -111,8 +111,8 @@ class TestTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        territory_id = response.json[0].get('id')
+        assert len(response.json['territories']) == 1
+        territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
         # Add energy to ensure have prerequisites on energy
@@ -123,7 +123,7 @@ class TestTerritory:
         )
         assert response.status_code == 200
 
-        assert response.json['eventType'] == 'PositionalEventType.building'
+        assert response.json['eventType'] == 'building'
         assert response.json['extraArgs'] == {'name': resource[2].name, 'level': 0}
 
         # level is still 0 until event is finished
@@ -158,15 +158,20 @@ class TestTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        territory_id = response.json[0].get('id')
+        assert len(response.json['territories']) == 1
+        territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
         # Add energy to ensure have prerequisites on energy
         if building != BuildingType.power_station:
             territory.add(type=BuildingType.power_station, amount=1)
-        if building in (BuildingType.shipyard, BuildingType.academy, BuildingType.factory):
-            territory.add(type=ResourceType.tritium, amount=400)
+        # Les batiments lourds reclament du titane et du cristal, que le monde
+        # de depart extrait mais n'a pas encore en caisse a l'instant zero. Le
+        # tritium seul ne suffit plus depuis que les couts sont multi-materiaux :
+        # on remplit les soutes, ce qui se mesure ici est une duree, pas un cout.
+        territory.add(type=ResourceType.tritium, amount=400)
+        for material in ResourceType.materials():
+            territory.add(type=material, amount=300000)
 
         response = client.get(
             f'/api/territory/{territory_id}'
@@ -181,7 +186,7 @@ class TestTerritory:
             f'/api/territory/{territory_id}/{building.name}'
         )
         assert response.status_code == 200
-        assert response.json['eventType'] == 'PositionalEventType.building'
+        assert response.json['eventType'] == 'building'
         assert response.json['extraArgs'] == {'name': building.name, 'level': 0}
 
         response = client.get('/api/events')
@@ -249,8 +254,8 @@ class TestRaiseTerritory:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        assert response.json['territories'][0].get('id') is not None
 
         # Add event using increase a tech
         response = client.post(
@@ -258,6 +263,14 @@ class TestRaiseTerritory:
         )
         assert response.status_code == 400
         assert response.json['message'] == "Territory does not owned by you"
+
+
+def own_territory(client):
+    """Le seul monde du joueur."""
+    response = client.get('/api/territories')
+    assert response.status_code == 200
+    assert len(response.json['territories']) == 1
+    return Territory.get(id=response.json['territories'][0]["id"])
 
 
 class TestTerritoryLifeCycle:
@@ -269,12 +282,7 @@ class TestTerritoryLifeCycle:
     pas chaque grandeur prise separement.
     """
 
-    @staticmethod
-    def _own_territory(client):
-        response = client.get('/api/territories')
-        assert response.status_code == 200
-        assert len(response.json) == 1
-        return Territory.get(id=response.json[0]["id"])
+    _own_territory = staticmethod(own_territory)
 
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
@@ -425,10 +433,13 @@ class TestTerritoryLifeCycle:
         territory.add(type=BuildingType.power_station, amount=1)
         session.commit()
 
-        before = territory.resources[ResourceType.iron]
-
         response = client.post(f'/api/territory/{territory.id}/mater_extractor')
         assert response.status_code == 200
+
+        # Le repere se prend apres la commande : le chantier se paie a l'instant
+        # ou il est lance, et ce qu'on mesure ici est la production, pas la
+        # facture.
+        before = territory.resources[ResourceType.iron]
 
         initial_datetime = datetime.datetime.utcnow()
         with freeze_time(initial_datetime) as frozen_datetime:
@@ -495,3 +506,158 @@ class TestTerritoryLifeCycle:
         assert 0 < rock.population_capacity < 100
         assert rock.population == rock.population_capacity
         assert not rock.is_starving
+
+
+class TestTerritoryPaysItsBills:
+    """
+    Un chantier se paie.
+    ---
+    Les couts etaient verifies et jamais debites : `Territory.increase` portait
+    un `# TODO self.spend(building.cost)` et `spend` n'existait nulle part. Le
+    joueur franchissait le seuil une fois et montait ensuite tout ce qu'il
+    voulait sans rien depenser, si bien que la seule monnaie du jeu etait le
+    temps.
+    """
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_building_order_debits_the_reserve(self, client, session):
+        territory = own_territory(client)
+        # De l'energie pour satisfaire le prerequis de l'extracteur.
+        territory.add(type=BuildingType.power_station, amount=1)
+        session.commit()
+
+        cost = territory.get_building(building_type=BuildingType.mater_extractor).cost
+        watched = (ResourceType.iron, ResourceType.carbon, ResourceType.credits)
+        assert all(cost[resource] > 0 for resource in watched)
+
+        # Temps fige : sans quoi la production creditee par la vue se melerait
+        # a la facture, et on ne saurait plus ce qu'on mesure.
+        with freeze_time(datetime.datetime.utcnow()):
+            before = {resource: territory.resources[resource] for resource in watched}
+
+            response = client.post(f'/api/territory/{territory.id}/mater_extractor')
+            assert response.status_code == 200
+
+            for resource, previous in before.items():
+                assert territory.resources[resource] == pytest.approx(
+                    previous - cost[resource]), resource.name
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_energy_and_population_are_asked_for_but_never_burnt(self, client, session):
+        """
+        Deux lignes de cout qu'on exige sans les consommer.
+        ---
+        L'energie est un solde recalcule a chaque lecture depuis la centrale
+        moins la consommation des batiments : la debiter n'aurait aucun effet
+        durable. La population sert les batteries et arme les vaisseaux, elle
+        n'est pas brulee — la debiter deperait la colonie a chaque chantier,
+        sans rien qui la rende.
+        """
+        territory = own_territory(client)
+        territory.add(type=BuildingType.power_station, amount=1)
+        session.commit()
+
+        with freeze_time(datetime.datetime.utcnow()):
+            energy_before = territory.resources[ResourceType.energy]
+            population_before = territory.resources[ResourceType.population]
+
+            response = client.post(f'/api/territory/{territory.id}/mater_extractor')
+            assert response.status_code == 200
+
+            assert territory.resources[ResourceType.population] == population_before
+            # L'extracteur n'a pas encore monte : sa consommation ne change pas
+            # non plus, et le solde reste celui d'avant la commande.
+            assert territory.resources[ResourceType.energy] == energy_before
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_reserve_once_spent_refuses_the_next_order(self, client, session):
+        """
+        Payer deux fois demande d'avoir de quoi.
+        ---
+        C'est ce que le seuil seul ne disait pas : il se franchissait une fois
+        et laissait passer tout ce qui suivait.
+        """
+        territory = own_territory(client)
+        territory.add(type=BuildingType.power_station, amount=1)
+        session.commit()
+
+        with freeze_time(datetime.datetime.utcnow()):
+            assert client.post(
+                f'/api/territory/{territory.id}/mater_extractor').status_code == 200
+
+            # On vide la caisse de ce qui vient d'etre paye, sans toucher au
+            # reste : la commande suivante doit buter dessus.
+            territory.iron = 0
+            session.commit()
+
+            response = client.post(f'/api/territory/{territory.id}/mater_extractor')
+            assert response.status_code == 400
+            assert "Prerequisites not reached" in response.json["message"]
+
+
+class TestRefinery:
+    """
+    Le tritium, ce qu'il vaut et d'ou il vient.
+    """
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_first_level_is_worth_building(self, client, session):
+        """
+        Le premier palier de raffinerie doit rapporter.
+        ---
+        `max(10, 10 * n * 1.1^n * 1.2)` rendait 10 au niveau 0 et 13.2 au
+        niveau 1 : quarante-cinq heures pour amortir un palier oblige, le pire
+        investissement du jeu — et un passage force, puisque le tritium
+        verrouille l'academie, l'usine et le chantier naval. Le fond est
+        desormais un terme constant, comme sur la ferme et la centrale.
+        """
+        territory = own_territory(client)
+        floor = territory.get_hourly_gain(resource_type=ResourceType.tritium)
+        assert floor > 0, "une raffinerie de niveau 0 raffine deja un peu"
+
+        territory.add(type=BuildingType.rafinery, amount=1)
+        session.commit()
+
+        assert territory.get_hourly_gain(resource_type=ResourceType.tritium) > floor * 2
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_output_follows_the_water_of_the_world(self, client, session):
+        """
+        Le tritium se tire de l'eau du monde.
+        ---
+        La formule portait `(-0.002 * 40 + 1.28)`, une constante ecrite comme
+        une fonction affine de la temperature, evaluee sur un 40 en dur — une
+        temperature qui n'existait nulle part ailleurs dans le modele. La
+        raffinerie rendait donc exactement la meme chose sur un oceanique et
+        sur un caillou sec.
+        """
+        home = own_territory(client)
+        assert home.planet_archetype == PlanetArchetype.telluric
+
+        def tritium_on(archetype, position):
+            world = Territory.create(
+                system_id=home.system_id,
+                position_in_system=position,
+                archetype=archetype,
+            )
+            session.commit()
+            # Un monde sans occupant n'a pas de rendement : `get_hourly_gain`
+            # passe par la faction du proprietaire.
+            world.assign(user=home.user)
+            session.commit()
+            return world.get_hourly_gain(resource_type=ResourceType.tritium)
+
+        ocean = tritium_on('oceanic', 97)
+        desert = tritium_on('desert', 96)
+        telluric = home.get_hourly_gain(resource_type=ResourceType.tritium)
+
+        assert ocean > telluric > desert
+        # Jamais nul : un monde prive de sa seule source de tritium serait
+        # injouable, alors qu'un monde sec est seulement un mauvais endroit ou
+        # raffiner.
+        assert desert > 0

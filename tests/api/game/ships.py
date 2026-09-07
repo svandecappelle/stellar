@@ -28,14 +28,19 @@ def stock_the_shipyard(territory, session):
     """
     Remplit les soutes du territoire.
     ---
-    Un monde de depart ne sort ni titane ni cristal ni neutronium, et les
-    chantiers les plus lourds en reclament. Ce qui est mis a l'epreuve ici est
-    l'affectation d'un vaisseau a une flotte, pas la conquete des gisements :
-    on donne donc de tout, largement.
+    Un monde de depart n'a rien en caisse hors fer, carbone, silicium et
+    credits, et n'extrait ni uranium ni hydrogene ni neutronium. Ce qui est mis
+    a l'epreuve ici est l'affectation d'un vaisseau a une flotte, pas la
+    conquete des gisements : on donne donc de tout, largement.
+
+    Les bras comptent aussi : une commande coute sa quantite fois le prix
+    unitaire, et dix vaisseaux-meres reclament deux cents colons quand la
+    colonie en compte cent.
     """
     for resource in ('iron', 'carbon', 'silicium', 'titanium', 'cristal',
                      'uranium', 'hydrogen', 'neutronium', 'credits'):
         setattr(territory, resource, 10000000)
+    territory.population = 10000
     session.commit()
 
 
@@ -260,3 +265,11 @@ class TestShips:
         response = client.get(f'/api/system/{territory.system_id}/army')
         assert response.status_code == 200
         assert response.json == {ShipType.Fighter.name: 1}
+
+        # La carte galactique lit tout d'un coup : une question par etoile
+        # serait la seule alternative.
+        response = client.get('/api/galaxy/Milky%20Way/fleets')
+        assert response.status_code == 200
+        assert response.json['galaxy'] == 'Milky Way'
+        assert len(response.json['fleets']) == 1
+        assert response.json['fleets'][0]['system_id'] == territory.system_id

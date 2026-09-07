@@ -707,6 +707,50 @@ class Territory(Base):
                 return False
         return True
 
+    #: Ce qu'un cout exige sans jamais le consommer.
+    #:
+    #: · L'energie n'est pas un stock mais un solde : `Territory.energy` la
+    #:   recalcule a chaque lecture depuis la centrale moins la consommation des
+    #:   batiments. La debiter n'aurait aucun effet durable, et le cout en
+    #:   energie d'un batiment est deja sa consommation permanente une fois
+    #:   monte -- voir `Building.consumption`.
+    #: · La population sert les batteries et arme les vaisseaux, elle n'est pas
+    #:   brulee. La debiter deperait la colonie a chaque chantier, sans rien qui
+    #:   la rende : la croissance est plafonnee par la nourriture, pas relancee
+    #:   par les commandes.
+    #:
+    #: Si l'un des deux doit devenir consommable un jour, c'est ici et nulle
+    #: part ailleurs.
+    NON_CONSUMABLE = (ResourceType.energy, ResourceType.population)
+
+    def spend(self, cost):
+        """
+        Debiter un cout des reserves du territoire.
+        ---
+        Le pendant de `match_prerequisite`, qui ne faisait que comparer : les
+        couts etaient verifies et jamais payes. Un joueur franchissait le seuil
+        une fois et montait ensuite tout ce qu'il voulait sans rien depenser,
+        si bien que la seule monnaie du jeu etait le temps.
+
+        Se prend un dictionnaire aux memes cles que la verification -- noms de
+        ressources ou membres de `ResourceType`, les deux se rencontrent selon
+        qu'on vienne d'un batiment ou d'un vaisseau.
+
+        Aucune borne a zero : l'appelant a verifie qu'il pouvait payer, et
+        rattraper ici un solde negatif masquerait la commande qui n'aurait pas
+        du passer.
+        """
+        for resource, amount in cost.items():
+            resource = ResourceType(resource)
+            if not amount or resource in self.NON_CONSUMABLE:
+                continue
+            setattr(self, resource.name, (getattr(self, resource.name) or 0) - amount)
+
+        logger.info(f"Spent resources on territory {self.id}", infos=dict(
+            cost={str(ResourceType(k)): v for k, v in cost.items() if v},
+            user_id=self.user_id,
+        ))
+
     def can_be_increased(self, building_type):
         """
         Check if building can be increase of level
@@ -723,7 +767,10 @@ class Territory(Base):
         """
         building = next(b for b in self.buildings if b.type == building_type)
         if building:
-            # TODO self.spend(building.cost)
+            # Paye a la commande, comme le chantier de vaisseaux : c'est le
+            # moment ou le joueur a montre qu'il en avait les moyens, et rien
+            # ne garantit qu'il les aura encore a la livraison.
+            self.spend(building.cost)
             return PositionalEvent.create(
                 territory=self,
                 user=self.user,
@@ -751,8 +798,16 @@ class Territory(Base):
             element = ShipType[item["type"]]
         elif type == PositionalEventType.defense:
             element = DefenseType[item["type"]]
-        if not self.match_prerequisite(element.cost):
-            raise ValueError(f"Cannot build {item['quantity']} {element.name}. Prerequisites not reached.")
+
+        # Le cout de la commande, pas celui d'une piece : `element.cost` est
+        # unitaire, et la verification le prenait tel quel. Une commande de dix
+        # passait donc avec de quoi en payer une seule -- ce que le message
+        # d'erreur juste en dessous dementait deja en annoncant la quantite.
+        quantity = item["quantity"]
+        cost = {resource: amount * quantity for resource, amount in element.cost.items()}
+        if not self.match_prerequisite(cost):
+            raise ValueError(f"Cannot build {quantity} {element.name}. Prerequisites not reached.")
+        self.spend(cost)
 
         # Meme acceleration que les batiments : ce sont des chantiers du meme
         # territoire, et les separer donnerait une galaxie rapide sur ses

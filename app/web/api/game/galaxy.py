@@ -11,6 +11,7 @@ from app.application import login_required
 from app.application import json_description
 
 from app.models.game.galaxy import Galaxy
+from app.models.game import starlanes
 from app.models.game.settings import DEFAULTS, PARAMETERS, GalaxySettings
 from app.models.game.system import System
 from app.models.game.territory import Territory
@@ -277,6 +278,35 @@ def get_free_system(name):
         raise NotFoundError('No unclaimed system left in this galaxy')
 
     return random.choice(free)
+
+
+@app.route('/api/galaxy/<string:name>/lanes', methods=['GET'])
+@login_required
+@serialize
+@json_description(file='descriptions/galaxy.json')
+def get_galaxy_lanes(name):
+    """
+    Les liaisons entre etoiles de cette galaxie.
+    ---
+    C'est le reseau qu'empruntent les flottes, et il ne se devine pas : la regle
+    de voisinage vit dans `app/models/game/starlanes.py`, ou elle reproduit
+    celle du client de jeu. Un client qui n'a pas cette regle — la console web —
+    ne peut ni dessiner la carte ni expliquer un trajet sans la demander.
+
+    Chaque liaison n'est rendue qu'une fois, du plus petit identifiant vers le
+    plus grand, avec sa longueur en unites de carte : c'est cette longueur qui
+    fait la duree du saut.
+    """
+    if not Galaxy.exists(session=db.session, name=name):
+        raise NotFoundError('Galaxy does not exists')
+
+    return {
+        'galaxy_name': name,
+        'lanes': [
+            {'from': origin, 'to': other, 'length': length}
+            for origin, other, length in starlanes.edges(galaxy_name=name)
+        ],
+    }
 
 
 @app.route('/api/galaxy/<string:name>/systems', methods=['GET'])

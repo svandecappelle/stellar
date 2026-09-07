@@ -73,6 +73,18 @@ class System(Base):
         return query.distinct().all()
 
     @classmethod
+    def all_of(cls, galaxy_name):
+        """
+        Tous les systemes d'une galaxie, par identifiant croissant.
+        ---
+        `all` demande un objet galaxie et sait filtrer sur un joueur ; le graphe
+        des liaisons n'a besoin ni de l'un ni de l'autre — il lui faut la
+        galaxie entiere, y compris les systemes que personne n'occupe, sans quoi
+        les routes eviteraient les etoiles vides.
+        """
+        return db.session.query(System)            .filter(cls.galaxy_name == galaxy_name)            .order_by(cls.id).all()
+
+    @classmethod
     def create(cls, galaxy, position, characteristics=None, create_territories=True):
         """
         ---

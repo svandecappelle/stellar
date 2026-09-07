@@ -89,8 +89,17 @@ class BuildingType(enum.Enum):
             'credits': lambda n: 30 * pow(1.6, n - 1),
             'energy': lambda n: 20 * n * pow(1.1, n)
         },
+        # Comme la centrale et la ferme, un fond au niveau 0 puis une courbe qui
+        # part de la : `max(10, 10 * n * ...)` faisait rendre 10 au niveau 0 et
+        # 13.2 au niveau 1, soit quarante-cinq heures pour amortir le premier
+        # palier -- le pire investissement du jeu, et un passage oblige puisque
+        # le tritium verrouille l'academie, l'usine et le chantier naval.
+        #
+        # Ce que rend vraiment la raffinerie depend de l'eau du monde : le
+        # multiplicateur est applique dans `Building.get_hourly_gain`, la ou le
+        # territoire est connu.
         'gain': {
-            'tritium': lambda n: max(10, 10 * n * pow(1.1, n) * (-0.002 * 40 + 1.28))
+            'tritium': lambda n: 10 + 12 * n * pow(1.1, n)
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -230,6 +239,12 @@ class Building(Base):
         # quel que soit le niveau de la ferme.
         if self.territory is not None and gains.get(ResourceType.food):
             gains[ResourceType.food] *= self.territory.planet_archetype.habitability_factor
+
+        # Le tritium se tire de l'eau du monde. C'est le seul terme qui fasse
+        # varier une raffinerie d'un endroit a l'autre : sans lui elle rendait
+        # la meme chose sur un oceanique et sur un caillou sec.
+        if self.territory is not None and gains.get(ResourceType.tritium):
+            gains[ResourceType.tritium] *= self.territory.planet_archetype.water_factor
 
         # Un monde qui gronde produit moins. Deux exceptions, et elles ont la
         # meme raison : sans elles, une famine serait sans retour.

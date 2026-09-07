@@ -477,6 +477,81 @@
         ]
       }
     },
+    "/api/fleet/{id}/travel": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fleet stopped"
+          },
+          "400": {
+            "description": "Fleet is not travelling"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet does not exist"
+          }
+        },
+        "summary": "Stop a travelling fleet at the last star lane node it passed",
+        "tags": [
+          "Fleets"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Fleet under way, with its route and arrival time"
+          },
+          "400": {
+            "description": "Bad request, or fleet already in this system"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Fleet or system does not exist"
+          },
+          "409": {
+            "description": "No route of star lanes leads to this system"
+          }
+        },
+        "summary": "Send a fleet to another system, along the star lanes",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
     "/api/galaxies": {
       "get": {
         "responses": {
@@ -674,6 +749,47 @@
         ]
       }
     },
+    "/api/galaxy/{name}/fleets": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "fleets": {},
+                    "galaxy": {}
+                  },
+                  "required": [
+                    "galaxy",
+                    "fleets"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Fleets of the galaxy"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "List the player's fleets across a whole galaxy",
+        "tags": [
+          "Fleets"
+        ]
+      }
+    },
     "/api/galaxy/{name}/free-system": {
       "get": {
         "parameters": [
@@ -692,6 +808,50 @@
           }
         },
         "summary": "GET /api/galaxy/{name}/free-system"
+      }
+    },
+    "/api/galaxy/{name}/lanes": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "galaxy_name": {},
+                    "lanes": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "lanes"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Lanes, each once, with their length in map units"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "Galaxy does not exist"
+          }
+        },
+        "summary": "List the star lanes of a galaxy, the network fleets travel on",
+        "tags": [
+          "Galaxy"
+        ]
       }
     },
     "/api/galaxy/{name}/settings": {
@@ -1123,6 +1283,7 @@
                     "ships": {},
                     "size": {},
                     "system_id": {},
+                    "travel": {},
                     "updated_at": {},
                     "user_id": {}
                   },
@@ -1133,6 +1294,7 @@
                     "user_id",
                     "position",
                     "orbiting_territory_id",
+                    "travel",
                     "ships",
                     "composition",
                     "size",

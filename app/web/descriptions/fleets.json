@@ -1,6 +1,8 @@
 {
     "/api/system/{id}/fleets": {
-        "tags": ["Fleets"],
+        "tags": [
+            "Fleets"
+        ],
         "method": "GET",
         "summary": "List the player's fleets in a system, with position and composition",
         "responses": {
@@ -14,7 +16,9 @@
     },
     "/api/system/{id}/fleet": {
         "post": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Create an empty fleet in a system",
             "responses": {
                 "200": {
@@ -34,7 +38,9 @@
     },
     "/api/fleet/{id}": {
         "get": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Get a fleet owned by the player",
             "responses": {
                 "200": {
@@ -49,7 +55,9 @@
             }
         },
         "post": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Update a fleet name, position or orbit",
             "responses": {
                 "200": {
@@ -67,7 +75,9 @@
             }
         },
         "delete": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Disband an empty fleet",
             "responses": {
                 "204": {
@@ -87,7 +97,9 @@
     },
     "/api/fleet/{id}/position": {
         "post": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Store the Unity position of a fleet inside its system",
             "responses": {
                 "200": {
@@ -107,7 +119,9 @@
     },
     "/api/fleet/{id}/orbit": {
         "post": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Anchor a fleet to a planet orbit, or detach it with a null territory_id",
             "responses": {
                 "200": {
@@ -127,7 +141,9 @@
     },
     "/api/fleet/{id}/transfer": {
         "post": {
-            "tags": ["Fleets"],
+            "tags": [
+                "Fleets"
+            ],
             "summary": "Move ships from one fleet to another inside the same system",
             "responses": {
                 "200": {
@@ -135,6 +151,66 @@
                 },
                 "400": {
                     "description": "Bad request"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet does not exist"
+                }
+            }
+        }
+    },
+    "/api/galaxy/{name}/fleets": {
+        "tags": [
+            "Fleets"
+        ],
+        "method": "GET",
+        "summary": "List the player's fleets across a whole galaxy",
+        "responses": {
+            "200": {
+                "description": "Fleets of the galaxy"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/fleet/{id}/travel": {
+        "post": {
+            "tags": [
+                "Fleets"
+            ],
+            "summary": "Send a fleet to another system, along the star lanes",
+            "responses": {
+                "200": {
+                    "description": "Fleet under way, with its route and arrival time"
+                },
+                "400": {
+                    "description": "Bad request, or fleet already in this system"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Fleet or system does not exist"
+                },
+                "409": {
+                    "description": "No route of star lanes leads to this system"
+                }
+            }
+        },
+        "delete": {
+            "tags": [
+                "Fleets"
+            ],
+            "summary": "Stop a travelling fleet at the last star lane node it passed",
+            "responses": {
+                "200": {
+                    "description": "Fleet stopped"
+                },
+                "400": {
+                    "description": "Fleet is not travelling"
                 },
                 "401": {
                     "description": "Not authorized"

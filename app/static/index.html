@@ -68,6 +68,10 @@
                territoire, et vit donc aussi sur cet écran. -->
           <div class="field">
             <label></label>
+            <button class="btn" type="button" id="pick-map">Carte de la galaxie</button>
+          </div>
+          <div class="field">
+            <label></label>
             <button class="btn hidden" type="button" id="pick-moderation">Réglages de la galaxie</button>
           </div>
           <div class="theme-pick" id="pick-theme-pick" style="margin-top:18px"></div>
@@ -129,11 +133,26 @@
     </div>
 
     <div class="acts">
-      <div class="theme-pick" id="cmd-theme-pick"></div>
-      <button class="btn hidden" id="btn-moderation">Réglages</button>
-      <button class="btn" id="btn-switch">Territoires</button>
-      <button class="btn" id="btn-refresh">Rafraîchir</button>
-      <button class="btn btn--dgr" id="btn-logout">Déconnexion</button>
+      <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
+              aria-label="Carte de la galaxie"></button>
+      <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
+              aria-label="Mes territoires"></button>
+      <button class="btn btn--icon" data-act="refresh-territory" title="Rafraîchir"
+              aria-label="Rafraîchir"></button>
+      <!-- Ce qui ne se fait qu'une fois de temps en temps passe sous un menu :
+           regler la galaxie, changer d'apparence, se deconnecter. Les garder en
+           facade mettait cinq boutons de meme poids cote a cote, dont un rouge,
+           pour trois gestes quotidiens et trois rares. -->
+      <div class="menu" data-menu>
+        <button class="btn btn--icon" data-menu-toggle aria-haspopup="menu"
+                aria-expanded="false" title="Menu" aria-label="Menu"></button>
+        <div class="menu-pop" data-menu-pop hidden role="menu">
+          <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -167,6 +186,108 @@
     </div>
   </div>
 </section>
+
+<!-- ==================== CARTE DE LA GALAXIE ====================
+     Ce que la console ne savait pas montrer : ou sont les choses les unes par
+     rapport aux autres. Les listes disent ce qu'on possede, jamais si deux
+     mondes sont voisins — et c'est pourtant la seule question qui compte pour
+     deplacer une flotte, qui ne voyage que par les liaisons entre etoiles.
+
+     Le reseau vient du serveur (`/api/galaxy/<nom>/lanes`) : la regle de
+     voisinage vit dans le modele et dans le client de jeu, la console n'en a
+     aucune copie et ne doit pas en inventer une. -->
+<section id="view-galaxy" class="scene hidden">
+
+  <div class="topbar">
+    <div class="sysbox">
+      <span class="ov">Carte galactique</span>
+      <span class="val" id="map-galaxy">—</span>
+    </div>
+
+    <div class="resbar">
+      <span class="ov">Vue d'ensemble</span>
+      <div class="res-grid" id="map-summary"></div>
+    </div>
+
+    <div class="acts">
+      <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
+              aria-label="Mes territoires"></button>
+      <button class="btn btn--icon" data-act="refresh-map" title="Rafraîchir"
+              aria-label="Rafraîchir"></button>
+      <!-- Ce qui ne se fait qu'une fois de temps en temps passe sous un menu :
+           regler la galaxie, changer d'apparence, se deconnecter. Les garder en
+           facade mettait cinq boutons de meme poids cote a cote, dont un rouge,
+           pour trois gestes quotidiens et trois rares. -->
+      <div class="menu" data-menu>
+        <button class="btn btn--icon" data-menu-toggle aria-haspopup="menu"
+                aria-expanded="false" title="Menu" aria-label="Menu"></button>
+        <div class="menu-pop" data-menu-pop hidden role="menu">
+          <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body-cols">
+    <div class="panel panel--hazard map-panel">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Systèmes et liaisons</span>
+          <span class="t" id="map-title">—</span>
+          <span class="deposits" id="map-legend"></span>
+        </div>
+        <span class="loading" id="map-updated"></span>
+      </div>
+      <div class="rule"></div>
+      <!-- Les commandes vivent hors du cadre : celui-ci est repeint a chaque
+           lecture, et des boutons a l'interieur seraient refaits avec lui. -->
+      <div class="map-stage">
+        <div class="map-frame" id="map-frame"><p class="empty">Chargement…</p></div>
+        <div class="map-tools">
+          <button class="btn btn--sm" id="map-zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
+          <button class="btn btn--sm" id="map-zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+          <button class="btn btn--sm" id="map-fit" title="Revoir la galaxie entière">Recadrer</button>
+        </div>
+        <p class="map-hint">Molette pour zoomer · glisser pour déplacer · double-clic sur un de vos mondes pour l'administrer</p>
+      </div>
+    </div>
+
+    <div class="panel panel--hazard map-side">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Sélection</span>
+          <span class="t" id="map-sel-title">—</span>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div id="map-sel-body"><p class="empty">Choisissez une étoile ou une flotte.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PARAMÈTRES ====================
+     L'apparence n'est pas une commande de jeu : elle se regle une fois et ne
+     redemande rien. Elle occupait pourtant trois boutons en permanence dans la
+     barre du haut, a cote de ceux qui pilotent la partie. -->
+<div class="modal hidden" id="modal-settings" role="dialog" aria-modal="true"
+     aria-labelledby="settings-title">
+  <div class="modal-card panel panel--hazard">
+    <div class="panel-head">
+      <div>
+        <span class="ov">Paramètres</span>
+        <span class="t" id="settings-title">Apparence</span>
+      </div>
+      <button class="btn btn--sm btn--ghost" data-act="settings-close">Fermer</button>
+    </div>
+    <div class="rule"></div>
+    <p class="mod-intro">Trois directions visuelles. Le choix est conservé sur cet
+      appareil, il ne suit pas le compte.</p>
+    <div class="theme-pick" id="settings-theme-pick"></div>
+  </div>
+</div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 

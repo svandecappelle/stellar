@@ -61,11 +61,11 @@ class TestFactions:
             '/api/territories'
         )
         assert response.status_code == 200
-        assert len(response.json) == 1
-        assert response.json[0].get('id') is not None
+        assert len(response.json['territories']) == 1
+        assert response.json['territories'][0].get('id') is not None
 
         # Check starting resource and set level of building to 1
-        territory = Territory.get(id=response.json[0]["id"])
+        territory = Territory.get(id=response.json['territories'][0]["id"])
         territory.add(type=BuildingType.power_station, amount=15)
         territory.add(type=BuildingType.mater_extractor, amount=5)
         territory.add(type=BuildingType.economical_center, amount=5)

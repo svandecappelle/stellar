@@ -76,6 +76,27 @@ const state = {
   /* Reglages de la galaxie courante et droit d'y toucher, tels que le serveur
      les rend. Relus a chaque changement de galaxie. */
   moderation: null,
+  /* Carte de la galaxie. La topologie — systemes et liaisons — ne bouge pas en
+     cours de partie et n'est relue qu'au changement de galaxie ; les flottes,
+     elles, se relisent et s'avancent sur l'horloge locale. */
+  map: {
+    galaxy: null,
+    systems: [],
+    lanes: [],
+    fleets: [],
+    byId: new Map(),
+    rank: new Map(),
+    projection: null,
+    /* Le cadrage courant, en unites de vue : c'est lui le `viewBox` du SVG.
+       Deplacer et zoomer se ramenent a le bouger et le retailler, ce qui ne
+       touche a aucun point du trace. */
+    view: null,
+    dragged: false,
+    readAt: 0,
+    selectedSystem: null,
+    selectedFleet: null,
+    tick: 0,
+  },
 };
 
 let tickTimer = null;
@@ -91,24 +112,65 @@ let settledEvents = new Set();
 
 const $ = (sel) => document.querySelector(sel);
 
-/* ---------- la galaxie vit dans l'URL ----------
-   ?galaxy=Milky+Way : le lien est partageable, rechargeable, et passer d'une
-   galaxie a l'autre se fait aussi bien depuis la barre d'adresse que depuis
-   le selecteur. */
-function galaxyFromUrl() {
+/* ---------- la vue vit dans le chemin ----------
+
+     /                              le menu, tant qu'aucune galaxie n'est choisie
+     /galaxy/<nom>                  la carte, qui est la vue d'accueil
+     /galaxy/<nom>/territory/<id>   un monde
+
+   Dans le chemin et non dans la requete : c'est une adresse de page, pas un
+   filtre. Elle se met en favori, se partage et se recharge, et le bouton retour
+   du navigateur retrouve la vue precedente au lieu de sortir du site.
+
+   `/api` est a l'API : rien ne se chevauche. Le serveur rend la meme page pour
+   tous ces chemins (voir `app/web/ui.py`), c'est ici qu'on decide de ce qu'elle
+   montre. */
+function readRoute() {
+  let parts = [];
   try {
-    return new URLSearchParams(window.location.search).get('galaxy') || null;
+    parts = window.location.pathname.split('/').filter(Boolean).map(decodeURIComponent);
   } catch (e) {
-    return null;
+    /* Chemin mal encode : on retombe sur l'accueil plutot que d'echouer. */
+    parts = [];
   }
+
+  if (parts[0] !== 'galaxy' || !parts[1]) {
+    /* Ancienne forme `?galaxy=` : les liens deja poses continuent de marcher,
+       et la premiere navigation les reecrit dans la nouvelle. */
+    let legacy = null;
+    try {
+      legacy = new URLSearchParams(window.location.search).get('galaxy');
+    } catch (e) {
+      legacy = null;
+    }
+    return { galaxy: legacy || null, territoryId: null };
+  }
+
+  const id = parts[2] === 'territory' && parts[3] ? Number(parts[3]) : null;
+  return {
+    galaxy: parts[1],
+    territoryId: Number.isFinite(id) && id > 0 ? id : null,
+  };
 }
 
-function syncUrl() {
+function routePath(galaxy, territoryId) {
+  if (!galaxy) return '/';
+  const base = `/galaxy/${encodeURIComponent(galaxy)}`;
+  return territoryId ? `${base}/territory/${territoryId}` : base;
+}
+
+/* Ecrit l'adresse de la vue courante.
+
+   `replace` quand la vue n'est pas un pas de navigation — une correction de
+   l'adresse, ou le premier affichage : empiler une entree la ferait apparaitre
+   dans l'historique comme un endroit ou revenir. */
+function syncUrl({ replace = false } = {}) {
+  const path = routePath(state.galaxy, state.territoryId);
   try {
-    const url = new URL(window.location.href);
-    if (state.galaxy) url.searchParams.set('galaxy', state.galaxy);
-    else url.searchParams.delete('galaxy');
-    window.history.replaceState({ galaxy: state.galaxy }, '', url);
+    if (path === window.location.pathname && !window.location.search) return;
+    const entry = { galaxy: state.galaxy, territoryId: state.territoryId };
+    if (replace) window.history.replaceState(entry, '', path);
+    else window.history.pushState(entry, '', path);
   } catch (e) {
     /* pas d'historique disponible : la vue reste juste, l'URL ne suit pas */
   }
@@ -230,14 +292,15 @@ async function loadGalaxies() {
   const known = await api.galaxies().catch(() => []);
   state.galaxies = Array.isArray(known) ? known.map((g) => g.name).filter(Boolean) : [];
 
-  // Priorite : ce que dit l'URL, puis la galaxie deja choisie, puis la premiere.
-  const wanted = galaxyFromUrl() || state.galaxy;
+  // Priorite : ce que dit l'adresse, puis la galaxie deja choisie, puis la
+  // premiere connue.
+  const wanted = readRoute().galaxy || state.galaxy;
   state.galaxy =
     (wanted && state.galaxies.includes(wanted) && wanted) || state.galaxies[0] || wanted || null;
 
   fillGalaxySelect($('#login-galaxy'));
   fillGalaxySelect($('#pick-galaxy'));
-  syncUrl();
+  syncUrl({ replace: true });
 }
 
 function fillGalaxySelect(select) {
@@ -261,6 +324,8 @@ async function switchGalaxy(name) {
   state.galaxy = name;
   state.territoryId = null;
   state.territory = null;
+  /* Changer de galaxie est bien un pas de navigation : on doit pouvoir revenir
+     a la precedente. */
   syncUrl();
   fillGalaxySelect($('#login-galaxy'));
   fillGalaxySelect($('#pick-galaxy'));
@@ -272,10 +337,11 @@ async function switchGalaxy(name) {
    ============================================================ */
 
 function showView(name) {
-  ['login', 'pick', 'command', 'moderation'].forEach((v) => {
+  ['login', 'pick', 'command', 'moderation', 'galaxy'].forEach((v) => {
     $(`#view-${v}`).classList.toggle('hidden', v !== name);
   });
   if (name !== 'command') stopTimers();
+  if (name !== 'galaxy') stopMapTimers();
 }
 
 /* ============================================================
@@ -307,10 +373,11 @@ async function refreshModeration() {
 
 function applyModerationAccess() {
   const allowed = !!(state.moderation && state.moderation.can_edit);
-  ['#btn-moderation', '#pick-moderation'].forEach((sel) => {
-    const el = $(sel);
-    if (el) el.classList.toggle('hidden', !allowed);
-  });
+  document
+    .querySelectorAll('[data-act="moderation"]')
+    .forEach((el) => el.classList.toggle('hidden', !allowed));
+  const pick = $('#pick-moderation');
+  if (pick) pick.classList.toggle('hidden', !allowed);
 }
 
 async function openModeration() {
@@ -441,7 +508,8 @@ function initModeration() {
   });
 
   $('#mod-back').addEventListener('click', leaveModeration);
-  $('#btn-moderation').addEventListener('click', openModeration);
+  /* L'entree de la barre du haut passe par `data-act` ; celle de l'ecran de
+     choix reste un bouton nomme, cet ecran n'ayant pas de menu. */
   $('#pick-moderation').addEventListener('click', openModeration);
 }
 
@@ -461,7 +529,6 @@ function initLogin() {
       const chosen = $('#login-galaxy').value;
       if (chosen) {
         state.galaxy = chosen;
-        syncUrl();
       }
       state.user = await api.login($('#login-user').value.trim(), $('#login-pass').value);
       $('#login-pass').value = '';
@@ -486,6 +553,7 @@ async function logout() {
   state.user = null;
   state.territory = null;
   state.territoryId = null;
+  syncUrl({ replace: true });
   showView('login');
 }
 
@@ -579,10 +647,13 @@ function renderDeposits() {
    scène système
    ============================================================ */
 
-async function selectTerritory(id) {
+async function selectTerritory(id, { push = true } = {}) {
   state.territoryId = id;
   state.tab = 'buildings';
   settledEvents = new Set();
+  /* L'adresse d'abord : elle se lit dans l'etat, qui vient d'etre pose. */
+  syncUrl({ replace: !push });
+  stopMapTimers();
   showView('command');
   $('#tab-body').innerHTML = '<p class="empty">Chargement…</p>';
   await reloadTerritory(true);
@@ -795,9 +866,30 @@ function territoryById(id) {
 }
 
 function orbitLabel(fleet) {
-  if (!fleet.orbiting_territory_id) return 'En transit';
+  /* « En transit » designait jusqu'ici une flotte sans orbite, ce qui etait deja
+     approximatif — elle pouvait tres bien stationner sur place. Depuis qu'un
+     vrai voyage existe, ce serait faux : on distingue les deux. */
+  if (fleet.travel) return `En route vers le système ${fleet.travel.destination_id}`;
+  if (!fleet.orbiting_territory_id) return 'Dans le système, sans orbite';
   const t = territoryById(fleet.orbiting_territory_id);
   return t ? `Orbite de ${territoryLabel(t)}` : `Orbite du territoire ${fleet.orbiting_territory_id}`;
+}
+
+/* L'etape du voyage et le temps restant, quand la flotte est en route.
+
+   Le decompte part de `seconds_left` plutot que d'une comparaison avec
+   `arriving_at` : l'heure d'arrivee est celle du serveur, et la pendule du
+   navigateur n'a aucune raison de tomber d'accord avec elle. */
+function travelMarkup(fleet) {
+  if (!fleet.travel) return '';
+  const t = fleet.travel;
+  const hops = Array.isArray(t.route) ? t.route.length - 1 : 0;
+  const done = (t.leg_index || 0) + 1;
+  return `<div class="costs">
+    <span class="cost">Saut <b>${esc(String(done))}/${esc(String(hops))}</b></span>
+    <span class="cost">Arrivée dans <b>${esc(fmtDuration(t.seconds_left || 0))}</b></span>
+    <span class="cost" title="Systèmes traversés">Route <b>${esc((t.route || []).join(' → '))}</b></span>
+  </div>`;
 }
 
 function fmtPosition(p) {
@@ -857,16 +949,20 @@ function renderFleets() {
           <span class="lvl">${esc(fmtNumber(f.size || 0))} vaisseau(x)</span>
           <button class="btn btn--sm" data-fleet-rename="${f.id}">Renommer</button>
           ${
-            here
-              ? `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="">Quitter l'orbite</button>`
-              : `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="${state.territoryId}">Amarrer ici</button>`
+            f.travel
+              ? `<button class="btn btn--sm" data-fleet-stop="${f.id}"
+                   title="La flotte se pose au dernier relais franchi">Interrompre</button>`
+              : here
+                ? `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="">Quitter l'orbite</button>`
+                : `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="${state.territoryId}">Amarrer ici</button>`
           }
-          ${f.size ? '' : `<button class="btn btn--sm" data-fleet-disband="${f.id}">Dissoudre</button>`}
+          ${f.size || f.travel ? '' : `<button class="btn btn--sm" data-fleet-disband="${f.id}">Dissoudre</button>`}
         </div>
         <div class="costs">
           <span class="cost">${esc(orbitLabel(f))}</span>
           <span class="cost" title="Coordonnées Unity conservées par le serveur">Position <b>${esc(fmtPosition(f.position))}</b></span>
         </div>
+        ${travelMarkup(f)}
         ${ships}
         ${targetSelect ? `<div class="costs"><span class="cost">Destinataire</span>${targetSelect}</div>` : ''}
       </div>
@@ -1131,6 +1227,10 @@ function disbandFleet(id) {
   runFleetAction(() => api.disbandFleet(id), 'Flotte dissoute.');
 }
 
+function stopFleetTravel(id) {
+  runFleetAction(() => api.stopFleetTravel(id), 'Voyage interrompu.');
+}
+
 function transferShips(fleetId, type) {
   const target = document.querySelector(`[data-transfer-target="${fleetId}"]`);
   const qty = document.querySelector(`[data-transfer-qty="${CSS.escape(`${fleetId}-${type}`)}"]`);
@@ -1215,6 +1315,11 @@ function initEvents() {
       setFleetOrbit(Number(orbit.dataset.fleetOrbit), target ? Number(target) : null);
       return;
     }
+    const stop = ev.target.closest('[data-fleet-stop]');
+    if (stop) {
+      stopFleetTravel(Number(stop.dataset.fleetStop));
+      return;
+    }
     const disband = ev.target.closest('[data-fleet-disband]');
     if (disband) {
       disbandFleet(Number(disband.dataset.fleetDisband));
@@ -1237,23 +1342,1169 @@ function initEvents() {
 
   $('#login-galaxy').addEventListener('change', (ev) => {
     state.galaxy = ev.target.value || null;
-    syncUrl();
+    /* Avant connexion, l'adresse suit sans empiler : le joueur essaie des
+       galaxies dans une liste, il ne navigue pas. */
+    syncUrl({ replace: true });
     fillGalaxySelect($('#pick-galaxy'));
   });
   $('#pick-galaxy').addEventListener('change', (ev) => switchGalaxy(ev.target.value));
 
-  // Retour arriere du navigateur : l'URL fait foi.
+  // Retour arriere du navigateur : l'adresse fait foi, et on ne la reecrit pas
+  // en repondant — ce serait empiler une entree par pas en arriere.
   window.addEventListener('popstate', () => {
-    const wanted = galaxyFromUrl();
-    if (wanted && wanted !== state.galaxy) switchGalaxy(wanted);
+    applyRoute({ push: false });
   });
 
-  $('#btn-refresh').addEventListener('click', () => reloadTerritory(true));
-  $('#btn-logout').addEventListener('click', () => logout());
-  $('#btn-switch').addEventListener('click', () => {
-    stopTimers();
-    renderPicker();
-    showView('pick');
+}
+
+/* ============================================================
+   barre du haut : commandes, menu, paramètres
+
+   Elle alignait cinq boutons de même poids — dont un rouge — pour trois gestes
+   quotidiens et trois qu'on ne fait presque jamais. Rien ne distinguait
+   « rafraîchir », qu'on fait dix fois par minute, de « déconnexion », qu'on fait
+   une fois par jour et jamais par erreur.
+
+   Ce qui est courant devient une icône, ce qui est rare passe sous un menu. Les
+   boutons sont désignés par leur action et non par un identifiant : les deux
+   scènes portent la même barre, et un identifiant par bouton et par scène
+   aurait fait deux jeux de branchements à tenir en accord.
+   ============================================================ */
+
+const CHROME_ICONS = {
+  map: 'galaxy',
+  worlds: 'worlds',
+  'refresh-territory': 'refresh',
+  'refresh-map': 'refresh',
+  moderation: 'sliders',
+  settings: 'settings',
+  logout: 'logout',
+};
+
+/* Les pictogrammes sont posés une fois. Le titre porte le libellé : un bouton
+   qui n'est qu'une icône doit pouvoir se nommer, au survol comme au lecteur
+   d'écran, d'où le `aria-label` dans le balisage. */
+function paintChrome() {
+  document.querySelectorAll('[data-menu-toggle]').forEach((button) => {
+    if (!button.querySelector('svg')) button.innerHTML = icon('menu');
+  });
+
+  document.querySelectorAll('[data-act]').forEach((button) => {
+    const name = CHROME_ICONS[button.dataset.act];
+    if (!name || button.querySelector('svg')) return;
+    button.insertAdjacentHTML('afterbegin', icon(name));
+  });
+}
+
+function closeMenus() {
+  document.querySelectorAll('[data-menu]').forEach((menu) => {
+    const pop = menu.querySelector('[data-menu-pop]');
+    const toggle = menu.querySelector('[data-menu-toggle]');
+    if (pop) pop.hidden = true;
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function menusOpen() {
+  return Array.from(document.querySelectorAll('[data-menu-pop]')).some((p) => !p.hidden);
+}
+
+function openSettings() {
+  $('#modal-settings').classList.remove('hidden');
+}
+
+function closeSettings() {
+  $('#modal-settings').classList.add('hidden');
+}
+
+function settingsOpen() {
+  return !$('#modal-settings').classList.contains('hidden');
+}
+
+/* Le choix d'un territoire est au-dessus d'un territoire : l'adresse remonte à
+   la galaxie, sans quoi un rechargement rouvrirait le monde qu'on vient de
+   quitter. Partagé par les deux scènes. */
+function showWorldPicker() {
+  stopTimers();
+  stopMapTimers();
+  state.territoryId = null;
+  syncUrl();
+  renderPicker();
+  showView('pick');
+}
+
+function runChromeAction(name) {
+  switch (name) {
+    case 'map':
+      openGalaxyMap();
+      break;
+    case 'worlds':
+      showWorldPicker();
+      break;
+    case 'refresh-territory':
+      reloadTerritory(true);
+      break;
+    case 'refresh-map':
+      loadGalaxyMap();
+      break;
+    case 'moderation':
+      openModeration();
+      break;
+    case 'settings':
+      openSettings();
+      break;
+    case 'settings-close':
+      closeSettings();
+      break;
+    case 'logout':
+      logout();
+      break;
+    default:
+      break;
+  }
+}
+
+function initChrome() {
+  paintChrome();
+
+  document.addEventListener('click', (ev) => {
+    const toggle = ev.target.closest('[data-menu-toggle]');
+    if (toggle) {
+      const pop = toggle.closest('[data-menu]').querySelector('[data-menu-pop]');
+      const opening = pop.hidden;
+      closeMenus();
+      pop.hidden = !opening;
+      toggle.setAttribute('aria-expanded', String(opening));
+      return;
+    }
+
+    /* Cliquer ailleurs referme : c'est ce qu'on tente d'instinct pour sortir
+       d'un menu, et sans reponse il donne l'impression d'etre coince. */
+    if (!ev.target.closest('[data-menu-pop]')) closeMenus();
+
+    /* Le fond assombri de la fenetre sert de zone de fermeture. */
+    if (ev.target.id === 'modal-settings') {
+      closeSettings();
+      return;
+    }
+
+    const action = ev.target.closest('[data-act]');
+    if (!action) return;
+    closeMenus();
+    runChromeAction(action.dataset.act);
+  });
+
+  /* Échap ferme ce qui est ouvert, du plus superficiel au plus profond : la
+     fenêtre, puis le menu. Ce qui reste — la sélection sur la carte — est géré
+     par la carte elle-même. */
+  window.addEventListener(
+    'keydown',
+    (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (settingsOpen()) {
+        closeSettings();
+        ev.stopImmediatePropagation();
+        return;
+      }
+      if (menusOpen()) {
+        closeMenus();
+        ev.stopImmediatePropagation();
+      }
+    },
+    true
+  );
+}
+
+/* ============================================================
+   carte de la galaxie
+
+   Ce que les listes ne savent pas dire : où sont les choses les unes par
+   rapport aux autres. On y lit ce qu'on possède, jamais si deux mondes sont
+   voisins — et c'est pourtant la seule question qui compte pour déplacer une
+   flotte, puisqu'elle ne voyage que par les liaisons entre étoiles.
+
+   Le réseau vient du serveur. La règle de voisinage vit dans le modèle et dans
+   le client de jeu ; la console n'en a aucune copie, et une carte qui
+   réinventerait ses propres liaisons montrerait un réseau que les flottes
+   n'empruntent pas.
+
+   En SVG et non en canvas : les étoiles sont alors des éléments, donc
+   survolables, cliquables et titrables sans écrire un moteur de désignation.
+   Elles se comptent en centaines, le DOM tient largement.
+   ============================================================ */
+
+/* Repère de tracé, en unités de vue. Le `viewBox` fait la mise à l'échelle
+   jusqu'aux pixels, ce qui laisse écrire des rayons et des tailles de texte
+   dans un ordre de grandeur lisible — projeter directement en coordonnées de
+   galaxie donnerait des polices de cent unités de haut. */
+const MAP_W = 1000;
+const MAP_H = 625;
+const MAP_PAD = 42;
+
+const MAP_STAR_R = 3.4;
+const MAP_STAR_MINE_R = 5.2;
+const MAP_FLEET_R = 7;
+
+/* Écart entre une étoile et les flottes qui y stationnent. Assez pour ne pas
+   la recouvrir : c'est elle qu'on vise quand on veut envoyer la flotte
+   ailleurs. */
+const MAP_FLEET_ORBIT = 14;
+
+/* Bornes du zoom, en multiples du cadrage d'origine. Assez pour separer deux
+   etoiles d'un amas serre, pas au point de perdre la galaxie de vue. */
+const MAP_ZOOM_MIN = 0.9;
+const MAP_ZOOM_MAX = 14;
+const MAP_ZOOM_STEP = 1.25;
+
+/* Au-dela, les etoiles sont assez espacees pour porter toutes leur nom. En
+   deca, seuls les mondes du joueur sont nommes : trois cents libelles
+   superposes ne se lisent pas. */
+const MAP_LABEL_ZOOM = 2.4;
+
+let mapTimer = null;
+let mapLoading = false;
+
+/* Facteur d'agrandissement courant. Les rayons et les tailles de texte sont
+   ecrits pour un cadrage d'origine et divises par lui : sans cela, zoomer
+   grossirait les etoiles au lieu de les ecarter, ce qui n'apprend rien. */
+function mapZoom() {
+  const view = state.map.view;
+  return view && view.w > 0 ? MAP_W / view.w : 1;
+}
+
+/* Les flottes bougent : leur position se recalcule sur l'horloge locale à
+   partir de `travel.legs`, exactement comme le fait le client de jeu. Le
+   serveur donne un reste, jamais une heure d'arrivée — les deux pendules n'ont
+   aucune raison d'être d'accord. */
+function mapFleetsReadNow(fleets) {
+  state.map.fleets = Array.isArray(fleets) ? fleets : [];
+  state.map.readAt = Date.now();
+}
+
+function mapSecondsLeft(fleet) {
+  if (!fleet.travel) return 0;
+  const elapsed = (Date.now() - state.map.readAt) / 1000;
+  return Math.max(0, (fleet.travel.seconds_left || 0) - elapsed);
+}
+
+/* Le saut en cours et la fraction parcourue.
+
+   On remonte depuis la fin : ce que le serveur donne est un reste, et le
+   convertir en écoulé demanderait une somme que le reste rend inutile. */
+function mapLeg(fleet) {
+  const t = fleet.travel;
+  if (!t || !Array.isArray(t.legs) || !t.legs.length) return null;
+  if (!Array.isArray(t.route) || t.route.length < 2) return null;
+
+  const left = mapSecondsLeft(fleet);
+  let behind = 0;
+  let leg = 0;
+  for (let i = t.legs.length - 1; i >= 0; i--) {
+    leg = i;
+    if (left <= behind + t.legs[i]) break;
+    behind += t.legs[i];
+  }
+
+  const span = t.legs[leg];
+  const progress = span > 0 ? Math.min(1, Math.max(0, (span - (left - behind)) / span)) : 1;
+  return { leg: Math.min(leg, t.route.length - 2), progress };
+}
+
+/* ---------- projection ---------- */
+
+/* La galaxie est un disque dans le plan XZ : la hauteur ne sépare rien et
+   n'est pas projetée.
+
+   La même échelle sur les deux axes, jamais un étirement pour remplir le
+   cadre : c'est la distance qui fait la durée d'un saut, et une carte étirée
+   mentirait sur les deux. */
+function buildMapProjection(systems) {
+  const points = systems.map((s) => s.position).filter(Boolean);
+  if (!points.length) return null;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  points.forEach((p) => {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minZ = Math.min(minZ, p.z);
+    maxZ = Math.max(maxZ, p.z);
+  });
+
+  const spanX = Math.max(1e-6, maxX - minX);
+  const spanZ = Math.max(1e-6, maxZ - minZ);
+  const scale = Math.min((MAP_W - 2 * MAP_PAD) / spanX, (MAP_H - 2 * MAP_PAD) / spanZ);
+
+  return {
+    scale,
+    offX: (MAP_W - spanX * scale) / 2 - minX * scale,
+    offZ: (MAP_H - spanZ * scale) / 2 - minZ * scale,
+  };
+}
+
+function mapProject(position) {
+  const p = state.map.projection;
+  if (!p || !position) return null;
+  return { x: position.x * p.scale + p.offX, y: position.z * p.scale + p.offZ };
+}
+
+function mapSystem(id) {
+  return state.map.byId.get(id) || null;
+}
+
+function mapStarPoint(id) {
+  const system = mapSystem(id);
+  return system ? mapProject(system.position) : null;
+}
+
+/* Où se trouve une flotte : sur sa liaison quand elle vole, en couronne autour
+   de son étoile quand elle stationne. */
+function mapFleetPoint(fleet) {
+  if (fleet.travel) {
+    const step = mapLeg(fleet);
+    if (step) {
+      const a = mapStarPoint(fleet.travel.route[step.leg]);
+      const b = mapStarPoint(fleet.travel.route[step.leg + 1]);
+      if (a && b) {
+        return {
+          x: a.x + (b.x - a.x) * step.progress,
+          y: a.y + (b.y - a.y) * step.progress,
+        };
+      }
+    }
+  }
+
+  const anchor = mapStarPoint(fleet.system_id);
+  if (!anchor) return null;
+
+  const rank = state.map.rank.get(fleet.id) || { index: 0, total: 1 };
+  const angle = (-90 + (rank.total > 1 ? (rank.index * 360) / rank.total : 0)) * (Math.PI / 180);
+  /* L'ecart suit le zoom : une couronne en unites de carte se refermerait sur
+     l'etoile en zoomant, alors que c'est justement la qu'on veut les separer. */
+  const orbit = MAP_FLEET_ORBIT / mapZoom();
+  return {
+    x: anchor.x + Math.cos(angle) * orbit,
+    y: anchor.y + Math.sin(angle) * orbit,
+  };
+}
+
+/* Le rang d'une flotte dans la couronne dépend des autres, ce qu'aucune ne
+   sait d'elle-même. Recalculé à chaque lecture, et pour les seules flottes à
+   l'arrêt : celles en vol se placent sur leur liaison, où rien ne les
+   superpose. */
+function rankMapFleets() {
+  const perStar = new Map();
+  state.map.fleets.forEach((f) => {
+    if (f.travel) return;
+    perStar.set(f.system_id, (perStar.get(f.system_id) || 0) + 1);
+  });
+
+  const seen = new Map();
+  state.map.rank = new Map();
+  state.map.fleets.forEach((f) => {
+    if (f.travel) return;
+    const index = seen.get(f.system_id) || 0;
+    seen.set(f.system_id, index + 1);
+    state.map.rank.set(f.id, { index, total: perStar.get(f.system_id) || 1 });
+  });
+}
+
+/* ---------- chargement ---------- */
+
+async function openGalaxyMap({ push = true } = {}) {
+  if (!state.galaxy) {
+    toast('Choisissez une galaxie.', 'err', 'Carte');
+    return;
+  }
+
+  /* La carte est la galaxie entiere, pas un monde : l'adresse s'arrete au nom
+     de la galaxie. */
+  state.territoryId = null;
+  syncUrl({ replace: !push });
+
+  showView('galaxy');
+  $('#map-galaxy').textContent = state.galaxy;
+  $('#map-frame').innerHTML = '<p class="empty">Chargement…</p>';
+
+  await loadGalaxyMap();
+  startMapTimers();
+}
+
+async function loadGalaxyMap() {
+  if (mapLoading) return;
+  mapLoading = true;
+
+  try {
+    /* Les systèmes et les liaisons ne bougent pas d'une lecture à l'autre : on
+       ne les redemande que si la galaxie a changé. Les flottes, si. */
+    const needsTopology = state.map.galaxy !== state.galaxy || !state.map.systems.length;
+
+    const [systems, lanes, fleets] = await Promise.all([
+      needsTopology ? api.galaxySystems(state.galaxy).catch(() => []) : Promise.resolve(state.map.systems),
+      needsTopology ? api.galaxyLanes(state.galaxy).catch(() => []) : Promise.resolve(state.map.lanes),
+      api.galaxyFleets(state.galaxy).catch(() => []),
+    ]);
+
+    if (needsTopology) {
+      state.map.galaxy = state.galaxy;
+      state.map.systems = Array.isArray(systems) ? systems : [];
+      state.map.lanes = Array.isArray(lanes) ? lanes : [];
+      state.map.byId = new Map(state.map.systems.map((s) => [s.id, s]));
+      state.map.projection = buildMapProjection(state.map.systems);
+      state.map.view = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+      state.map.selectedSystem = null;
+      state.map.selectedFleet = null;
+    }
+
+    mapFleetsReadNow(fleets);
+    rankMapFleets();
+
+    /* Les territoires du joueur disent quelles étoiles sont à lui. Ils sont
+       déjà en mémoire pour le sélecteur de territoire ; les relire ici les
+       garde justes après une colonisation. */
+    state.myTerritories = await api.myTerritories(state.galaxy).catch(() => state.myTerritories);
+  } finally {
+    mapLoading = false;
+  }
+
+  renderMap();
+  renderMapSummary();
+  renderMapSelection();
+  $('#map-updated').textContent = `à jour · ${new Date().toLocaleTimeString('fr-FR')}`;
+}
+
+/* Seules les flottes sont relues : la topologie d'une galaxie ne change pas en
+   cours de partie. */
+async function refreshMapFleets() {
+  if (!state.galaxy || mapLoading) return;
+  try {
+    const fleets = await api.galaxyFleets(state.galaxy);
+    mapFleetsReadNow(fleets);
+    rankMapFleets();
+    renderMapFleets();
+    renderMapSummary();
+    renderMapSelection();
+  } catch (e) {
+    /* Une lecture ratée laisse la carte telle quelle : elle vieillit, elle ne
+       disparaît pas. */
+  }
+}
+
+function startMapTimers() {
+  stopMapTimers();
+  /* Le déplacement se calcule ici : une seconde suffit pour un trajet qui se
+     compte en minutes, et rien ne justifie d'animer image par image. */
+  mapTimer = setInterval(() => {
+    renderMapFleets();
+    if (state.map.tick++ % 15 === 0) refreshMapFleets();
+  }, 1000);
+}
+
+function stopMapTimers() {
+  if (mapTimer) clearInterval(mapTimer);
+  mapTimer = null;
+}
+
+/* ---------- rendu ---------- */
+
+function mySystemIds() {
+  const ids = new Set();
+  state.myTerritories.forEach((t) => {
+    if (t.system && t.system.id) ids.add(t.system.id);
+  });
+  return ids;
+}
+
+function systemLabel(system) {
+  return system.name || `Système ${system.id}`;
+}
+
+function renderMap() {
+  const frame = $('#map-frame');
+
+  if (!state.map.systems.length || !state.map.projection) {
+    frame.innerHTML = `<p class="empty">Aucun système enregistré dans
+      ${esc(state.galaxy || 'cette galaxie')}. Une galaxie générée hors du serveur
+      n'a pas de carte à montrer.</p>`;
+    return;
+  }
+
+  const mine = mySystemIds();
+  const k = 1 / mapZoom();
+  const named = mapZoom() >= MAP_LABEL_ZOOM;
+
+  const lanes = state.map.lanes
+    .map((lane) => {
+      const a = mapStarPoint(lane.from);
+      const b = mapStarPoint(lane.to);
+      if (!a || !b) return '';
+      return `<line class="map-lane" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
+        x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"></line>`;
+    })
+    .join('');
+
+  const stars = state.map.systems
+    .map((system) => {
+      const point = mapProject(system.position);
+      if (!point) return '';
+      const owned = mine.has(system.id);
+      const on = state.map.selectedSystem === system.id;
+      const radius = (owned ? MAP_STAR_MINE_R : MAP_STAR_R) * k;
+      const label = owned || named
+        ? `<text class="map-label" x="${point.x.toFixed(1)}"
+             y="${(point.y + radius + 9 * k).toFixed(1)}"
+             style="font-size:${(8 * k).toFixed(2)}px">${esc(systemLabel(system))}</text>`
+        : '';
+      return `<circle class="map-star${owned ? ' map-star--mine' : ''}${on ? ' map-star--on' : ''}"
+          data-system="${system.id}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}"
+          r="${radius.toFixed(2)}"><title>${esc(systemLabel(system))} — ${esc(String(system.territories_count || 0))} territoire(s)</title></circle>${label}`;
+    })
+    .join('');
+
+  const view = state.map.view || { x: 0, y: 0, w: MAP_W, h: MAP_H };
+  frame.innerHTML = `<svg viewBox="${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.w.toFixed(2)} ${view.h.toFixed(2)}" preserveAspectRatio="xMidYMid meet"
+      role="img" aria-label="Carte de la galaxie ${esc(state.galaxy || '')}">
+    <g>${lanes}</g>
+    <g id="map-route-layer"></g>
+    <g id="map-halo-layer"></g>
+    <g>${stars}</g>
+    <g id="map-fleet-layer"></g>
+  </svg>`;
+
+  renderMapFleets();
+  paintMapSelection();
+}
+
+/* Rafraichit les marques de designation sans refaire la carte.
+
+   Refaire tout etait la cause de deux ennuis : le double-clic ne se formait
+   jamais, le premier clic ayant remplace l'etoile que le second allait
+   frapper ; et le survol se perdait a chaque changement. Ce sont des classes a
+   basculer, pas une carte a repeindre. */
+function paintMapSelection() {
+  const svg = mapSvg();
+  if (!svg) return;
+
+  svg.querySelectorAll('[data-system]').forEach((node) => {
+    node.classList.toggle(
+      'map-star--on', Number(node.getAttribute('data-system')) === state.map.selectedSystem);
+  });
+
+  svg.querySelectorAll('[data-fleet]').forEach((node) => {
+    node.classList.toggle(
+      'map-fleet--on', Number(node.getAttribute('data-fleet')) === state.map.selectedFleet);
+  });
+
+  /* L'anneau vit dans sa propre couche : il change de place a chaque
+     designation, alors que les etoiles, elles, ne bougent pas. */
+  const halos = document.getElementById('map-halo-layer');
+  if (halos) {
+    const system = state.map.selectedSystem ? mapSystem(state.map.selectedSystem) : null;
+    const point = system ? mapProject(system.position) : null;
+    if (!point) {
+      halos.innerHTML = '';
+    } else {
+      const k = 1 / mapZoom();
+      const radius =
+        (mySystemIds().has(system.id) ? MAP_STAR_MINE_R : MAP_STAR_R) * k + 5 * k;
+      halos.innerHTML = `<circle class="map-halo" cx="${point.x.toFixed(1)}"
+        cy="${point.y.toFixed(1)}" r="${radius.toFixed(2)}"></circle>`;
+    }
+  }
+
+  renderMapRoute();
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/* Le nœud d'une flotte, cree une seule fois puis reutilise.
+
+   C'est la correction d'un defaut qui rendait les flottes a peu pres
+   inselectionnables : la couche etait refaite par `innerHTML` chaque seconde,
+   et un clic dont l'enfoncement et le relachement encadraient un
+   rafraichissement voyait son element disparaitre entre les deux. Le navigateur
+   remonte alors au premier ancetre commun — le cadre — et la flotte n'etait
+   jamais reconnue. Une chance sur quelques-unes a chaque essai, ce qui se vit
+   comme « ca ne marche pas ».
+
+   Les nœuds survivent donc, et seule leur position change. C'est aussi moins de
+   travail : deplacer un attribut plutot que reconstruire l'arbre. */
+function mapFleetNode(layer, fleetId) {
+  const existing = layer.querySelector(`[data-fleet="${fleetId}"]`);
+  if (existing) return existing;
+
+  const node = document.createElementNS(SVG_NS, 'g');
+  node.setAttribute('data-fleet', String(fleetId));
+
+  const body = document.createElementNS(SVG_NS, 'circle');
+  body.setAttribute('class', 'map-fleet__body');
+  node.appendChild(body);
+
+  const count = document.createElementNS(SVG_NS, 'text');
+  count.setAttribute('class', 'map-fleet__count');
+  node.appendChild(count);
+
+  node.appendChild(document.createElementNS(SVG_NS, 'title'));
+
+  layer.appendChild(node);
+  return node;
+}
+
+/* Appele chaque seconde : on ne touche qu'aux attributs qui bougent. */
+function renderMapFleets() {
+  const layer = document.getElementById('map-fleet-layer');
+  if (!layer) return;
+
+  const k = 1 / mapZoom();
+  const alive = new Set();
+
+  state.map.fleets.forEach((fleet) => {
+    const point = mapFleetPoint(fleet);
+    if (!point) return;
+
+    alive.add(String(fleet.id));
+    const node = mapFleetNode(layer, fleet.id);
+
+    node.setAttribute('class', 'map-fleet'
+      + (state.map.selectedFleet === fleet.id ? ' map-fleet--on' : '')
+      + (fleet.size ? '' : ' map-fleet--idle'));
+    node.setAttribute(
+      'transform', `translate(${point.x.toFixed(1)},${point.y.toFixed(1)})`);
+
+    node.querySelector('.map-fleet__body').setAttribute('r', (MAP_FLEET_R * k).toFixed(2));
+
+    const count = node.querySelector('.map-fleet__count');
+    count.setAttribute('style', `font-size:${(9 * k).toFixed(2)}px`);
+    count.textContent = String(fleet.size || 0);
+
+    node.querySelector('title').textContent =
+      `${fleetName(fleet)} — ${mapFleetState(fleet)}`;
+  });
+
+  /* Ce que le serveur ne rend plus : une flotte dissoute, ou fondue dans une
+     autre. */
+  Array.from(layer.children).forEach((node) => {
+    if (!alive.has(node.getAttribute('data-fleet'))) node.remove();
+  });
+
+  renderMapRoute();
+}
+
+/* La route de la seule flotte désignée : toutes les routes tracées en
+   permanence feraient une toile par-dessus une carte qui porte déjà son
+   réseau. */
+function renderMapRoute() {
+  const layer = document.getElementById('map-route-layer');
+  if (!layer) return;
+
+  const fleet = selectedMapFleet();
+  const step = fleet && fleet.travel ? mapLeg(fleet) : null;
+  if (!fleet || !step) {
+    layer.innerHTML = '';
+    return;
+  }
+
+  const points = [mapFleetPoint(fleet)];
+  for (let i = step.leg + 1; i < fleet.travel.route.length; i++) {
+    points.push(mapStarPoint(fleet.travel.route[i]));
+  }
+
+  const usable = points.filter(Boolean);
+  if (usable.length < 2) {
+    layer.innerHTML = '';
+    return;
+  }
+
+  layer.innerHTML = `<polyline class="map-lane map-lane--route" fill="none"
+    points="${usable.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}"></polyline>`;
+}
+
+function renderMapSummary() {
+  const mine = mySystemIds();
+  const ships = state.map.fleets.reduce((sum, f) => sum + (f.size || 0), 0);
+  const moving = state.map.fleets.filter((f) => f.travel).length;
+
+  const chip = (key, value, title) =>
+    `<div class="chip" title="${esc(title)}">
+      <span class="k">${esc(key)}</span><span class="v">${esc(value)}</span>
+    </div>`;
+
+  $('#map-summary').innerHTML = [
+    chip('SYS', fmtNumber(state.map.systems.length), 'Systèmes de la galaxie'),
+    chip('MOI', fmtNumber(mine.size), 'Systèmes où vous tenez un territoire'),
+    chip('FLT', fmtNumber(state.map.fleets.length), 'Vos flottes'),
+    chip('VSX', fmtNumber(ships), 'Vaisseaux, toutes flottes confondues'),
+    chip('RTE', fmtNumber(moving), 'Flottes en route'),
+  ].join('');
+
+  $('#map-title').textContent = state.galaxy || '—';
+  $('#map-legend').innerHTML =
+    `<span class="map-legend-key"><i style="background:var(--acc)"></i>vos systèmes</span>`
+    + `<span class="map-legend-key"><i style="background:var(--fg-off)"></i>autres</span>`
+    + `<span class="map-legend-key">les traits sont les liaisons qu'empruntent les flottes</span>`;
+}
+
+/* ---------- sélection ---------- */
+
+function selectedMapFleet() {
+  return state.map.fleets.find((f) => f.id === state.map.selectedFleet) || null;
+}
+
+function fleetName(fleet) {
+  return fleet.name || `Flotte ${fleet.id}`;
+}
+
+function mapFleetState(fleet) {
+  if (fleet.travel) {
+    const target = mapSystem(fleet.travel.destination_id);
+    return `en route vers ${target ? systemLabel(target) : `le système ${fleet.travel.destination_id}`}`
+      + ` · arrivée dans ${fmtDuration(mapSecondsLeft(fleet))}`;
+  }
+  if (fleet.orbiting_territory_id) return 'en orbite';
+  return 'à l’arrêt';
+}
+
+function selectMapFleet(id) {
+  state.map.selectedFleet = state.map.selectedFleet === id ? null : id;
+  paintMapSelection();
+  renderMapSelection();
+}
+
+function selectMapSystem(id) {
+  state.map.selectedSystem = id;
+  paintMapSelection();
+  renderMapSelection();
+}
+
+function renderMapSelection() {
+  const host = $('#map-sel-body');
+  const fleet = selectedMapFleet();
+  const system = state.map.selectedSystem ? mapSystem(state.map.selectedSystem) : null;
+
+  if (!fleet && !system) {
+    $('#map-sel-title').textContent = '—';
+    host.innerHTML = `<p class="empty">Choisissez une étoile ou une flotte.
+      Une flotte désignée peut ensuite être envoyée vers l'étoile que vous
+      choisirez.</p>`;
+    return;
+  }
+
+  $('#map-sel-title').textContent = fleet ? fleetName(fleet) : systemLabel(system);
+  host.innerHTML = (fleet ? fleetBlock(fleet) : '') + (system ? systemBlock(system, fleet) : '');
+}
+
+function fleetBlock(fleet) {
+  const composition = Object.entries(fleet.composition || {});
+  const ships = composition.length
+    ? composition
+        .map(([type, n]) => `<span class="cost">${esc(humanize(type))} <b>×${esc(fmtNumber(n))}</b></span>`)
+        .join('')
+    : '<span class="cost">Flotte vide.</span>';
+
+  const route = fleet.travel
+    ? `<p class="map-route">Route ${esc(
+        (fleet.travel.route || []).map((id) => {
+          const s = mapSystem(id);
+          return s ? systemLabel(s) : id;
+        }).join(' → ')
+      )}</p>`
+    : '';
+
+  return `<div class="row">
+    <div class="ico">${icon('fleet')}</div>
+    <div class="row-main">
+      <div class="row-head">
+        <span class="row-name">${esc(fleetName(fleet))}</span>
+        <span class="lvl">${esc(fmtNumber(fleet.size || 0))} vaisseau(x)</span>
+      </div>
+      <div class="costs"><span class="cost">${esc(mapFleetState(fleet))}</span></div>
+      <div class="costs">${ships}</div>
+      ${route}
+      <div class="map-actions">
+        ${fleet.travel
+          ? `<button class="btn btn--sm" data-map-stop="${fleet.id}">Interrompre</button>`
+          : ''}
+        <button class="btn btn--sm btn--ghost" data-map-deselect="1">Désélectionner</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function systemBlock(system, fleet) {
+  const here = state.myTerritories.filter((t) => t.system && t.system.id === system.id);
+  const fleets = state.map.fleets.filter((f) => !f.travel && f.system_id === system.id);
+
+  const territories = here.length
+    ? here
+        .map(
+          (t) => `<div class="row-head">
+            <span class="row-name">${esc(territoryLabel(t))}</span>
+            <button class="btn btn--sm" data-map-territory="${t.id}">Administrer</button>
+          </div>`
+        )
+        .join('')
+    : '<p class="desc">Vous ne tenez aucun territoire dans ce système.</p>';
+
+  const present = fleets.length
+    ? fleets
+        .map(
+          (f) => `<div class="row-head">
+            <span class="row-name">${esc(fleetName(f))}</span>
+            <span class="lvl">${esc(fmtNumber(f.size || 0))}</span>
+            <button class="btn btn--sm btn--ghost" data-map-fleet="${f.id}">Désigner</button>
+          </div>`
+        )
+        .join('')
+    : '';
+
+  /* L'ordre de route n'apparaît que s'il a un sens : une flotte désignée, et
+     une destination qui n'est pas déjà la sienne. */
+  const canSend = fleet && fleet.system_id !== system.id;
+
+  return `<div class="row">
+    <div class="row-main">
+      <div class="row-head">
+        <span class="row-name">${esc(systemLabel(system))}</span>
+        <span class="lvl">${esc(fmtNumber(system.territories_count || 0))} territoire(s)</span>
+      </div>
+      ${territories}
+      ${present}
+      <div class="map-actions">
+        ${canSend
+          ? `<button class="btn btn--sm btn--pri" data-map-send="${system.id}">
+               Envoyer ${esc(fleetName(fleet))} ici
+             </button>`
+          : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- ordres ---------- */
+
+async function sendMapFleet(systemId) {
+  const fleet = selectedMapFleet();
+  if (!fleet) return;
+
+  try {
+    const updated = await api.travelFleet(fleet.id, systemId);
+    toast(
+      `${fleetName(fleet)} en route · arrivée dans ${fmtDuration(
+        updated && updated.travel ? updated.travel.seconds_left : 0
+      )}.`,
+      'info',
+      'Flottes'
+    );
+  } catch (e) {
+    /* 409 : aucune suite de liaisons ne mène là. Deux amas assez serrés pour
+       se suffire ne se relient jamais, et c'est au joueur qu'il faut le dire. */
+    handleApiError(e, 'Ordre refusé');
+    return;
+  }
+
+  await refreshMapFleets();
+}
+
+async function stopMapFleet(fleetId) {
+  try {
+    await api.stopFleetTravel(fleetId);
+    toast('Voyage interrompu.', 'info', 'Flottes');
+  } catch (e) {
+    handleApiError(e, 'Ordre refusé');
+    return;
+  }
+  await refreshMapFleets();
+}
+
+/* ---------- déplacement et zoom ----------
+
+   Le cadrage est le `viewBox` du SVG : déplacer et zoomer se ramènent à le
+   bouger et à le retailler, sans toucher à un seul point du tracé. Une galaxie
+   de trois cents étoiles se manipule alors sans rien recalculer.
+
+   Le déplacement écrit l'attribut directement, sans repeindre : glisser doit
+   suivre la souris à l'image près, et refaire quelques centaines de nœuds à
+   chaque mouvement se verrait. Le zoom, lui, repeint — c'est le seul geste qui
+   change la taille apparente des étoiles, donc les rayons compensés. */
+
+function mapSvg() {
+  const frame = $('#map-frame');
+  return frame ? frame.querySelector('svg') : null;
+}
+
+function applyMapView() {
+  const svg = mapSvg();
+  const view = state.map.view;
+  if (!svg || !view) return;
+  svg.setAttribute(
+    'viewBox',
+    `${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.w.toFixed(2)} ${view.h.toFixed(2)}`
+  );
+}
+
+/* Le point de la carte sous le pointeur.
+
+   `preserveAspectRatio="xMidYMid meet"` centre le contenu et le met à l'échelle
+   uniformément : la boîte réellement peinte est plus petite que le cadre sur un
+   des deux axes, et il faut retrouver ce décalage avant de convertir. Le
+   négliger fait dériver le zoom d'autant. */
+function mapPointerPoint(ev) {
+  const svg = mapSvg();
+  const view = state.map.view;
+  if (!svg || !view) return null;
+
+  const rect = svg.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+
+  const scale = Math.min(rect.width / view.w, rect.height / view.h);
+  const originX = rect.left + (rect.width - view.w * scale) / 2;
+  const originY = rect.top + (rect.height - view.h * scale) / 2;
+
+  return {
+    x: view.x + (ev.clientX - originX) / scale,
+    y: view.y + (ev.clientY - originY) / scale,
+    scale,
+  };
+}
+
+/* Zoome autour d'un point, qui reste sous le pointeur.
+
+   Zoomer sur le centre du cadre obligerait à repositionner la vue après chaque
+   cran : ce qu'on veut regarder est sous la souris, pas au milieu. */
+function zoomMapAround(point, factor) {
+  const view = state.map.view;
+  if (!view) return;
+
+  const zoom = mapZoom();
+  const wanted = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, zoom * factor));
+  if (Math.abs(wanted - zoom) < 1e-6) return;
+
+  const w = MAP_W / wanted;
+  const h = MAP_H / wanted;
+
+  /* Le point garde sa place relative dans le cadre. */
+  const ratioX = view.w > 0 ? (point.x - view.x) / view.w : 0.5;
+  const ratioY = view.h > 0 ? (point.y - view.y) / view.h : 0.5;
+
+  state.map.view = { x: point.x - ratioX * w, y: point.y - ratioY * h, w, h };
+  renderMap();
+}
+
+function zoomMapCentre(factor) {
+  const view = state.map.view;
+  if (!view) return;
+  zoomMapAround({ x: view.x + view.w / 2, y: view.y + view.h / 2 }, factor);
+}
+
+function fitMap() {
+  state.map.view = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+  renderMap();
+}
+
+function initMapNavigation() {
+  const frame = $('#map-frame');
+  if (!frame) return;
+
+  $('#map-zoom-in').addEventListener('click', () => zoomMapCentre(MAP_ZOOM_STEP));
+  $('#map-zoom-out').addEventListener('click', () => zoomMapCentre(1 / MAP_ZOOM_STEP));
+  $('#map-fit').addEventListener('click', fitMap);
+
+  /* `passive: false` : sans cela le navigateur refuse l'annulation et la page
+     défile pendant qu'on zoome. */
+  frame.addEventListener(
+    'wheel',
+    (ev) => {
+      if (!state.map.view) return;
+      ev.preventDefault();
+      const point = mapPointerPoint(ev);
+      if (!point) return;
+      zoomMapAround(point, ev.deltaY < 0 ? MAP_ZOOM_STEP : 1 / MAP_ZOOM_STEP);
+    },
+    { passive: false }
+  );
+
+  let drag = null;
+
+  frame.addEventListener('pointerdown', (ev) => {
+    if (!state.map.view || ev.button !== 0) return;
+    const point = mapPointerPoint(ev);
+    if (!point) return;
+
+    drag = {
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      viewX: state.map.view.x,
+      viewY: state.map.view.y,
+      scale: point.scale,
+    };
+    state.map.dragged = false;
+    /* Pas de capture ici.
+
+       `setPointerCapture` reoriente vers l'element capturant non seulement les
+       evenements de pointeur mais aussi les `click` et `dblclick` qui suivent :
+       la cible devenait le cadre, et `closest('[data-system]')` ne trouvait
+       plus rien. Un simple clic ne devait donc jamais capturer — on ne prend le
+       pointeur qu'au moment ou un vrai glissement commence. */
+  });
+
+  frame.addEventListener('pointermove', (ev) => {
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+
+    const dx = ev.clientX - drag.startX;
+    const dy = ev.clientY - drag.startY;
+
+    /* En deçà, c'est un clic dont la main a tremblé : le traiter comme un
+       déplacement empêcherait de désigner quoi que ce soit. */
+    if (!state.map.dragged && Math.abs(dx) + Math.abs(dy) < 4) return;
+
+    if (!state.map.dragged) {
+      /* Le glissement commence pour de bon : maintenant on peut capturer, la
+         souris pouvant sortir du cadre en cours de route. */
+      state.map.dragged = true;
+      frame.classList.add('map-frame--panning');
+      try {
+        frame.setPointerCapture(ev.pointerId);
+        drag.captured = true;
+      } catch (e) {
+        /* capture refusee : le glissement marche tant que le pointeur reste
+           dans le cadre, ce qui est le cas courant */
+      }
+    }
+
+    state.map.view.x = drag.viewX - dx / drag.scale;
+    state.map.view.y = drag.viewY - dy / drag.scale;
+    applyMapView();
+  });
+
+  const endDrag = (ev) => {
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    if (drag.captured) {
+      try {
+        frame.releasePointerCapture(ev.pointerId);
+      } catch (e) {
+        /* le pointeur a pu être perdu en route */
+      }
+    }
+    drag = null;
+    frame.classList.remove('map-frame--panning');
+  };
+
+  frame.addEventListener('pointerup', endDrag);
+  frame.addEventListener('pointercancel', endDrag);
+
+  /* Double-clic sur un de ses mondes : on l'administre. Le geste le plus court
+     vers ce qu'on vient de trouver sur la carte. */
+  frame.addEventListener('dblclick', (ev) => {
+    const starEl = ev.target.closest('[data-system]');
+    if (!starEl) return;
+
+    const systemId = Number(starEl.dataset.system);
+    const here = state.myTerritories.filter((t) => t.system && t.system.id === systemId);
+
+    if (!here.length) {
+      /* Ne rien faire du tout laisserait croire que le double-clic est casse,
+         alors qu'il n'y a simplement rien a administrer ici. */
+      const system = mapSystem(systemId);
+      toast(
+        `Vous ne tenez aucun territoire dans ${system ? systemLabel(system) : 'ce système'}.`,
+        'info',
+        'Carte'
+      );
+      return;
+    }
+
+    stopMapTimers();
+    selectTerritory(here[0].id);
+  });
+}
+
+/* ---------- branchements ---------- */
+
+function initGalaxyMap() {
+  /* Enveloppe : branchee directement, elle recevrait l'evenement de clic en
+     guise d'options. Les commandes de la barre du haut passent, elles, par
+     `data-act`. */
+  $('#pick-map').addEventListener('click', () => openGalaxyMap());
+
+  /* Echap : lache la selection sans quitter la carte. La barre du haut ecoute
+     la meme touche en phase de capture et arrete l'evenement quand elle a une
+     fenetre ou un menu a fermer — ce qui est ouvert par-dessus se ferme
+     d'abord. */
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    if ($('#view-galaxy').classList.contains('hidden')) return;
+    if (state.map.selectedFleet === null && state.map.selectedSystem === null) return;
+    state.map.selectedFleet = null;
+    state.map.selectedSystem = null;
+    paintMapSelection();
+    renderMapSelection();
+  });
+
+  initMapNavigation();
+
+  $('#map-frame').addEventListener('click', (ev) => {
+    /* Un deplacement se termine par un clic : le laisser designer ce qui se
+       trouve sous le pointeur a l'arrivee changerait la selection a chaque
+       fois qu'on bouge la carte. */
+    if (state.map.dragged) {
+      state.map.dragged = false;
+      return;
+    }
+
+    const fleetEl = ev.target.closest('[data-fleet]');
+    if (fleetEl) {
+      selectMapFleet(Number(fleetEl.dataset.fleet));
+      return;
+    }
+
+    const starEl = ev.target.closest('[data-system]');
+    if (starEl) {
+      selectMapSystem(Number(starEl.dataset.system));
+      return;
+    }
+
+    /* Le vide : on lache la selection. C'est le geste qu'on tente d'instinct
+       pour sortir d'une selection, et sans reponse il donne l'impression que
+       la carte est bloquee. */
+    if (state.map.selectedSystem !== null || state.map.selectedFleet !== null) {
+      state.map.selectedSystem = null;
+      state.map.selectedFleet = null;
+      paintMapSelection();
+      renderMapSelection();
+    }
+  });
+
+  $('#map-sel-body').addEventListener('click', (ev) => {
+    const send = ev.target.closest('[data-map-send]');
+    if (send) {
+      sendMapFleet(Number(send.dataset.mapSend));
+      return;
+    }
+    const stop = ev.target.closest('[data-map-stop]');
+    if (stop) {
+      stopMapFleet(Number(stop.dataset.mapStop));
+      return;
+    }
+    const pick = ev.target.closest('[data-map-fleet]');
+    if (pick) {
+      selectMapFleet(Number(pick.dataset.mapFleet));
+      return;
+    }
+    const deselect = ev.target.closest('[data-map-deselect]');
+    if (deselect) {
+      state.map.selectedFleet = null;
+      paintMapSelection();
+      renderMapSelection();
+      return;
+    }
+    const territory = ev.target.closest('[data-map-territory]');
+    if (territory) {
+      stopMapTimers();
+      selectTerritory(Number(territory.dataset.mapTerritory));
+    }
   });
 }
 
@@ -1272,19 +2523,65 @@ async function enterGame() {
   state.myTerritories = territories;
   state.catalog = catalog || { ships: [], defenses: [] };
 
-  if (territories.length === 1) {
-    await selectTerritory(territories[0].id);
-  } else {
+  await applyRoute({ push: false });
+}
+
+/* Amene la vue a ce que dit l'adresse.
+
+   La carte est la vue d'accueil : c'est la seule qui montre la partie entiere,
+   et le choix d'un monde vient apres. On y retombe donc chaque fois que
+   l'adresse ne designe pas un monde precis.
+
+   `push: false` quand c'est l'adresse qui commande la vue et non l'inverse —
+   au demarrage, et sur un retour arriere : y repondre en empilant une entree
+   rendrait le bouton retour inutilisable. */
+async function applyRoute({ push = false } = {}) {
+  const route = readRoute();
+
+  /* Un retour arriere peut traverser les galaxies : les possessions changent
+     avec elles, et rien de la precedente ne doit rester a l'ecran. */
+  if (route.galaxy && route.galaxy !== state.galaxy) {
+    state.galaxy = route.galaxy;
+    state.territory = null;
+    state.territoryId = null;
+    fillGalaxySelect($('#login-galaxy'));
+    fillGalaxySelect($('#pick-galaxy'));
+    state.myTerritories = await api.myTerritories(state.galaxy).catch(() => []);
+    await refreshModeration();
+  }
+
+  if (!state.galaxy) {
     renderPicker();
     showView('pick');
+    return;
   }
+
+  const wanted = route.territoryId;
+  if (wanted && state.myTerritories.some((t) => t.id === wanted)) {
+    await selectTerritory(wanted, { push });
+    return;
+  }
+
+  if (wanted) {
+    /* Adresse pointant un monde qui n'est pas au joueur, ou plus : on le dit
+       et on retombe sur la carte, plutot que d'ouvrir une scene vide. */
+    toast(
+      `Le territoire ${wanted} ne vous appartient pas dans ${state.galaxy}.`,
+      'err',
+      'Adresse'
+    );
+  }
+
+  await openGalaxyMap({ push });
 }
 
 async function boot() {
   initTheme();
   initLogin();
   initEvents();
+  initChrome();
   initModeration();
+  initGalaxyMap();
 
   // Route publique : la liste des galaxies s'obtient avant toute connexion,
   // ce qui permet de choisir la sienne sur l'ecran de login.

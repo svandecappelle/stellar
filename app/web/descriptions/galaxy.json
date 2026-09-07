@@ -1,6 +1,8 @@
 {
     "/api/galaxy/create": {
-        "tags": ["Galaxy"],
+        "tags": [
+            "Galaxy"
+        ],
         "method": "POST",
         "summary": "Initialize a galaxy",
         "responses": {
@@ -19,7 +21,9 @@
         }
     },
     "/api/galaxy/batch_initialize": {
-        "tags": ["Galaxy"],
+        "tags": [
+            "Galaxy"
+        ],
         "method": "POST",
         "summary": "Batch initialize galaxy systems",
         "responses": {
@@ -35,7 +39,9 @@
         }
     },
     "/api/galaxies": {
-        "tags": ["Galaxy"],
+        "tags": [
+            "Galaxy"
+        ],
         "method": "GET",
         "summary": "List galaxies",
         "responses": {
@@ -45,7 +51,9 @@
         }
     },
     "/api/galaxy/{name}": {
-        "tags": ["Galaxy"],
+        "tags": [
+            "Galaxy"
+        ],
         "method": "GET",
         "summary": "Get galaxy details",
         "responses": {
@@ -58,7 +66,9 @@
         }
     },
     "/api/galaxy/{name}/systems": {
-        "tags": ["Galaxy"],
+        "tags": [
+            "Galaxy"
+        ],
         "method": "GET",
         "summary": "List systems for a galaxy",
         "parameters": [
@@ -74,6 +84,25 @@
         "responses": {
             "200": {
                 "description": "Systems in galaxy"
+            }
+        }
+    },
+    "/api/galaxy/{name}/lanes": {
+        "get": {
+            "tags": [
+                "Galaxy"
+            ],
+            "summary": "List the star lanes of a galaxy, the network fleets travel on",
+            "responses": {
+                "200": {
+                    "description": "Lanes, each once, with their length in map units"
+                },
+                "401": {
+                    "description": "Not authorized"
+                },
+                "404": {
+                    "description": "Galaxy does not exist"
+                }
             }
         }
     }

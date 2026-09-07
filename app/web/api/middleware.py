@@ -64,7 +64,22 @@ def authentication():
 @app.route('/api/auth/logout', methods=['GET', 'POST'])
 @json_description(file='descriptions/authentication.json')
 def logout():
-    session['logged_in'] = False
+    """
+    Ferme la session du joueur.
+    ---
+    Elle ne la fermait pas : elle posait `logged_in = False`, un drapeau que
+    personne ne lit, et laissait intacte la session de Flask-Login. Le cookie de
+    session et celui de « se souvenir de moi » — pose a la connexion, que le
+    client demande toujours — survivaient donc a la deconnexion, et la requete
+    suivante repartait authentifiee.
+
+    L'ordre compte : `logout_user` retire les cles de Flask-Login et, pour
+    effacer le cookie de memorisation, pose `_remember = 'clear'` dans la
+    session. Vider la session apres cet appel emporterait ce drapeau avec le
+    reste, et le cookie resterait chez le client.
+    """
+    session.pop('logged_in', None)
+    logout_user()
     return jsonify({'message': 'ok'})
 
 

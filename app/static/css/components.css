@@ -194,7 +194,12 @@ button{font:inherit;color:inherit}
 .orb.foreign{opacity:.5}
 
 /* ---------- mise en page de la scene ---------- */
-.scene{padding:18px;display:flex;flex-direction:column;gap:14px;min-height:100vh;max-width:1600px;margin:0 auto}
+/* Pleine largeur : la scene de commande et la carte sont des plans de travail,
+   pas des articles a lire. Une limite de 1600 px les laissait dans une bande
+   centrale sur un ecran large — soit environ quatre cinquiemes de la place —
+   et c'est la carte qui y perdait le plus, son cadre etant le seul element
+   dont la lisibilite tient a sa taille. */
+.scene{padding:18px;display:flex;flex-direction:column;gap:14px;min-height:100vh;width:100%}
 .topbar{display:flex;gap:var(--sp-3);align-items:stretch;flex-wrap:wrap}
 .sysbox{
   background:var(--bg-panel);border:var(--bw) solid var(--bc);border-radius:var(--r);
@@ -293,3 +298,162 @@ button{font:inherit;color:inherit}
 @media(prefers-reduced-motion:reduce){
   *{animation:none !important;transition:none !important}
 }
+
+/* ============================================================
+   carte de la galaxie
+
+   Un SVG et non un canvas : les etoiles sont des elements, donc
+   survolables, cliquables et accessibles sans refaire un moteur de
+   picking. Elles se comptent en centaines, pas en milliers — le DOM
+   tient largement.
+
+   Le trace est en unites de carte, le `viewBox` faisant la mise a
+   l'echelle : les rayons et les epaisseurs sont donc exprimes en
+   `vector-effect: non-scaling-stroke` la ou ils doivent rester
+   constants, faute de quoi zoomer epaissirait tout.
+   ============================================================ */
+.map-panel{flex:1;min-width:0}
+.map-side{width:340px;flex:none}
+@media (max-width:1100px){
+  .map-side{width:100%}
+}
+
+.map-frame{
+  position:relative;
+  width:100%;
+  aspect-ratio:16 / 10;
+  min-height:360px;
+  /* Le rapport 16/10 sur toute la largeur d'un ecran large donnerait un cadre
+     plus haut que la fenetre : on lui laisse la place restante sous la barre
+     du haut, pas davantage. */
+  max-height:calc(100vh - 230px);
+  background:var(--bg-scene-flat);
+  border:var(--bw) solid var(--bc-soft);
+  clip-path:var(--cut);
+  overflow:hidden;
+}
+.map-frame svg{display:block;width:100%;height:100%}
+
+/* Les liaisons : le fond de carte, jamais le sujet. */
+.map-lane{stroke:var(--bc-soft);stroke-width:1;vector-effect:non-scaling-stroke}
+.map-lane--route{stroke:var(--acc);stroke-width:2;stroke-dasharray:5 4;opacity:.85}
+
+.map-star{fill:var(--fg-off);stroke:none;cursor:pointer;transition:fill var(--dur-fast)}
+.map-star:hover{fill:var(--fg)}
+.map-star--mine{fill:var(--acc)}
+.map-star--on{fill:var(--fg-hi)}
+
+/* Halo de selection : un anneau, pas un remplissage — l'etoile doit
+   rester lisible sous la marque qui la designe. */
+.map-halo{fill:none;stroke:var(--acc);stroke-width:1.5;vector-effect:non-scaling-stroke;opacity:.9}
+
+.map-fleet{cursor:pointer}
+.map-fleet__body{fill:var(--bg-scene-flat);stroke:var(--acc);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.map-fleet--idle .map-fleet__body{stroke:var(--fg-off)}
+.map-fleet--on .map-fleet__body{fill:var(--acc);stroke:var(--fg-hi)}
+.map-fleet__count{
+  fill:var(--fg-hi);font-family:var(--f-num);font-size:9px;font-weight:600;
+  text-anchor:middle;dominant-baseline:central;pointer-events:none;
+}
+.map-fleet--on .map-fleet__count{fill:#04141A}
+
+.map-label{
+  fill:var(--fg-dim);font-family:var(--f-disp);font-size:8px;
+  text-anchor:middle;pointer-events:none;letter-spacing:.04em;
+}
+
+.map-legend-key{display:inline-flex;align-items:center;gap:5px;margin-right:12px}
+.map-legend-key i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+.map-route{
+  font-family:var(--f-num);font-size:11px;color:var(--fg-dim);
+  word-break:break-word;line-height:1.5;
+}
+.map-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)}
+
+/* Les commandes de la carte, posees par-dessus le cadre : elles doivent rester
+   a portee du pointeur qui manipule la carte, pas remonter dans un bandeau. */
+.map-stage{position:relative}
+.map-tools{
+  position:absolute;top:10px;right:10px;
+  display:flex;flex-direction:column;gap:6px;align-items:stretch;
+}
+.map-tools .btn{min-width:34px;justify-content:center}
+
+.map-hint{
+  margin:var(--sp-2) 0 0;font-family:var(--f-body);font-size:11px;color:var(--fg-off);
+}
+
+/* Le curseur dit ce que la carte accepte, avant meme qu'on essaie. */
+.map-frame{cursor:grab}
+.map-frame.map-frame--panning{cursor:grabbing}
+.map-frame.map-frame--panning .map-star,
+.map-frame.map-frame--panning .map-fleet{cursor:grabbing}
+
+/* Survol : l'etoile grossit legerement plutot que de changer de teinte, la
+   teinte disant deja a qui elle est. */
+.map-star{transition:fill var(--dur-fast),r var(--dur-fast)}
+.map-star:hover{fill:var(--fg-hi)}
+
+/* ============================================================
+   boutons a icone, menu deroulant, fenetre de parametrage
+
+   La barre du haut mettait cote a cote cinq boutons de meme poids — dont un
+   rouge — pour trois gestes quotidiens et trois qu'on ne fait presque jamais.
+   Ce qui est rare passe sous un menu, ce qui est courant devient une icone.
+   ============================================================ */
+.btn--icon{
+  width:34px;min-width:34px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.btn--icon svg{
+  width:18px;height:18px;fill:none;stroke:currentColor;
+  stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;
+}
+
+/* Le menu s'ancre a son bouton : la barre passe a la ligne sur un ecran
+   etroit, et une position fixee au coin de la fenetre s'en detacherait. */
+.menu{position:relative}
+.menu-pop{
+  position:absolute;top:calc(100% + 6px);right:0;z-index:40;
+  min-width:230px;padding:6px;
+  background:var(--bg-panel);border:var(--bw) solid var(--bc);
+  clip-path:var(--cut-sm);box-shadow:0 12px 32px rgba(0,0,0,.45);
+  display:flex;flex-direction:column;gap:2px;
+}
+/* L'attribut `hidden` ne suffit pas ici.
+
+   Il n'agit que par la regle `[hidden]{display:none}` de la feuille du
+   navigateur, et toute declaration d'auteur la surpasse — quelle que soit sa
+   specificite. Le `display:flex` juste au-dessus laissait donc le menu ouvert
+   en permanence, sans moyen de le replier. */
+.menu-pop[hidden]{display:none}
+
+.menu-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border:0;background:transparent;cursor:pointer;
+  font-family:var(--f-body);font-size:12.5px;color:var(--fg);text-align:left;
+  transition:background var(--dur-fast),color var(--dur-fast);
+}
+.menu-item:hover{background:var(--btn-bg-h);color:var(--fg-hi)}
+.menu-item svg{
+  width:16px;height:16px;flex:none;fill:none;stroke:currentColor;
+  stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;
+}
+.menu-item--dgr{color:var(--bad-fg)}
+.menu-item--dgr:hover{background:var(--bad);color:#fff}
+.menu-sep{height:1px;background:var(--bc-soft);margin:4px 2px}
+
+/* La fenetre de parametrage. Le fond assombri sert de zone de fermeture : on
+   clique a cote pour sortir, ce qu'on tente d'instinct. */
+.modal{
+  position:fixed;inset:0;z-index:60;
+  display:flex;align-items:center;justify-content:center;padding:var(--sp-5);
+  background:rgba(2,8,14,.72);
+}
+/* `.hidden` porte bien `!important` et l'emporterait dans un navigateur, mais
+   il est declare cent lignes plus haut : l'affichage ne tient alors qu'a un
+   ordre de fichier et a un `!important`. Une regle plus specifique dit la meme
+   chose sans rien supposer — et rend la fenetre verifiable hors navigateur. */
+.modal.hidden{display:none}
+.modal-card{width:100%;max-width:520px}

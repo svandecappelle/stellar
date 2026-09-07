@@ -79,7 +79,8 @@ class TestRaisesGalaxy:
         )
         assert response.status_code == 409
 
-    @pytest.mark.usefixtures()
+    # Pas de `authenticate_as_*` ici : c'est justement l'absence de session qui
+    # est mise a l'epreuve.
     def test_raise_not_allowed_create_galaxy(self, client, session):
         """
         Test cannot initialize a new galaxy because not authenticated

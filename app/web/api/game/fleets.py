@@ -93,9 +93,34 @@ def _orbit_target(territory_id, system_id):
 def get_system_fleets(id):
     """Les flottes du joueur dans ce systeme, position et composition."""
     system = System.get(id=id)
+    # Avant le filtre et non apres : une flotte arrivee porte encore
+    # l'identifiant du systeme qu'elle a quitte tant que son voyage n'a pas ete
+    # rattrape, et elle se rangerait au mauvais endroit.
+    Fleet.catch_up(user=current_user.get())
+    db.session.commit()
     return {
         'id': system.id,
         'fleets': Fleet.in_system(system_id=system.id, user=current_user.get()),
+    }
+
+
+@app.route('/api/galaxy/<string:name>/fleets', methods=['GET'])
+@login_required
+@serialize
+@json_description(file='descriptions/fleets.json')
+def get_galaxy_fleets(name):
+    """
+    Les flottes du joueur dans toute une galaxie.
+    ---
+    Ce que la carte galactique a besoin de savoir : ou le joueur a des forces,
+    et combien. Systeme par systeme, elle aurait a poser une question par
+    etoile. Chaque flotte porte deja son `system_id`, le client regroupe.
+    """
+    Fleet.catch_up(user=current_user.get())
+    db.session.commit()
+    return {
+        'galaxy': name,
+        'fleets': Fleet.in_galaxy(galaxy_name=name, user=current_user.get()),
     }
 
 
@@ -104,7 +129,10 @@ def get_system_fleets(id):
 @serialize
 @json_description(file='descriptions/fleets.json')
 def get_fleet(id):
-    return _own_fleet(id)
+    fleet = _own_fleet(id)
+    if fleet.refresh():
+        db.session.commit()
+    return fleet
 
 
 @app.route('/api/system/<int:id>/fleet', methods=['POST'])
@@ -206,6 +234,77 @@ def orbit_fleet(id):
     if 'territory_id' not in payload:
         raise BadRequestError("territory_id is required, use null to leave orbit")
     fleet.set_orbit(_orbit_target(payload.get('territory_id'), fleet.system_id))
+    db.session.commit()
+    return fleet
+
+
+@app.route('/api/fleet/<int:id>/travel', methods=['POST'])
+@login_required
+@serialize
+@json_description(file='descriptions/fleets.json')
+def travel_fleet(id):
+    """
+    Envoie la flotte vers un autre systeme.
+    ---
+    Le trajet suit les liaisons entre etoiles, celles-la memes que la carte
+    dessine : le serveur les recalcule a l'identique, voir
+    `app/models/game/starlanes.py`. Un chemin qui n'existe pas — un amas isole —
+    est refuse plutot que traverse en ligne droite.
+
+    L'heure d'arrivee est fixee au depart et n'est plus revue : le joueur voit
+    un compte a rebours sur lequel il peut compter, et un reglage de galaxie
+    change en cours de partie ne rallonge pas un voyage deja entame.
+    """
+    fleet = _own_fleet(id)
+    payload = request.json or {}
+
+    try:
+        destination_id = int(payload.get('system_id'))
+    except (TypeError, ValueError):
+        raise BadRequestError("system_id is required")
+
+    # Une lecture qui rend None plutot que de lever : `System.get` passe par
+    # `one()`, et une destination inconnue — un identifiant tape a la main —
+    # ressortait en 500 la ou 404 est la reponse.
+    destination = db.session.query(System).filter(System.id == destination_id).one_or_none()
+    if destination is None:
+        raise NotFoundError("System does not exist")
+
+    origin = System.get(id=fleet.system_id)
+    if destination.galaxy_name != origin.galaxy_name:
+        # Les liaisons ne relient que les etoiles d'une meme galaxie : le
+        # chemin n'existerait pas, autant le dire clairement.
+        raise BadRequestError("Fleet cannot travel to another galaxy")
+
+    if not fleet.is_travelling and destination.id == fleet.system_id:
+        raise BadRequestError("Fleet is already in this system")
+
+    route = fleet.travel_to(
+        destination_id=destination.id, galaxy_name=origin.galaxy_name)
+    if route is None:
+        raise ConflictError("No route of star lanes leads to this system")
+
+    db.session.commit()
+    return fleet
+
+
+@app.route('/api/fleet/<int:id>/travel', methods=['DELETE'])
+@login_required
+@serialize
+@json_description(file='descriptions/fleets.json')
+def stop_fleet(id):
+    """
+    Interrompt un voyage : la flotte se pose au dernier relais franchi.
+    ---
+    Et non la ou elle se trouve : entre deux etoiles, elle ne serait dans aucun
+    systeme, ce que le modele ne sait pas dire — une flotte tient toujours a un
+    systeme.
+    """
+    fleet = _own_fleet(id)
+    if not fleet.is_travelling:
+        raise BadRequestError("Fleet is not travelling")
+
+    fleet.stop_travel()
     db.session.commit()
     return fleet
 

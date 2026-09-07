@@ -70,6 +70,20 @@ RICH_VEIN_FACTOR = 2.0
 #: coup, sans toucher au classement des archetypes entre eux.
 HABITABILITY_NEUTRAL = 50
 
+#: Rendement de la raffinerie sur un monde parfaitement sec, et ce que cent
+#: points d'eau ajoutent par-dessus. Le tritium se tire de l'eau du monde : un
+#: monde sans eau en produit encore un peu -- on en fait venir -- mais un
+#: oceanique en tire pres du triple.
+#:
+#: L'ancienne formule portait `(-0.002 * 40 + 1.28)`, une constante ecrite comme
+#: une fonction affine de la temperature du monde, evaluee sur un 40 en dur. La
+#: temperature n'existait nulle part ailleurs dans le modele : c'est l'eau qui
+#: prend sa place. Les bornes sont choisies pour que le monde tellurique -- le
+#: seul sur lequel on puisse s'installer -- rende exactement 1.2, ce que valait
+#: la constante : l'ouverture de partie ne bouge pas.
+WATER_DRY_YIELD = 0.6
+WATER_SPAN = 1.0
+
 
 class PlanetArchetype(enum.Enum):
     """
@@ -84,6 +98,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 22,
         'yields': {'iron': 1.4, 'carbon': 0.9, 'silicium': 0.8, 'titanium': 0.7, 'cristal': 0.4},
         'energy_factor': 1.0,
+        'water': 60,
         'habitability': 60,
     }
     volcanic = {
@@ -91,6 +106,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 12,
         'yields': {'iron': 1.8, 'titanium': 1.1, 'silicium': 0.5},
         'energy_factor': 1.25,
+        'water': 5,
         'habitability': 25,
     }
     oceanic = {
@@ -98,6 +114,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 12,
         'yields': {'carbon': 1.7, 'silicium': 0.9, 'iron': 0.5},
         'energy_factor': 1.0,
+        'water': 100,
         'habitability': 80,
     }
     desert = {
@@ -105,6 +122,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 12,
         'yields': {'silicium': 1.9, 'cristal': 0.6, 'iron': 0.7},
         'energy_factor': 1.1,
+        'water': 2,
         'habitability': 30,
     }
     ice = {
@@ -112,6 +130,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 11,
         'yields': {'hydrogen': 1.3, 'carbon': 1.0, 'iron': 0.4},
         'energy_factor': 0.9,
+        'water': 85,
         'habitability': 20,
     }
     gas_giant = {
@@ -119,6 +138,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 14,
         'yields': {'hydrogen': 2.6},
         'energy_factor': 1.0,
+        'water': 30,
         'habitability': 8,
     }
     asteroid = {
@@ -126,6 +146,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 9,
         'yields': {'titanium': 1.6, 'iron': 1.5, 'uranium': 0.5, 'cristal': 0.5},
         'energy_factor': 0.8,
+        'water': 3,
         'habitability': 5,
     }
     irradiated = {
@@ -133,6 +154,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 7,
         'yields': {'uranium': 1.9, 'iron': 0.9},
         'energy_factor': 1.1,
+        'water': 10,
         'habitability': 13,
     }
     anomaly = {
@@ -140,6 +162,7 @@ class PlanetArchetype(enum.Enum):
         'weight': 1,
         'yields': {'neutronium': 0.6, 'cristal': 1.0, 'titanium': 0.7},
         'energy_factor': 1.0,
+        'water': 25,
         'habitability': 25,
     }
 
@@ -184,6 +207,29 @@ class PlanetArchetype(enum.Enum):
         handicap, pas comme une penalite dans tous les cas.
         """
         return self.habitability / float(HABITABILITY_NEUTRAL)
+
+    @property
+    def water(self):
+        """
+        Teneur en eau du monde, en pourcentage.
+
+        Une geante gazeuse en a un peu -- de la vapeur dans ses couches
+        hautes -- un monde glace en est fait, un desert n'en a presque pas.
+        C'est le seul chiffre dont depend la raffinerie.
+        """
+        return self.value.get('water', 0)
+
+    @property
+    def water_factor(self):
+        """
+        Multiplicateur tire de l'eau, applique a ce que rend la raffinerie.
+
+        Jamais nul : sur un caillou sec on fait venir l'eau, cher et en petite
+        quantite, mais le tritium ne disparait pas du jeu pour autant. Un monde
+        prive de sa seule source de tritium serait injouable, alors qu'un monde
+        pauvre est simplement un mauvais endroit ou raffiner.
+        """
+        return WATER_DRY_YIELD + WATER_SPAN * self.water / 100.0
 
     def produces(self, material):
         return material in self.value['yields']
@@ -250,6 +296,8 @@ class PlanetArchetype(enum.Enum):
                 'energy_factor': a.energy_factor,
                 'habitability': a.habitability,
                 'habitability_factor': a.habitability_factor,
+                'water': a.water,
+                'water_factor': a.water_factor,
             }
             for a in cls
         ]

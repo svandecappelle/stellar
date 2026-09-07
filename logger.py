@@ -47,12 +47,27 @@ class MyGelfSchema(GelfSchema):
 class DefaultLogger(object):
     def __init__(self, config={}, extra={}):
         self.logger = logging.getLogger(config.get("logging", "name"))
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(self._level(config))
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(GELFFormatter(schema=MyGelfSchema))
         self.logger.addHandler(handler)
-        # level = logging.getLevelName(config.get('logging', 'level') or 'INFO')
-        # self.logger.setLevel(level)
+
+    @staticmethod
+    def _level(config):
+        """
+        Le niveau demande par la configuration, INFO a defaut.
+        ---
+        La lecture du niveau avait ete mise en commentaire et remplacee par un
+        DEBUG en dur : les quatre fichiers .ini demandent INFO, et la production
+        deversait tout de meme le detail de chaque prerequis evalue.
+
+        Le detour par `getattr` tient a `config`, qui est presque toujours le
+        dict vide : `{}.get('logging', 'level')` rend la chaine 'level' — le
+        deuxieme argument de `dict.get` est une valeur par defaut, pas une cle —
+        et c'est ce que l'ancien code passait tel quel a `setLevel`.
+        """
+        level = getattr(logging, str(config.get('logging', 'level')).upper(), None)
+        return level if isinstance(level, int) else logging.INFO
 
     def _log(self, method, *args, **kwargs):
         kwargs.setdefault("extra", {})

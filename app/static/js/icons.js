@@ -36,6 +36,25 @@ const ICONS = {
   IonArtillery: P('<path d="M4 20h16"/><path d="M8 20v-4h8v4"/><circle cx="12" cy="10" r="3"/><path d="M12 4v3"/><path d="M6 7l2 2"/><path d="M18 7l-2 2"/>'),
   Coilgun: P('<path d="M4 20h16"/><path d="M6 20v-3h5v3"/><path d="M8 17 20 7"/><path d="M11 14l2 2"/><path d="M14 11l2 2"/>'),
   Shield: P('<path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/>'),
+
+  /* --- interface ---
+     Les commandes de la barre du haut. Meme grille et meme trait que le reste :
+     un pictogramme d'interface qui ne ressemble pas aux autres se lit comme une
+     image, pas comme un bouton. */
+  galaxy: P('<ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)"/>'
+    + '<circle cx="12" cy="12" r="2"/><circle cx="18" cy="8" r=".7"/>'
+    + '<circle cx="6" cy="16" r=".7"/>'),
+  worlds: P('<circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/>'
+    + '<path d="M13 7h7"/><path d="M4 17h7"/>'),
+  refresh: P('<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>'),
+  menu: P('<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/>'
+    + '<circle cx="12" cy="19" r="1.4"/>'),
+  settings: P('<circle cx="12" cy="12" r="3"/>'
+    + '<path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'),
+  logout: P('<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/>'
+    + '<path d="M16 8l4 4-4 4"/><path d="M20 12H10"/>'),
+  sliders: P('<path d="M4 7h10M18 7h2"/><path d="M4 17h4M12 17h8"/>'
+    + '<circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
 };
 
 const FALLBACK = P('<rect x="4" y="4" width="16" height="16"/><path d="M9 12h6"/>');

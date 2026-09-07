@@ -80,6 +80,24 @@ export const api = {
       body: { settings },
     }),
 
+  /* ---- carte de la galaxie ----
+     Les systemes portent leur position, les liaisons disent lesquels sont
+     voisins. Ces liaisons ne se devinent pas : la regle de voisinage vit dans
+     le modele et dans le client de jeu, et une console qui la reinventerait
+     dessinerait un reseau que les flottes n'empruntent pas. */
+  galaxySystems: (galaxy) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/systems`).then(
+      (r) => (r && r.systems) || []
+    ),
+  galaxyLanes: (galaxy) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/lanes`).then(
+      (r) => (r && r.lanes) || []
+    ),
+  galaxyFleets: (galaxy) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/fleets`).then(
+      (r) => (r && r.fleets) || []
+    ),
+
   /* ---- territoires ---- */
   /* Un territoire appartient a un systeme, qui appartient a une galaxie : on
      lit donc la liste par galaxie. Sans galaxie choisie, on retombe sur la
@@ -121,6 +139,15 @@ export const api = {
       body: { territory_id: territoryId },
     }),
   disbandFleet: (fleetId) => request(`/api/fleet/${fleetId}`, { method: 'DELETE' }),
+  /* Le voyage d'une etoile a l'autre. La route est choisie par le serveur :
+     c'est lui qui tient le graphe des liaisons. */
+  travelFleet: (fleetId, systemId) =>
+    request(`/api/fleet/${fleetId}/travel`, {
+      method: 'POST',
+      body: { system_id: systemId },
+    }),
+  stopFleetTravel: (fleetId) =>
+    request(`/api/fleet/${fleetId}/travel`, { method: 'DELETE' }),
   transferShips: (fleetId, targetId, type, quantity) =>
     request(`/api/fleet/${fleetId}/transfer`, {
       method: 'POST',

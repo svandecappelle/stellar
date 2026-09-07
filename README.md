@@ -3,27 +3,73 @@
 [![codecov](https://codecov.io/gh/svandecappelle/stellar/branch/master/graph/badge.svg?token=124Z4FDYF2)](https://codecov.io/gh/svandecappelle/stellar)
 
 ## Installation
+Python **3.12** is the reference version; the suite also passes on 3.11 and
+3.13, and CI runs all three.
+
 * using virtualenv
-  virtualenv --python=3.8 venv
+  virtualenv --python=3.12 venv
   pip install -r requirements.txt
 * using pipenv
-  pipenv --python 3.8
+  pipenv --python 3.12
   pipenv install --dev
 
 ## Running tests
 * **In Docker — the reference way.** The suite runs against the pinned versions
-  of `requirements.txt` (Python 3.7, SQLAlchemy 1.3.18, marshmallow 3.7.0), and
-  a local interpreter with newer ones says nothing about what production will
-  do — several of those pins no longer even install on Python 3.12.
+  of `requirements.txt` on the same interpreter as production, so a green run
+  says something about what will actually ship.
   * `docker compose --profile test run --rm tests`
   * No database needed: the tests build their schema in an in-memory SQLite
     (`config/test.ini`), so the `db` service is not involved.
   * Narrow it down by passing pytest arguments:
     `docker compose --profile test run --rm tests python -m pytest tests/api/game/ships.py -q`
-* On the host, if the pinned versions install on your interpreter
+* On the host, on Python 3.11, 3.12 or 3.13
   * with virtualenv: `source venv/bin/activate`
   * with pipenv: `pipenv shell`
   * `pytest tests`
+
+## Dependencies and Python version
+The stack was frozen at 2020 — Python 3.7 in the image, Python 3.8 in CI, and a
+55-line `pip freeze`. It broke the day GitHub moved `ubuntu-latest` to 24.04,
+which no longer ships Python 3.8: *Version 3.8 with arch x64 not found*.
+
+Pinning the runner to an older image would have bought a few months. The stack
+moved instead: **Flask 3.1, SQLAlchemy 2.0, Python 3.12**, and the suite passes
+on 3.11, 3.12 and 3.13.
+
+Three packages were **removed** rather than upgraded — all three abandoned, and
+none of them doing what its presence suggested:
+* **Flask-Script** (last release 2017, incompatible with Flask 2+) only wrapped
+  the migration commands. Flask-Migrate exposes those through Flask's own CLI;
+  `manage.py` now forwards to it and `python manage.py db upgrade` still works.
+* **Flask-SQLAlchemy** was a shell here: of everything it offers, the project
+  used `db.session`, `db.init_app` and `db.metadata` — never `db.Model`,
+  `db.Column` or `db.create_all`. It is replaced by `app/database.py`, some
+  sixty lines. This was also what blocked the upgrade: since Flask-SQLAlchemy 3,
+  `session` is a read-only property, while `initialize.py` and the tests assign
+  their own session — the tests' one sits on a transaction that gets rolled
+  back.
+* **flask-jsontools**, **Flask-SQLAlchemy-Session**, **pytest-flask-sqlalchemy**
+  and **ipdb** were imported nowhere (the first only in a line that fed nothing).
+  Dropping `ipdb` took the whole IPython chain with it.
+
+`psycopg2` became **`psycopg2-binary`**: the source distribution compiles against
+the machine's libpq and fails as soon as the PostgreSQL headers move ahead —
+which is what stopped installation anywhere but inside the image. With no
+compiler needed, the image went from 1.26 GB to 220 MB.
+
+`requirements.txt` now pins **direct dependencies only**. Freezing the transitive
+ones locks versions nobody chose and holds back their security updates.
+
+Known leftovers, deliberately not folded into this change:
+* `datetime.utcnow()` is deprecated on 3.12 and used about forty times. Moving to
+  timezone-aware datetimes changes the nature of stored values — the columns are
+  naive `DateTime`, and comparing naive to aware raises — so it is a migration of
+  its own, to be done in one piece. The warning is silenced by name in
+  `setup.cfg`; every other warning stays visible, and the suite currently emits
+  none.
+* SQLAlchemy 2.0's legacy APIs are gone from the code (`engine.execute`,
+  `Query.get`, `declarative_base` from `sqlalchemy.ext`), so the next major
+  version has nothing left to remove here.
 
 ## Running with Docker Compose
 * start API + PostgreSQL

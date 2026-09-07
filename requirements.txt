@@ -1,55 +1,38 @@
-alembic==1.4.2
-attrs==19.3.0
-backcall==0.2.0
-certifi==2020.6.20
-chardet==3.0.4
-click==7.1.2
-decorator==4.4.2
-Flask==1.1.2
-flask-jsontools==0.1.7
-Flask-Login==0.5.0
-Flask-Migrate==2.5.3
-Flask-Paranoid==0.2.0
-Flask-Script==2.0.6
-Flask-SQLAlchemy==2.4.4
-Flask-SQLAlchemy-Session==1.1
-freezegun==0.3.15
-future==0.18.2
-gunicorn==20.0.4
-idna==2.10
-ipdb==0.13.3
-ipython==7.16.1
-ipython-genutils==0.2.0
-itsdangerous==1.1.0
-jedi==0.17.1
-Jinja2==2.11.2
-logging-gelf==0.0.26
-Mako==1.1.3
-MarkupSafe==1.1.1
-marshmallow==3.7.0
-more-itertools==8.4.0
-packaging==20.4
-parso==0.7.0
-pexpect==4.8.0
-pickleshare==0.7.5
-pluggy==0.13.1
-prompt-toolkit==3.0.5
-psycopg2==2.8
-ptyprocess==0.6.0
-py==1.9.0
-Pygments==2.6.1
-pyparsing==2.4.7
-pytest==6.2.5
-pytest-flask-sqlalchemy==1.0.2
-pytest-mock==3.2.0
-python-dateutil==2.8.1
-python-editor==1.0.4
-requests==2.24.0
-schedule==0.6.0
-simplejson==3.17.2
-six==1.15.0
-SQLAlchemy==1.3.18
-traitlets==4.3.3
-urllib3==1.25.9
-wcwidth==0.2.5
-Werkzeug==1.0.1
+# Dependances directes seulement.
+#
+# Le fichier etait un `pip freeze` de 2020 : cinquante-cinq lignes dont la
+# moitie etaient des dependances de dependances — toute la chaine d'IPython pour
+# un `ipdb` que rien n'importe. Les epingler toutes fige des versions que
+# personne n'a choisies et bloque les mises a jour de securite des paquets
+# transitifs.
+#
+# Trois paquets ont disparu plutot que d'etre montes de version :
+#   · Flask-Script          abandonne en 2017, incompatible Flask 2+ ; ses
+#                           commandes sont desormais celles de Flask (manage.py)
+#   · Flask-SQLAlchemy      n'etait qu'une coquille ici, voir app/database.py
+#   · flask-jsontools       importe sans jamais etre branche
+#   · Flask-SQLAlchemy-Session, pytest-flask-sqlalchemy, ipdb : jamais importes
+
+Flask==3.1.3
+Flask-Login==0.6.3
+Flask-Migrate==4.1.0
+Flask-Paranoid==0.3.0
+SQLAlchemy==2.0.52
+
+# `-binary` et non `psycopg2` : la version source se compile contre la libpq de
+# la machine, ce qui echoue des que les en-tetes PostgreSQL avancent — c'est ce
+# qui cassait l'installation hors de l'image Docker.
+psycopg2-binary==2.9.12
+
+# Journalisation au format GELF. `marshmallow` en vient, mais le schema du
+# logger le cite directement (logger.py).
+logging-gelf==0.0.32
+marshmallow==4.3.1
+
+simplejson==4.1.2
+gunicorn==26.2.0
+
+# --- tests ---
+pytest==9.1.1
+pytest-mock==3.15.1
+freezegun==1.5.5

@@ -5,7 +5,6 @@ import os
 import optparse
 
 from flask import Flask, jsonify
-from flask_sqlalchemy import SQLAlchemy
 from flask_paranoid import Paranoid
 from flask_login import LoginManager, current_user
 from functools import wraps
@@ -13,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from logger import get_logger
+from app.database import Database
 from app.web.api.exceptions import APIException
 from config.configuration import AppConfig
 
@@ -24,7 +24,20 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 login_manager = LoginManager(app)
 paranoid = Paranoid(app)
 paranoid.redirect_view = '/'
-db = SQLAlchemy()
+db = Database()
+
+
+@app.teardown_appcontext
+def release_session(exception=None):  # noqa: ARG001 - signature imposee par Flask
+    """
+    Rend la session au bout de chaque requete.
+
+    Pose ici, a la creation de l'application, et non dans `Database.init_app` :
+    Flask 3 refuse tout gestionnaire enregistre apres la premiere requete
+    servie, et `init_app` est rappele a chaque test sur cette meme application.
+    """
+    db.release()
+
 
 
 @app.errorhandler(APIException)
@@ -223,9 +236,11 @@ def flaskrun(app, default_host="127.0.0.1", default_port="8080"):
         options.debug = True
 
     db.init_app(app)
+    # La session vient de `db`, qui la construit a la demande et la rend a la
+    # fin de chaque requete. On ne cree ici qu'un moteur pour batir le schema :
+    # la session qui l'etait aussi etait jetee dans la foulee, sans que rien ne
+    # s'en serve.
     engine = create_engine(dburi(), echo=True)
-    session_build = sessionmaker(bind=engine)
-    session_build()
     from app.models.base import Base
     Base.metadata.create_all(engine)
     app.run(

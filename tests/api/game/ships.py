@@ -68,7 +68,7 @@ class TestShips:
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
     @pytest.mark.parametrize('item', (
-        (s for s in ShipType)
+        [s for s in ShipType]
     ))
     def test_create_ships(self, client, session, item):
         territory = my_territory(client)

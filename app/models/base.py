@@ -2,18 +2,21 @@ import inspect
 import sys
 import logging
 import simplejson as json
-from sqlalchemy.ext.declarative import declarative_base
+# `sqlalchemy.ext.declarative` ne fait plus que reexporter, avec un
+# avertissement, ce qui vit dans `sqlalchemy.orm` depuis la 1.4.
+from sqlalchemy.orm import declarative_base
 from sqlalchemy import BigInteger
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import object_session
 from sqlalchemy.types import UserDefinedType
-from flask_jsontools import JsonSerializableBase
 # SQLITE cant do autoincrement on bigint so we need this hybrid type
 from sqlalchemy.dialects import sqlite
 
 from .exceptions import CheckError, CheckErrorWithCode
 
-# cls=(JsonSerializableBase,)
+# `flask-jsontools` fournissait ici un `JsonSerializableBase` qui n'a jamais
+# ete branche : la base declarative est nue, et chaque modele porte son propre
+# `serialize`. Le paquet, abandonne depuis, est parti avec l'import.
 Base = declarative_base()
 #metadata = Base.metadata
 

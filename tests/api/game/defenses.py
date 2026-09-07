@@ -12,7 +12,7 @@ class TestDefenses:
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
     @pytest.mark.parametrize('item', (
-        (d for d in DefenseType)
+        [d for d in DefenseType]
     ))
     def test_create_defense(self, client, session, item):
         response = client.get(
@@ -111,7 +111,7 @@ class TestRaiseDefenses:
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
     @pytest.mark.parametrize('item', (
-        (d for d in DefenseType)
+        [d for d in DefenseType]
     ))
     def test_raise_create_defense_prerequisite(self, client, session, item):
         response = client.get(

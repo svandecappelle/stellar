@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import os
 
@@ -31,12 +31,18 @@ def stamp_head(engine):
     if head is None:
         return
 
-    engine.execute(
-        "CREATE TABLE IF NOT EXISTS alembic_version "
-        "(version_num VARCHAR(32) NOT NULL, "
-        "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
-    engine.execute("DELETE FROM alembic_version")
-    engine.execute("INSERT INTO alembic_version (version_num) VALUES ('%s')" % head)
+    # `engine.execute` n'existe plus depuis SQLAlchemy 2.0 : on passe par une
+    # connexion explicite, ce qui rend aussi la pose du tampon atomique — les
+    # trois ordres reussissent ensemble ou pas du tout.
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE IF NOT EXISTS alembic_version "
+            "(version_num VARCHAR(32) NOT NULL, "
+            "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"))
+        connection.execute(text("DELETE FROM alembic_version"))
+        connection.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
+            {"revision": head})
     get_logger().info(
         "Fresh database stamped at the migration head", infos=dict(revision=head))
 

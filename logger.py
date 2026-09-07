@@ -89,7 +89,13 @@ class DefaultLogger(object):
         return self._log("info", *args, **kwargs)
 
     def warn(self, *args, **kwargs):
-        return self._log("warn", *args, **kwargs)
+        # `logging.Logger.warn` est deprecie depuis Python 3.3 et disparaitra :
+        # on garde le nom `warn` pour les quarante appels du projet, mais on
+        # journalise par `warning`.
+        return self._log("warning", *args, **kwargs)
+
+    def warning(self, *args, **kwargs):
+        return self._log("warning", *args, **kwargs)
 
     def error(self, *args, **kwargs):
         return self._log("error", *args, **kwargs)

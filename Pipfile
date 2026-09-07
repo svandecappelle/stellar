@@ -5,26 +5,28 @@ verify_ssl = true
 
 [dev-packages]
 
+# Le meme jeu que requirements.txt, qui reste la reference : c'est lui que
+# lisent l'image Docker et l'integration continue.
+#
+# Ont disparu avec la montee de version : flask-script et flask-sqlalchemy
+# (abandonnes, voir README), flask-jsontools, flask-sqlalchemy-session,
+# pytest-flask-sqlalchemy et ipdb (jamais importes), requests et schedule
+# (jamais importes non plus), et pycrypto — abandonne en 2013, non installable
+# depuis Python 3.9, et lui aussi absent du code.
 [packages]
 flask = "*"
-requests = "*"
-schedule = "*"
-gunicorn = "*"
-psycopg2 = "==2.8"
-flask-sqlalchemy = "*"
-flask-migrate = "*"
-logging-gelf = "*"
-simplejson = "*"
-flask-jsontools = "*"
-flask-script = "*"
-pytest = "*"
-flask-sqlalchemy-session = "*"
-pytest-flask-sqlalchemy = "*"
-flask-paranoid = "*"
 flask-login = "*"
-pycrypto = "*"
-ipdb = "*"
+flask-migrate = "*"
+flask-paranoid = "*"
+sqlalchemy = "*"
+psycopg2-binary = "*"
+logging-gelf = "*"
+marshmallow = "*"
+simplejson = "*"
+gunicorn = "*"
+pytest = "*"
+pytest-mock = "*"
 freezegun = "*"
 
 [requires]
-python_version = "3.8"
+python_version = "3.12"

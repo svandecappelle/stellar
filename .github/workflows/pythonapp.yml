@@ -6,40 +6,56 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
+    # Trois versions plutot qu'une.
+    #
+    # L'echec qui a motive cette revision — « Version 3.8 with arch x64 not
+    # found » — vient de ce que l'image des executeurs a change : `ubuntu-latest`
+    # est passe a 24.04, qui ne fournit plus Python 3.8. Dependre d'une seule
+    # version fait de chaque changement d'image une panne ; en couvrir trois dit
+    # tout de suite laquelle a lache, et le projet marche sur les trois.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v1
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
       with:
-        python-version: 3.8
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+
     - name: Lint with flake8
       run: |
-        pip install flake8 coverage
+        pip install flake8
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
     - name: Test with pytest
       run: |
-        coverage run --source=. -m py.test
+        pip install coverage
+        coverage run --source=. -m pytest tests
         coverage xml
-    - name: Show coverage
-      shell: pwsh
-      run: coverage report -m
+        coverage report -m
+
+    # Une seule version televerse la couverture : elle est la meme sur les
+    # trois, et trois envois pour un meme commit ne font que du bruit.
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      if: matrix.python-version == '3.12'
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
-        env_vars: OS,PYTHON
         name: codecov-umbrella
-        fail_ci_if_error: true
-        path_to_write_report: ./codecov_report.gz
+        fail_ci_if_error: false

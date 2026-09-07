@@ -79,8 +79,15 @@ def database_revision(engine):
     if 'alembic_version' not in inspector_tables:
         return None
     try:
-        result = engine.execute("SELECT version_num FROM alembic_version")
-        row = result.fetchone()
+        # `engine.execute` a disparu en SQLAlchemy 2.0 : la lecture passe par une
+        # connexion explicite. Sans cela le controle tombait dans son propre
+        # filet et rendait « revision inconnue » a chaque demarrage — un
+        # avertissement de schema en retard qui ne se declenchait plus jamais.
+        from sqlalchemy import text
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT version_num FROM alembic_version")).fetchone()
         return row[0] if row else None
     except Exception as e:  # pragma: no cover
         get_logger().warn(

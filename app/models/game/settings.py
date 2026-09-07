@@ -204,7 +204,11 @@ class GalaxySettings(Base):
         """
         if not galaxy_name:
             return None
-        return db.session.query(cls).get(galaxy_name)
+        # `Session.get` remplace `Query.get`, devenu legataire en SQLAlchemy 2.0.
+        # Meme comportement : la reponse vient de l'identity map quand l'objet y
+        # est deja, ce qui compte ici — les reglages sont relus une fois par
+        # batiment serialise.
+        return db.session.get(cls, galaxy_name)
 
     @classmethod
     def effective_for(cls, galaxy_name):

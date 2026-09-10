@@ -6,6 +6,23 @@ from app.models.game.territory import ResourceType, Territory
 from app.models.game.community.faction import Faction
 
 
+def durations_of(client):
+    """
+    Les durees annoncees pour chaque noeud, celles qui en ont une.
+    ---
+    Un noeud au maximum n'annonce ni cout ni duree : il n'y a plus rien a
+    prendre. Les lire par `.get` plutot que par `[]` est ce qui distingue
+    « pas de duree » de « duree nulle ».
+    """
+    response = client.get('/api/technologies')
+    assert response.status_code == 200
+    return {
+        card['type']: card['duration']
+        for card in response.json['technologies']
+        if card.get('duration') is not None
+    }
+
+
 class TestFactions:
 
     @pytest.mark.usefixtures("base_universe")
@@ -70,19 +87,20 @@ class TestFactions:
         territory.add(type=BuildingType.mater_extractor, amount=5)
         territory.add(type=BuildingType.economical_center, amount=5)
         territory.add(type=BuildingType.rafinery, amount=5)
-        for techno in territory.user.technologies:
-            techno.increase(territory=territory, now=True)
+        # Aucune technologie n'est offerte ici, et c'est le sujet du test qui
+        # l'exige : depuis que l'arbre agit sur la production et sur les durees,
+        # un empire qui a cherche fait bouger les deux mesures. Les pourcentages
+        # s'additionnent — c'est la regle du moteur — donc un +4 % de recherche
+        # sur le tritium ferait de l'apport de faction « +1 % » un ecart de
+        # 1 point sur une base deja majoree, et non un facteur 1,01. A niveau
+        # zero partout, ce qu'on mesure est la faction, et rien qu'elle.
         gain_without_faction = {
             ResourceType.silicium: territory.get_hourly_gain(ResourceType.silicium),
             ResourceType.credits: territory.get_hourly_gain(ResourceType.credits),
             ResourceType.tritium: territory.get_hourly_gain(ResourceType.tritium)
         }
-        response = client.get(
-            '/api/technologies'
-        )
-        assert response.status_code == 200
-        assert len(response.json) == len(TechnologyType)
-        tech_durations = {x['type']: x['duration'] for x in response.json}
+        tech_durations = durations_of(client)
+        assert len(tech_durations) == len(TechnologyType)
 
         # Apply faction
         res = client.put(f'/api/faction/{id}')
@@ -92,17 +110,12 @@ class TestFactions:
             ResourceType.credits: territory.get_hourly_gain(ResourceType.credits),
             ResourceType.tritium: territory.get_hourly_gain(ResourceType.tritium)
         }
-        response = client.get(
-            '/api/technologies'
-        )
-        assert response.status_code == 200
-        assert len(response.json) == len(TechnologyType)
-        new_tech_durations = {x['type']: x['duration'] for x in response.json}
+        new_tech_durations = durations_of(client)
         # Test advantages
         if faction == 'Technocrats':
             resource_bonus = ResourceType.silicium
             for tech, duration in tech_durations.items():
-                assert new_tech_durations[tech] == duration - (10 / 100 * duration)
+                assert new_tech_durations[tech] == pytest.approx(duration * 0.9)
         if faction == 'Warriors':
             resource_bonus = ResourceType.tritium
             for tech, duration in tech_durations.items():
@@ -113,7 +126,8 @@ class TestFactions:
                 assert new_tech_durations[tech] == duration
         expected_gain = gain_without_faction.copy()
         expected_gain[resource_bonus] += expected_gain[resource_bonus] * 1 / 100
-        assert gain == expected_gain
+        for resource, expected in expected_gain.items():
+            assert gain[resource] == pytest.approx(expected), resource
 
         response = client.get(
             '/api/technologies'

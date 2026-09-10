@@ -53,6 +53,9 @@ const ICONS = {
     + '<path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'),
   logout: P('<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/>'
     + '<path d="M16 8l4 4-4 4"/><path d="M20 12H10"/>'),
+  research: P('<circle cx="12" cy="12" r="2.4"/>'
+    + '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>'
+    + '<path d="M6.5 6.5 9 9M15 15l2.5 2.5M17.5 6.5 15 9M9 15l-2.5 2.5"/>'),
   sliders: P('<path d="M4 7h10M18 7h2"/><path d="M4 17h4M12 17h8"/>'
     + '<circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
 };

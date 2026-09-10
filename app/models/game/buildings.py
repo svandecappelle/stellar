@@ -13,12 +13,21 @@ class BuildingType(enum.Enum):
     # NOTE the cost keys must match `ResourceType` member names exactly:
     # they used to read 'credit' where the enum says 'credits', so every
     # building was silently free of credits.
+    # Le seul batiment qui ne rendait rien : il coutait cher et ne servait a
+    # rien d'autre qu'a exister. Il produit desormais les Donnees, la ressource
+    # que consomme l'arbre technologique — et ses niveaux cumules sur l'empire
+    # ouvrent les emplacements de recherche menes de front (voir
+    # `Technology.slots`). L'academie devient ce qu'elle aurait toujours du
+    # etre : le batiment de la recherche.
     academy = {
         'cost': {
             'silicium': lambda n: 200 * pow(2, n - 1),
             'cristal': lambda n: 120 * pow(2, n - 1),
             'credits': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
+        },
+        'gain': {
+            'research': lambda n: 8 + 12 * n * pow(1.1, n)
         },
         'time': lambda x: 5 * pow(3, x)
     }
@@ -50,6 +59,11 @@ class BuildingType(enum.Enum):
         },
         'time': lambda x: 5 * pow(3, x)
     }
+    # Deux batiments seulement sont derriere l'arbre, et ce sont les deux qui
+    # accelerent le reste : l'usine pour les chantiers, le chantier naval pour
+    # les coques. Les autres restent libres — une colonie doit pouvoir manger,
+    # s'eclairer et chercher sans avoir rien cherche, sans quoi le premier tour
+    # de jeu n'a pas d'issue.
     factory = {
         'cost': {
             'iron': lambda n: 400 * pow(2, n - 1),
@@ -57,7 +71,12 @@ class BuildingType(enum.Enum):
             'credits': lambda n: 120 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
         },
-        'time': lambda x: 5 * pow(3, x)
+        'time': lambda x: 5 * pow(3, x),
+        'requirements': {
+            'technologies': {
+                'chantiers': 2
+            }
+        }
     }
     # The one extractor. What it actually pulls out of the ground is decided
     # by the planet archetype, not by the building: see `Building.get_hourly_gain`.
@@ -110,7 +129,12 @@ class BuildingType(enum.Enum):
             'credits': lambda n: 400 * pow(2, n - 1),
             'tritium': lambda n: 200 * pow(2, n - 1)
         },
-        'time': lambda x: 5 * pow(3, x)
+        'time': lambda x: 5 * pow(3, x),
+        'requirements': {
+            'technologies': {
+                'alliages': 3
+            }
+        }
     }
 
     def __str__(self):
@@ -286,14 +310,19 @@ class Building(Base):
         Un seul endroit, lu par la verification de prerequis comme par la
         serialisation : le joueur paie ce qui lui est annonce.
         """
+        from app.models.game.modifiers import NO_MODIFIERS, ModifierScope
+
         galaxy_name = self.territory.galaxy_name if self.territory else None
         multiplier = GalaxySettings.value(galaxy_name, 'building_cost_multiplier')
         costs = self.type.get_cost(level=self.level + 1)
 
-        if multiplier == 1.0:
-            return costs
+        if multiplier != 1.0:
+            costs = {resource: amount * multiplier for resource, amount in costs.items()}
 
-        return {resource: amount * multiplier for resource, amount in costs.items()}
+        # `Metallurgie appliquee` et `Automatisation` agissent ici : sur le cout
+        # annonce comme sur le cout paye, puisque c'est la meme valeur.
+        modifiers = self.territory.modifiers if self.territory else NO_MODIFIERS
+        return modifiers.apply_cost(costs, scope=ModifierScope.Buildings)
 
     @property
     def consumption(self):
@@ -307,11 +336,18 @@ class Building(Base):
         ---
         :return:
         """
+        from app.models.game.modifiers import NO_MODIFIERS, ModifierScope
+
         current_factory_level = self.territory.get_building(building_type=BuildingType.factory).level
         duration = self.type.duration(level=self.level) * (1 / (current_factory_level + 1))
 
         galaxy_name = self.territory.galaxy_name if self.territory else None
-        return duration / GalaxySettings.value(galaxy_name, 'build_time_divider')
+        duration = duration / GalaxySettings.value(galaxy_name, 'build_time_divider')
+
+        # `Chantiers modulaires` agit ici, apres le reglage de galaxie : les
+        # deux se multiplient, aucun n'annule l'autre.
+        modifiers = self.territory.modifiers if self.territory else NO_MODIFIERS
+        return modifiers.shorten(duration, scope=ModifierScope.Buildings)
 
     @property
     def serialize(self):
@@ -322,6 +358,7 @@ class Building(Base):
         """
         return {
             'level': self.level,
+            'requirements': self.type.value.get('requirements', {}),
             'duration': self.next_level_duration,
             'gain': { str(k): v for k, v in self.get_hourly_gain.items() },
             'cost': { str(k): v for k, v in self.cost.items() },  # FIXME avoid json.dumps in model

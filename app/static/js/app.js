@@ -33,6 +33,12 @@ const RESOURCES = [
   { key: 'food', code: 'FD', label: 'Nourriture' },
   { key: 'population', code: 'PO', label: 'Population' },
   { key: 'tritium', code: 'TR', label: 'Tritium' },
+  /* Les Donnees ne pendent a aucun monde : la reserve est imperiale, remplie
+     par les academies de tous les territoires et lue par l'arbre
+     technologique. Elles figurent ici pour que les couts de recherche
+     s'affichent comme les autres, mais elles n'ont rien a faire dans le
+     bandeau d'un territoire — voir `visibleResources`. */
+  { key: 'research', code: 'DAT', label: 'Données', empire: true },
 ];
 
 const RESOURCE_BY_KEY = Object.fromEntries(RESOURCES.map((r) => [r.key, r]));
@@ -79,6 +85,34 @@ const state = {
   /* Carte de la galaxie. La topologie — systemes et liaisons — ne bouge pas en
      cours de partie et n'est relue qu'au changement de galaxie ; les flottes,
      elles, se relisent et s'avancent sur l'horloge locale. */
+  /* L'arbre technologique. `tree` est le catalogue — couts, durees, prerequis,
+     effets — qui ne depend d'aucun joueur et se lit une fois ; `state` est
+     l'etat du joueur dedans, relu a chaque geste. Aucune regle n'est recopiee
+     ici : le client dessine ce que le serveur decrit. */
+  research: {
+    open: false,
+    loading: false,
+    /* La fenêtre du canevas : `{x, y, w, h}` en unités de dessin, c'est-à-dire
+       le `viewBox` du SVG. Se déplacer la fait glisser, zoomer la rétrécit ;
+       aucun point du tracé ne bouge. Même mécanique que `state.map.view`. */
+    view: null,
+    viewBranch: null,
+    dragged: false,
+    /* Les noeuds que le catalogue annonce et dont le joueur n'a aucun etat :
+       une base en retard d'une migration. Vide en temps normal. */
+    unknown: new Set(),
+    warned: false,
+    tree: null,
+    tiers: {},
+    branches: [],
+    nodes: new Map(),
+    cards: new Map(),
+    state: null,
+    branch: null,
+    selected: null,
+    readAt: 0,
+    tick: 0,
+  },
   map: {
     galaxy: null,
     systems: [],
@@ -101,6 +135,7 @@ const state = {
 
 let tickTimer = null;
 let pollTimer = null;
+let researchTimer = null;
 let reloading = false;
 /* Événements dont on a déjà constaté la fin : le serveur les archive au
    prochain /update, mais tant qu'ils reviennent on ne relance qu'une fois. */
@@ -111,6 +146,20 @@ let settledEvents = new Set();
    ============================================================ */
 
 const $ = (sel) => document.querySelector(sel);
+
+/* Branche un gestionnaire, et ne fait rien si l'element manque.
+   ---
+   `$('#x').addEventListener(...)` leve dès que `#x` n'est pas là, et cette
+   exception remonte jusqu'à `boot()` : un seul bouton absent du balisage
+   emportait TOUTE la console, écran de connexion compris. Le balisage et le
+   script sont deux fichiers servis séparément, et rien ne garantit qu'un
+   visiteur ait les deux dans la même version — un cache tenace suffit. Le
+   défaut doit rester local à l'écran concerné. */
+function on(selector, event, handler, options) {
+  const element = $(selector);
+  if (element) element.addEventListener(event, handler, options);
+  return element;
+}
 
 /* ---------- la vue vit dans le chemin ----------
 
@@ -150,13 +199,18 @@ function readRoute() {
   return {
     galaxy: parts[1],
     territoryId: Number.isFinite(id) && id > 0 ? id : null,
+    research: parts[2] === 'research',
   };
 }
 
-function routePath(galaxy, territoryId) {
+function routePath(galaxy, territoryId, research = false) {
   if (!galaxy) return '/';
   const base = `/galaxy/${encodeURIComponent(galaxy)}`;
-  return territoryId ? `${base}/territory/${territoryId}` : base;
+  if (territoryId) return `${base}/territory/${territoryId}`;
+  /* La recherche est imperiale et traverse les galaxies, mais l'adresse en
+     porte une : c'est celle ou l'on travaille, et celle qui decide des mondes
+     affiches partout ailleurs. */
+  return research ? `${base}/research` : base;
 }
 
 /* Ecrit l'adresse de la vue courante.
@@ -165,10 +219,14 @@ function routePath(galaxy, territoryId) {
    l'adresse, ou le premier affichage : empiler une entree la ferait apparaitre
    dans l'historique comme un endroit ou revenir. */
 function syncUrl({ replace = false } = {}) {
-  const path = routePath(state.galaxy, state.territoryId);
+  const path = routePath(state.galaxy, state.territoryId, state.research.open);
   try {
     if (path === window.location.pathname && !window.location.search) return;
-    const entry = { galaxy: state.galaxy, territoryId: state.territoryId };
+    const entry = {
+      galaxy: state.galaxy,
+      territoryId: state.territoryId,
+      research: state.research.open,
+    };
     if (replace) window.history.replaceState(entry, '', path);
     else window.history.pushState(entry, '', path);
   } catch (e) {
@@ -294,9 +352,20 @@ async function loadGalaxies() {
 
   // Priorite : ce que dit l'adresse, puis la galaxie deja choisie, puis la
   // premiere connue.
-  const wanted = readRoute().galaxy || state.galaxy;
+  const route = readRoute();
+  const wanted = route.galaxy || state.galaxy;
   state.galaxy =
     (wanted && state.galaxies.includes(wanted) && wanted) || state.galaxies[0] || wanted || null;
+
+  /* Le reste de l'adresse est repris ici, et c'est necessaire : la
+     normalisation ci-dessous ecrit `routePath(state...)`, qui ne connait que
+     l'etat. Sans ces deux lignes, elle reduisait toute adresse a sa galaxie
+     avant meme la connexion — un lien vers un monde precis, ou vers la
+     recherche, etait donc efface au chargement, et `applyRoute` relisait une
+     adresse deja tronquee. La vue s'ouvrait sur la carte, quel que soit le lien
+     suivi. */
+  state.territoryId = route.territoryId;
+  state.research.open = route.research;
 
   fillGalaxySelect($('#login-galaxy'));
   fillGalaxySelect($('#pick-galaxy'));
@@ -337,11 +406,12 @@ async function switchGalaxy(name) {
    ============================================================ */
 
 function showView(name) {
-  ['login', 'pick', 'command', 'moderation', 'galaxy'].forEach((v) => {
+  ['login', 'pick', 'command', 'moderation', 'galaxy', 'research'].forEach((v) => {
     $(`#view-${v}`).classList.toggle('hidden', v !== name);
   });
   if (name !== 'command') stopTimers();
   if (name !== 'galaxy') stopMapTimers();
+  if (name !== 'research') leaveResearch();
 }
 
 /* ============================================================
@@ -754,7 +824,7 @@ function visibleResources() {
   const res = (state.territory && state.territory.resources) || {};
   const yields = (state.territory && state.territory.yields) || {};
   return RESOURCES.filter(
-    (r) => !r.material || yields[r.key] > 0 || (res[r.key] || 0) > 0
+    (r) => !r.empire && (!r.material || yields[r.key] > 0 || (res[r.key] || 0) > 0)
   );
 }
 
@@ -1267,6 +1337,1320 @@ function stopTimers() {
 }
 
 /* ============================================================
+   recherche — l'arbre technologique
+
+   La recherche appartient au joueur, toutes galaxies confondues, et se paie sur
+   l'ensemble de ses mondes : elle ne pouvait pas être un onglet de la fiche
+   d'une planète. C'est donc une vue de premier niveau, montée sur la charpente
+   de la carte de galaxie — rail, canevas, sélection — dont elle reprend les
+   classes telles quelles.
+
+   Deux lectures, et la séparation compte :
+
+     · `/api/technologies/tree` publie la FORME de l'arbre — coûts, durées,
+       prérequis, effets. Elle ne dépend d'aucun joueur et se lit une fois ;
+     · `/api/technologies` publie l'ÉTAT du joueur dedans, et se relit à chaque
+       geste.
+
+   Rien des règles ne vit ici : ni le seuil d'un palier, ni le coût d'un niveau,
+   ni la phrase qui décrit un effet. Tout vient du serveur, qui est celui qui
+   les applique — une copie côté client finirait par décrire autre chose que ce
+   que fait le calcul.
+   ============================================================ */
+
+/* Le dessin. Quatre colonnes, une par palier, dans un repère fixe : le cadre
+   se redimensionne, le `viewBox` non. */
+/* Des cartes assez grandes pour porter ce qu'on lit avant de cliquer : le nom
+   sur deux lignes, le niveau, et l'effet en clair. À 152 × 56 il n'y tenait que
+   le nom, et il fallait ouvrir chaque nœud pour savoir ce qu'il faisait. */
+const NODE_W = 216;
+const NODE_H = 92;
+const NODE_CUT = 10;
+const TIERS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+/* Une colonne par palier, à pas constant. Le dessin fait 2 700 unités de large :
+   il ne tient dans aucun cadre de console, et le réduire jusqu'à l'y faire
+   entrer rendrait les libellés illisibles. On le parcourt donc — molette pour
+   zoomer, glisser pour déplacer — exactement comme la carte de la galaxie, dont
+   ce canevas reprend la mécanique et les commandes.
+
+   Le `viewBox` est la fenêtre courante, et non le dessin entier : zoomer, c'est
+   la rétrécir ; se déplacer, c'est la faire glisser. Aucun point du tracé ne
+   bouge. */
+const TIER_PITCH = 268;
+const TIER_X = TIERS.map((_, index) => 150 + index * TIER_PITCH);
+const TREE_W = TIER_X[TIER_X.length - 1] + 150;
+const TREE_H = 560;
+
+const TREE_ZOOM_STEP = 1.25;
+
+/* Deux seuils, et non un.
+   ---
+   Un seul seuil confondait deux questions différentes : « faut-il commencer à
+   déplacer ? » et « ce relâchement était-il un clic ? ». À 4 px pour les deux,
+   un clic dont la main dérivait de cinq pixels déplaçait l'arbre d'un cheveu et
+   ne sélectionnait plus rien — la fiche restait sur le nœud précédent, et rien
+   n'indiquait pourquoi. Sur ce canevas on clique bien plus qu'on ne déplace :
+   c'est le clic qui doit être facile.
+
+   Entre les deux valeurs, la vue bouge de quelques pixels ET le nœud se
+   sélectionne. Un déplacement de six pixels ne valait de toute façon pas la
+   peine d'être défendu. */
+const TREE_PAN_START = 6;
+const TREE_CLICK_SLOP = 14;
+/* Bornes exprimées en largeur visible, ce qui se lit mieux qu'un facteur : au
+   plus serré on voit deux colonnes et demie, au plus large l'arbre entier avec
+   une marge. */
+const TREE_VIEW_MIN = TIER_PITCH * 2.5;
+const TREE_VIEW_MAX = TREE_W + 160;
+/* Largeur visible à l'ouverture : quatre paliers, de quoi voir d'où l'on vient
+   et où l'on va sans avoir à recadrer. */
+const TREE_VIEW_DEFAULT = TIER_PITCH * 4;
+
+/* Un noeud dont l'état ne change pas selon qu'on le regarde : c'est le serveur
+   qui le nomme (`state` dans la charge utile), et le client ne fait que le
+   traduire en classe. */
+const NODE_STATE_LABEL = {
+  maxed: 'Acquis — niveau maximum',
+  researching: 'En recherche',
+  locked: 'Verrouillé',
+  owned: 'Acquis',
+  available: 'Disponible',
+};
+
+const KIND_LABEL = {
+  rank: 'Rang',
+  breakthrough: 'Percée',
+  doctrine: 'Doctrine',
+  endless: 'Nœud infini',
+};
+
+function researchNode(name) {
+  return state.research.nodes.get(name) || null;
+}
+
+function researchCard(name) {
+  return state.research.cards.get(name) || null;
+}
+
+function branchMeta(key) {
+  return state.research.branches.find((b) => b.name === key) || null;
+}
+
+/* ---------- entrée dans la vue ---------- */
+
+async function openResearch({ push = true } = {}) {
+  /* La recherche traverse les galaxies, mais l'adresse en porte une : c'est
+     celle où l'on travaille, et c'est elle qui décide des mondes affichés
+     partout ailleurs. */
+  state.territoryId = null;
+  state.research.open = true;
+  syncUrl({ replace: !push });
+
+  showView('research');
+  $('#res-galaxy').textContent = state.galaxy || 'Empire';
+  await loadResearch();
+  startResearchTimers();
+}
+
+function leaveResearch() {
+  state.research.open = false;
+  stopResearchTimers();
+}
+
+async function loadResearch(force = false) {
+  if (state.research.loading) return;
+  state.research.loading = true;
+  $('#research-updated').textContent = 'Lecture…';
+
+  try {
+    /* Le catalogue ne bouge pas d'une lecture à l'autre : on ne le redemande
+       jamais une fois lu. L'état du joueur, si. */
+    if (!state.research.tree || force) {
+      const tree = await api.technologyTree();
+      state.research.tree = tree;
+      state.research.branches = tree.branches || [];
+      state.research.tiers = tree.tiers || {};
+      state.research.nodes = new Map((tree.nodes || []).map((n) => [n.name, n]));
+    }
+
+    const payload = await api.technologies();
+    state.research.state = payload;
+    state.research.cards = new Map(
+      (payload.technologies || []).map((t) => [t.type, t])
+    );
+    state.research.readAt = Date.now();
+
+    /* Le catalogue et l'état du joueur viennent de deux routes différentes, et
+       rien ne garantit qu'ils décrivent le même arbre : le catalogue est bâti
+       depuis le CODE, l'état depuis la BASE. Quand la base est en retard d'une
+       migration, le canevas dessine des nœuds dont le joueur n'a aucun état —
+       ils s'affichent, et cliquer dessus n'ouvre rien. Sans un mot.
+
+       C'est le pire des comportements : l'écran a l'air cassé sans dire
+       pourquoi. On compare donc les deux, et on nomme le désaccord. */
+    const unknown = Array.from(state.research.nodes.keys()).filter(
+      (name) => !state.research.cards.has(name)
+    );
+    state.research.unknown = new Set(unknown);
+    if (unknown.length && !state.research.warned) {
+      state.research.warned = true;
+      toast(
+        `Le catalogue annonce ${state.research.nodes.size} technologies, votre compte ` +
+          `n'en porte que ${state.research.cards.size}. La base de données est en retard ` +
+          `d'une migration : ces ${unknown.length} nœuds ne peuvent pas être ouverts.`,
+        'err',
+        'Recherche'
+      );
+    }
+
+    if (!state.research.branch && state.research.branches.length) {
+      state.research.branch = state.research.branches[0].name;
+    }
+    ensureResearchSelection();
+    renderResearch();
+    $('#research-updated').textContent = '';
+  } catch (e) {
+    $('#research-updated').textContent = '';
+    handleApiError(e, 'Recherche');
+  } finally {
+    state.research.loading = false;
+  }
+}
+
+/* La sélection suit la branche : au changement, on ouvre ce qui se passe —
+   une recherche en cours, sinon le premier nœud à portée. Ouvrir une fiche
+   vide obligerait à cliquer avant de pouvoir lire quoi que ce soit. */
+function ensureResearchSelection() {
+  const inBranch = nodesOfBranch(state.research.branch);
+  if (!inBranch.length) {
+    state.research.selected = null;
+    return;
+  }
+  if (state.research.selected && inBranch.some((n) => n.name === state.research.selected)) {
+    return;
+  }
+  const byState = (wanted) =>
+    inBranch.find((n) => (researchCard(n.name) || {}).state === wanted);
+  const pick = byState('researching') || byState('available') || byState('owned') || inBranch[0];
+  state.research.selected = pick.name;
+}
+
+/* Tout l'amont d'un nœud : les nœuds qu'il faut avoir montés pour l'atteindre,
+   et les liaisons qui les relient.
+
+   On rend l'ENSEMBLE des ancêtres plutôt que la liste des chemins distincts.
+   Un nœud profond en réclame deux ou trois, qui en réclament autant : énumérer
+   les routes une par une en donnerait des dizaines, toutes composées des mêmes
+   étapes. Ce que le joueur veut savoir est ce qu'il lui reste à monter, et
+   c'est exactement cet ensemble — l'union de tous les chemins.
+
+   Le niveau retenu pour chaque ancêtre est le PLUS ÉLEVÉ que réclame l'un de
+   ses descendants sur le chemin : c'est lui qui contraint. Garder le premier
+   rencontré ferait annoncer un objectif que le nœud suivant démentirait. */
+function pathTo(name) {
+  const need = new Map();
+  const edges = new Set();
+  const seen = new Set([name]);
+  const queue = [name];
+
+  while (queue.length) {
+    const current = queue.shift();
+    const node = researchNode(current);
+    if (!node) continue;
+    Object.entries(node.requires || {}).forEach(([required, level]) => {
+      need.set(required, Math.max(need.get(required) || 0, level));
+      edges.add(`${required}>${current}`);
+      if (!seen.has(required)) {
+        seen.add(required);
+        queue.push(required);
+      }
+    });
+  }
+
+  return { need, edges };
+}
+
+/* Le chemin mis en ordre de parcours : par palier, puis par branche. C'est
+   l'ordre dans lequel on peut réellement le monter, les paliers profonds
+   n'ouvrant qu'après les précédents. */
+function pathSteps(name) {
+  const { need } = pathTo(name);
+  return Array.from(need.entries())
+    .map(([required, level]) => {
+      const node = researchNode(required);
+      const card = researchCard(required);
+      const held = (card && card.level) || 0;
+      return {
+        name: required,
+        node,
+        level,
+        held,
+        done: held >= level,
+        missing: Math.max(0, level - held),
+      };
+    })
+    .filter((step) => step.node)
+    .sort(
+      (a, b) =>
+        a.node.tier - b.node.tier || a.node.branch.localeCompare(b.node.branch)
+    );
+}
+
+function nodesOfBranch(branch) {
+  if (!branch) return [];
+  return Array.from(state.research.nodes.values()).filter((n) => n.branch === branch);
+}
+
+/* ---------- rendu ---------- */
+
+function renderResearch() {
+  renderResearchPool();
+  renderBranchRail();
+  renderTree();
+  renderNodeCard();
+  renderResearchQueue();
+}
+
+/* La réserve de l'empire, et non celle d'un monde : c'est ce que la recherche
+   regarde pour dire si un niveau est payable. */
+function renderResearchPool() {
+  const payload = state.research.state;
+  if (!payload) return;
+
+  const gain = payload.research_gain || 0;
+  const chips = [
+    `<div class="chip" style="--chip-accent:var(--res-research)" title="Données de recherche — produites par vos académies">
+      <span class="k">DAT</span>
+      <span class="v">${esc(fmtNumber(payload.research || 0))}</span>
+      ${gain ? `<span class="d">${esc(fmtDelta(gain))}/h</span>` : ''}
+    </div>`,
+    `<div class="chip" title="Recherches menées de front">
+      <span class="k">FILE</span>
+      <span class="v">${esc(payload.used_slots || 0)} / ${esc(payload.slots || 0)}</span>
+    </div>`,
+  ];
+  $('#research-pool').innerHTML = chips.join('');
+}
+
+function renderBranchRail() {
+  const rail = $('#branch-rail');
+  const totals = (state.research.state && state.research.state.branches) || {};
+
+  const buttons = state.research.branches
+    .map((branch) => {
+      const spent = totals[branch.name] || 0;
+      const tier = tierReached(spent);
+      const on = branch.name === state.research.branch;
+      return `<button class="brbtn" data-branch="${esc(branch.name)}"
+        style="--h:${esc(branch.accent)}" aria-pressed="${on ? 'true' : 'false'}"
+        title="${esc(branch.summary)}">
+        <span class="bn">${esc(branch.label)}</span>
+        <span class="bs">${esc(spent)} niv · palier ${esc(TIERS[tier - 1] || 'I')}</span>
+      </button>`;
+    })
+    .join('');
+
+  rail.innerHTML = `<span class="ov" style="text-align:center">Branches</span>${buttons}`;
+}
+
+/* Le palier atteint dans une branche, d'après les niveaux qu'on y a dépensés.
+   Les seuils viennent du catalogue : le client ne les invente pas. */
+function tierReached(spent) {
+  const thresholds = state.research.tiers || {};
+  let reached = 1;
+  Object.entries(thresholds).forEach(([tier, needed]) => {
+    if (spent >= needed) reached = Math.max(reached, Number(tier));
+  });
+  return reached;
+}
+
+/* Place les nœuds d'une branche : une colonne par palier, répartis en hauteur.
+   Le dessin ne dit rien de plus que la table — il la rend lisible. */
+function treeLayout(branch) {
+  const nodes = nodesOfBranch(branch);
+  const byTier = new Map();
+  nodes.forEach((n) => {
+    if (!byTier.has(n.tier)) byTier.set(n.tier, []);
+    byTier.get(n.tier).push(n);
+  });
+
+  const positions = new Map();
+  byTier.forEach((list, tier) => {
+    const slice = (TREE_H - 40) / list.length;
+    list.forEach((node, index) => {
+      positions.set(node.name, {
+        x: (TIER_X[tier - 1] || TIER_X[0]) - NODE_W / 2,
+        y: 20 + slice * (index + 0.5) - NODE_H / 2,
+      });
+    });
+  });
+  return { nodes, positions };
+}
+
+/* Un rectangle à coin coupé, comme les panneaux du thème Nebula. La forme est
+   la même pour tous les nœuds : ce qui les distingue est leur état, jamais leur
+   silhouette. */
+function cutBox(x, y, w, h, c) {
+  return `${x + c},${y} ${x + w},${y} ${x + w},${y + h - c} ${x + w - c},${y + h} ${x},${y + h} ${x},${y + c}`;
+}
+
+/* Deux lignes au plus : les libellés du serveur vont jusqu'à « Intelligence
+   artificielle », qui ne tient pas sur une. */
+function wrapLabel(label, max = 17) {
+  const words = String(label).split(' ');
+  const lines = [''];
+  words.forEach((word) => {
+    const current = lines[lines.length - 1];
+    if (!current) lines[lines.length - 1] = word;
+    else if (`${current} ${word}`.length <= max) lines[lines.length - 1] = `${current} ${word}`;
+    else if (lines.length < 2) lines.push(word);
+    else lines[1] = `${lines[1]} ${word}`;
+  });
+  return lines.filter(Boolean);
+}
+
+function nodeBadge(node, card) {
+  if (node.endless) return String(card.level || 0);
+  if (node.kind === 'rank') return `${card.level || 0}/${node.max_level}`;
+  if (node.kind === 'doctrine') return '◈';
+  return card.level > 0 ? '✦' : '▣';
+}
+
+function renderTree() {
+  const branch = branchMeta(state.research.branch);
+  const frame = $('#tree-frame');
+  if (!branch) {
+    frame.innerHTML = '<p class="empty">Aucune branche.</p>';
+    return;
+  }
+
+  $('#branch-title').textContent = branch.label;
+  /* La légende se teinte comme la branche affichée : « acquis » se peint dans
+     sa couleur, et il y en a cinq. Une pastille fixe aurait montré une teinte
+     absente du dessin — une légende qui ne cite pas ses propres couleurs ne
+     sert à rien. */
+  const legend = $('#tree-legend');
+  if (legend) legend.style.setProperty('--h', branch.accent);
+  const spent = ((state.research.state || {}).branches || {})[branch.name] || 0;
+  const reached = tierReached(spent);
+  $('#branch-tiers').innerHTML = TIERS.map(
+    (roman, index) =>
+      `<span class="${index + 1 <= reached ? 'rich' : ''}">${roman}</span>`
+  ).join(' · ');
+
+  const { nodes, positions } = treeLayout(branch.name);
+  const inBranch = new Set(nodes.map((n) => n.name));
+  const parts = [];
+
+  /* Le chemin vers la sélection : ses ancêtres et les liaisons qui y mènent.
+     Ce qui n'en fait pas partie s'estompe — sans ce contraste, mettre le chemin
+     en couleur ne fait qu'ajouter une couleur de plus sur un dessin qui en a
+     déjà cinq. */
+  const path = pathTo(state.research.selected);
+  const onPath = (name) => path.need.has(name);
+
+  /* La fenêtre survit aux relectures — le serveur est relu toutes les trente
+     secondes, et repartir du cadrage par défaut à chaque fois ramènerait
+     brutalement le joueur là où il n'était pas. Elle ne se repose que si l'on
+     change de branche, ou à la toute première ouverture. */
+  if (!state.research.view || state.research.viewBranch !== branch.name) {
+    state.research.viewBranch = branch.name;
+    centreOnSelected(positions, { keepZoom: false });
+  }
+
+  /* Les paliers : des bandes, et non un trait. Sur dix colonnes de cartes
+     sombres, un filet vertical se perd ; une bande alternée donne à l'œil de
+     quoi situer la profondeur sans rien suivre. Le chiffre est répété en haut
+     et en bas — on ne voit jamais les deux bords à la fois. */
+  TIER_X.forEach((x, index) => {
+    const left = x - TIER_PITCH / 2;
+    if (index % 2 === 1) {
+      parts.push(
+        `<rect class="tree-band" x="${left}" y="0" width="${TIER_PITCH}" height="${TREE_H}"/>`
+      );
+    }
+    parts.push(
+      `<text class="tree-tier-label" x="${x}" y="22">${TIERS[index]}</text>` +
+        `<text class="tree-tier-label" x="${x}" y="${TREE_H - 10}">${TIERS[index]}</text>`
+    );
+  });
+
+  /* Les liaisons d'abord : elles passent sous les nœuds. */
+  nodes.forEach((node) => {
+    const to = positions.get(node.name);
+    Object.entries(node.requires || {}).forEach(([from, level]) => {
+      const routed = path.edges.has(`${from}>${node.name}`);
+
+      if (!inBranch.has(from)) {
+        /* Un prérequis d'une autre branche : il entre par la gauche, sans
+           origine visible — son nœud n'est pas sur ce dessin. La fiche, elle,
+           le nomme et permet d'y aller. */
+        const y = to.y + NODE_H / 2;
+        const cls = `tree-link tree-link--foreign${routed ? ' tree-link--path' : ''}`;
+        parts.push(
+          `<path class="${cls}" d="M ${to.x - 46} ${y} H ${to.x - 4}"/>` +
+            `<circle class="${cls}" cx="${to.x - 50}" cy="${y}" r="3"/>`
+        );
+        return;
+      }
+      const source = positions.get(from);
+      const held = ((researchCard(from) || {}).level || 0) >= level;
+      const x1 = source.x + NODE_W;
+      const y1 = source.y + NODE_H / 2;
+      const x2 = to.x;
+      const y2 = to.y + NODE_H / 2;
+      /* Une courbe, et non deux équerres. Un tracé à angle droit qui saute deux
+         colonnes fait une longue verticale au milieu d'une pile de cartes : il
+         passe dessous — les liaisons sont dessinées avant les nœuds — et paraît
+         coupé en deux. Une courbe entre et sort par les côtés, là où on
+         l'attend, et se suit du regard même quand elle disparaît un instant. */
+      const bend = Math.max(34, (x2 - x1) * 0.45);
+      parts.push(
+        `<path class="tree-link${held ? ' tree-link--held' : ''}${
+          routed ? ' tree-link--path' : ''
+        }" style="--h:${esc(branch.accent)}"
+          d="M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}"/>`
+      );
+    });
+  });
+
+  nodes.forEach((node) => {
+    const card = researchCard(node.name) || { level: 0, state: 'locked' };
+    const at = positions.get(node.name);
+    const on = node.name === state.research.selected;
+    const lines = wrapLabel(node.label, 21).slice(0, 2);
+
+    const halo = on
+      ? `<polygon class="tree-node__halo" points="${cutBox(
+          at.x - 5, at.y - 5, NODE_W + 10, NODE_H + 10, NODE_CUT + 2
+        )}"/>`
+      : '';
+
+    /* Deux noms au plus : au-delà, la ligne déborde de la carte, et savoir
+       qu'un nœud ouvre trois choses vaut moins que de pouvoir les lire. Le
+       reste est dans la fiche. */
+    const opensAll = Object.values(node.unlocks || {})
+      .flatMap((targets) => Object.keys(targets));
+    const opens = opensAll.slice(0, 2);
+    if (opensAll.length > opens.length) opens.push('+' + (opensAll.length - opens.length));
+
+    /* La jauge ne dit quelque chose que sur un rang : une percée n'a pas de
+       progression, elle est prise ou elle ne l'est pas. Elle cède la moitié de
+       la ligne quand le nœud ouvre quelque chose — les deux partagent le bas de
+       la carte, et pleine largeur elle passait sous le texte. */
+    let gauge = '';
+    if (node.kind === 'rank' && node.max_level) {
+      const track = (NODE_W - 26) * (opens.length ? 0.42 : 1);
+      const filled = Math.max(0, Math.min(1, (card.level || 0) / node.max_level));
+      gauge =
+        `<rect class="tree-node__track" x="${at.x + 13}" y="${at.y + NODE_H - 13}" width="${track.toFixed(
+          1
+        )}" height="4"/>` +
+        `<rect class="tree-node__fill" x="${at.x + 13}" y="${at.y + NODE_H - 13}" width="${(
+          track * filled
+        ).toFixed(1)}" height="4"/>`;
+    }
+
+    /* Ce que le nœud fait, sur la carte et non dans la fiche : c'est la
+       question qu'on se pose en survolant l'arbre, et devoir ouvrir chaque nœud
+       pour y répondre était le vrai coût de lecture. */
+    const effect = wrapLabel(nodeSummary(node), 30).slice(0, 2);
+    const nameY = at.y + 26;
+    const effectY = at.y + 32 + lines.length * 15;
+
+    /* Trois états de mise en avant : la sélection, son amont, et le reste.
+       Le reste ne s'estompe que s'il y a un amont — un nœud de départ n'a pas
+       de chemin, et tout ternir autour de lui ne dirait rien. */
+    const routed = onPath(node.name);
+    const faded = path.need.size > 0 && !routed && !on;
+    const orphan = state.research.unknown && state.research.unknown.has(node.name);
+
+    parts.push(`<g class="tree-node tree-node--${esc(card.state)}${on ? ' tree-node--on' : ''}${
+      routed ? ' tree-node--path' : ''
+    }${faded ? ' tree-node--faded' : ''}${orphan ? ' tree-node--unknown' : ''}"
+      style="--h:${esc(branch.accent)}" data-node="${esc(node.name)}"
+      tabindex="0" role="button"
+      aria-label="${esc(node.label)}, ${esc(NODE_STATE_LABEL[card.state] || '')}">
+      ${halo}
+      <polygon class="tree-node__box" points="${cutBox(at.x, at.y, NODE_W, NODE_H, NODE_CUT)}"/>
+      <rect class="tree-node__edge" x="${at.x}" y="${at.y + NODE_CUT}" width="4" height="${NODE_H - NODE_CUT}"/>
+      ${lines
+        .map(
+          (line, index) =>
+            `<text class="tree-node__name" x="${at.x + 13}" y="${nameY + index * 15}">${esc(line)}</text>`
+        )
+        .join('')}
+      ${effect
+        .map(
+          (line, index) =>
+            `<text class="tree-node__effect" x="${at.x + 13}" y="${effectY + index * 13}">${esc(line)}</text>`
+        )
+        .join('')}
+      <text class="tree-node__badge" x="${at.x + NODE_W - 12}" y="${at.y + 22}">${esc(
+      nodeBadge(node, card)
+    )}</text>
+      ${
+        opens.length
+          ? `<text class="tree-node__opens" x="${at.x + NODE_W - 12}" y="${at.y + NODE_H - 12}">◆ ${esc(
+              opens.join(' ')
+            )}</text>`
+          : ''
+      }
+      ${gauge}
+    </g>`);
+  });
+
+  frame.innerHTML = `<svg viewBox="${viewBoxOf(state.research.view)}"
+    preserveAspectRatio="xMidYMid meet" width="100%" height="100%" role="img"
+    aria-label="Arbre technologique — branche ${esc(branch.label)}">${parts.join('')}</svg>`;
+}
+
+/* La phrase portée par la carte. L'effet d'un rang le décrit mieux que son
+   résumé littéraire, qui est là pour la fiche ; une doctrine n'a que le sien,
+   ses deux voies ne tenant pas sur une carte. */
+function nodeSummary(node) {
+  if (node.kind === 'doctrine') return 'Deux voies exclusives. Définitif.';
+  const effect = (node.effects || [])[0];
+  return effect ? effect.label : node.summary || '';
+}
+
+/* ---------- déplacement et zoom ----------
+
+   Même mécanique que la carte de la galaxie, et pour la même raison : le dessin
+   ne tient pas dans le cadre. Ce qui change est la fenêtre — le `viewBox` — et
+   jamais le tracé.
+
+   La hauteur de la fenêtre se déduit des proportions du cadre plutôt que d'être
+   fixée : sans cela, un cadre large laisserait deux bandes vides au-dessus et
+   au-dessous, `xMidYMid meet` centrant ce qu'il ne peut pas étirer. */
+function treeSvg() {
+  const frame = $('#tree-frame');
+  return frame ? frame.querySelector('svg') : null;
+}
+
+function viewBoxOf(view) {
+  const v = view || { x: 0, y: 0, w: TREE_W, h: TREE_H };
+  return `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`;
+}
+
+function treeAspect() {
+  const frame = $('#tree-frame');
+  if (!frame) return 2.3;
+  const rect = frame.getBoundingClientRect();
+  return rect.height > 1 ? rect.width / rect.height : 2.3;
+}
+
+/* Pose la fenêtre autour d'un point, à une largeur voulue.
+
+   Le centre est ramené dans le dessin, marge comprise : sans cette borne, un
+   glissement un peu vif emmène l'arbre hors du cadre et il ne reste qu'un fond
+   vide, sans rien qui indique de quel côté revenir. */
+function setTreeView(centreX, centreY, width) {
+  const w = Math.min(TREE_VIEW_MAX, Math.max(TREE_VIEW_MIN, width));
+  const h = w / treeAspect();
+  const cx = Math.min(TREE_W, Math.max(0, centreX));
+  const cy = Math.min(TREE_H, Math.max(0, centreY));
+  state.research.view = { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+function applyTreeView() {
+  const svg = treeSvg();
+  if (svg && state.research.view) {
+    svg.setAttribute('viewBox', viewBoxOf(state.research.view));
+  }
+}
+
+/* Le point de l'arbre sous le pointeur. Même calcul que sur la carte, décalage
+   de `meet` compris : les proportions de la fenêtre suivent celles du cadre,
+   mais elles peuvent en différer le temps d'un redimensionnement. */
+function treePointerPoint(ev) {
+  const svg = treeSvg();
+  const view = state.research.view;
+  if (!svg || !view) return null;
+
+  const rect = svg.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+
+  const scale = Math.min(rect.width / view.w, rect.height / view.h);
+  const originX = rect.left + (rect.width - view.w * scale) / 2;
+  const originY = rect.top + (rect.height - view.h * scale) / 2;
+
+  return {
+    x: view.x + (ev.clientX - originX) / scale,
+    y: view.y + (ev.clientY - originY) / scale,
+    scale,
+  };
+}
+
+/* Zoome autour d'un point, qui reste sous le pointeur : ce qu'on veut regarder
+   est sous la souris, pas au milieu du cadre. */
+function zoomTreeAround(point, factor) {
+  const view = state.research.view;
+  if (!view) return;
+
+  const wanted = Math.min(TREE_VIEW_MAX, Math.max(TREE_VIEW_MIN, view.w / factor));
+  if (Math.abs(wanted - view.w) < 1e-6) return;
+
+  const ratioX = view.w > 0 ? (point.x - view.x) / view.w : 0.5;
+  const ratioY = view.h > 0 ? (point.y - view.y) / view.h : 0.5;
+  const h = wanted / treeAspect();
+
+  state.research.view = {
+    x: point.x - ratioX * wanted,
+    y: point.y - ratioY * h,
+    w: wanted,
+    h,
+  };
+  applyTreeView();
+}
+
+function zoomTreeCentre(factor) {
+  const view = state.research.view;
+  if (!view) return;
+  zoomTreeAround({ x: view.x + view.w / 2, y: view.y + view.h / 2 }, factor);
+}
+
+/* Recadrer : l'arbre entier, marges comprises. */
+function fitTree() {
+  setTreeView(TREE_W / 2, TREE_H / 2, TREE_VIEW_MAX);
+  applyTreeView();
+}
+
+/* Amène la sélection au centre.
+
+   Sans cela, changer de branche laisserait la fenêtre où la précédente l'avait
+   laissée — et le nœud qu'on vient d'ouvrir serait hors champ, ce qui donne
+   l'impression que la fiche parle d'autre chose. */
+function centreOnSelected(positions, { keepZoom = true } = {}) {
+  const at = positions.get(state.research.selected);
+  if (!at) return;
+
+  /* Largeur d'ouverture : quatre paliers, mais jamais moins que ce qu'il faut
+     pour que les trois rangées tiennent en hauteur. Le cadre est deux fois plus
+     large que haut et l'arbre cinq fois : à quatre paliers pile, la rangée du
+     bas sortait du cadre, et rien n'indiquait qu'il en existait une. */
+  const width = keepZoom && state.research.view
+    ? state.research.view.w
+    : Math.max(TREE_VIEW_DEFAULT, (TREE_H + 48) * treeAspect());
+
+  /* Verticalement, on se cale sur le dessin tant qu'il tient tout entier :
+     suivre la rangée du nœud choisi ferait sauter la vue d'un tiers de hauteur
+     à chaque sélection, alors que tout est déjà visible. */
+  const height = width / treeAspect();
+  const centreY = height >= TREE_H ? TREE_H / 2 : at.y + NODE_H / 2;
+
+  setTreeView(at.x + NODE_W / 2, centreY, width);
+}
+
+/* ---------- la fiche ---------- */
+
+/* Le chemin d'accès, en clair.
+
+   Le canevas montre la forme du chemin — quels nœuds, quelles liaisons — mais
+   il n'en montre qu'une branche à la fois, et un chemin en traverse souvent
+   deux ou trois. Cette liste-ci les porte toutes, dans l'ordre où on peut les
+   monter, et chaque entrée ramène à son nœud.
+
+   Les étapes déjà acquises restent affichées, barrées d'une coche : savoir ce
+   qui est fait vaut autant que savoir ce qui reste, et les faire disparaître
+   donnerait l'impression que le chemin change de forme à mesure qu'on avance. */
+function pathMarkup(node, card) {
+  const steps = pathSteps(node.name);
+  if (!steps.length) return '';
+
+  const remaining = steps.filter((step) => !step.done);
+  const levels = remaining.reduce((sum, step) => sum + step.missing, 0);
+
+  /* Le palier est une étape du chemin comme les autres, et souvent la dernière
+     à tomber : il ne s'achète pas, il se traverse. */
+  const tier = (card.missing || []).find((m) => m.kind === 'tier');
+
+  const heading = remaining.length
+    ? `${remaining.length} étape${remaining.length > 1 ? 's' : ''} · ${levels} niveau${
+        levels > 1 ? 'x' : ''
+      } à monter`
+    : 'Chemin parcouru';
+
+  /* Un nœud terminal a près de quarante ancêtres : la liste entière remplit le
+     panneau et noie ce qui reste à faire. Au-delà d'une douzaine d'étapes, les
+     acquises se replient derrière leur compte — un chemin court, lui, se lit
+     tout entier, ce qui est le cas courant. */
+  const folded = steps.length > 12 && remaining.length < steps.length;
+  const shown = folded ? remaining : steps;
+
+  const rows = shown
+    .map((step) => {
+      const foreign = step.node.branch !== node.branch;
+      const branch = foreign ? branchMeta(step.node.branch) : null;
+      return `<li class="path-step${step.done ? ' path-step--done' : ''}">
+        <span class="path-tier">${TIERS[step.node.tier - 1]}</span>
+        <button class="path-name" data-goto="${esc(step.name)}">${esc(step.node.label)}</button>
+        ${branch ? `<span class="path-branch" style="--h:${esc(branch.accent)}">${esc(branch.label)}</span>` : ''}
+        <span class="path-level">${step.done ? '✓' : `${step.held} / ${step.level}`}</span>
+      </li>`;
+    })
+    .join('');
+
+  const doneCount = steps.length - remaining.length;
+
+  return `<div class="path">
+    <span class="ov ov--mute">Chemin d'accès · ${esc(heading)}</span>
+    ${
+      folded
+        ? `<p class="path-folded">${doneCount} étape${doneCount > 1 ? 's' : ''} déjà
+             acquise${doneCount > 1 ? 's' : ''}, masquée${doneCount > 1 ? 's' : ''}.</p>`
+        : ''
+    }
+    <ol class="path-list">${rows}</ol>
+    ${
+      tier
+        ? `<p class="path-tier-note">Puis <b>${esc(tier.required)} niveaux</b> dépensés dans
+             ${esc(tier.label)} pour ouvrir le palier — vous en avez ${esc(tier.held)}.</p>`
+        : ''
+    }
+  </div>`;
+}
+
+function renderNodeCard() {
+  const body = $('#node-body');
+  const node = researchNode(state.research.selected);
+  const card = researchCard(state.research.selected);
+
+  if (!node) {
+    $('#node-title').textContent = '—';
+    $('#node-branch').textContent = 'Sélection';
+    body.innerHTML = '<p class="empty">Choisissez un nœud dans l\'arbre.</p>';
+    return;
+  }
+
+  /* Le nœud existe au catalogue mais le joueur n'en a aucun état : la base est
+     en retard. On le dit ici, sur le nœud qu'on vient de cliquer, plutôt que de
+     réafficher « Choisissez un nœud » — qui laisse croire que le clic n'a pas
+     été reçu, et c'est exactement ce qu'on croyait. */
+  if (!card) {
+    const home = branchMeta(node.branch);
+    $('#node-title').textContent = node.label;
+    $('#node-branch').textContent = home ? home.label : node.branch;
+    body.innerHTML = `<p class="empty">Ce nœud existe dans le catalogue du serveur,
+      mais votre compte n'en porte aucun état : la base de données est en retard
+      d'une migration. Il ne peut pas être ouvert tant qu'elle ne l'a pas
+      rattrapée.</p>`;
+    return;
+  }
+
+  const branch = branchMeta(node.branch);
+  const pool = poolOfEmpire();
+  $('#node-title').textContent = node.label;
+  $('#node-branch').textContent = `${branch ? branch.label : node.branch} · palier ${
+    TIERS[node.tier - 1]
+  } · ${KIND_LABEL[node.kind] || node.kind}`;
+
+  const parts = [`<div class="node-card" style="--h:${esc(branch ? branch.accent : 'var(--acc)')}">`];
+
+  if (node.kind === 'rank' && node.max_level) {
+    const segments = [];
+    for (let i = 0; i < node.max_level; i += 1) {
+      const filled = i < (card.level || 0);
+      const queued = !filled && card.state === 'researching' && i === (card.level || 0);
+      segments.push(`<i class="${filled ? 'f' : queued ? 'q' : ''}"></i>`);
+    }
+    parts.push(`<div class="lvl-strip">${segments.join('')}</div>`);
+  }
+
+  if (node.summary) parts.push(`<p class="desc">${esc(node.summary)}</p>`);
+
+  /* Les effets, tels que le serveur les décrit : la phrase et le chiffre
+     viennent du même calcul que celui qui les applique. */
+  (card.effects || []).forEach((effect) => {
+    const current = effect.current;
+    const next = effect.next;
+    const shows = current !== undefined && next !== undefined && current !== next;
+    parts.push(`<div class="eff">${esc(effect.label)}${
+      shows
+        ? `<br><span class="now">actuel ${fmtSigned(current)}</span> → <span class="nxt">${fmtSigned(
+            next
+          )} au niveau suivant</span>`
+        : ''
+    }</div>`);
+  });
+
+  if (node.options && node.options.length) parts.push(doctrineMarkup(node, card));
+
+  /* Ce qui permet d'AGIR d'abord : état, coût, bouton. Le chemin d'accès venait
+     avant, et sur un nœud profond — vingt-huit étapes — il repoussait le bouton
+     hors de l'écran. La fiche répondait alors à « comment y arriver » sans
+     jamais répondre à « comment le lancer ». */
+  parts.push(`<dl style="margin:0">
+    <div class="node-kv"><dt>État</dt><dd>${esc(NODE_STATE_LABEL[card.state] || card.state)}</dd></div>
+    <div class="node-kv"><dt>Niveau</dt><dd>${esc(levelLabel(node, card))}</dd></div>
+    ${
+      card.duration
+        ? `<div class="node-kv"><dt>Durée</dt><dd>${esc(fmtDuration(card.duration))}</dd></div>`
+        : ''
+    }
+  </dl>`);
+
+  if (card.cost) {
+    parts.push(`<div>
+      <span class="ov" style="margin-bottom:6px">Coût du prochain niveau</span>
+      <div class="node-costs">${costMarkup(card.cost, pool)}</div>
+    </div>`);
+  }
+
+  parts.push(`<div class="node-actions">${nodeActionMarkup(node, card, pool)}</div>`);
+
+  if (node.unlocks && Object.keys(node.unlocks).length) {
+    const opened = Object.values(node.unlocks)
+      .flatMap((targets) => Object.entries(targets))
+      .map(([name, level]) => `${humanize(name)} (niv. ${level})`);
+    parts.push(`<p class="node-req node-req--opens">Ouvre : ${esc(opened.join(', '))}.</p>`);
+  }
+
+  /* Puis la référence : le chemin d'accès, qui remplace l'ancienne ligne
+     « Exige ». Elle n'annonçait que le premier pas ; celui-ci dit tout ce qu'il
+     reste, dans l'ordre où on peut le monter. */
+  parts.push(pathMarkup(node, card));
+
+  parts.push('</div>');
+  body.innerHTML = parts.join('');
+}
+
+/* Ce que l'empire détient, tous mondes confondus, plus la réserve de Données.
+   C'est sur cette somme que le serveur facture : afficher le stock du monde
+   ouvert à l'écran ferait mentir les coûts. */
+function poolOfEmpire() {
+  const pool = {};
+  state.myTerritories.forEach((t) => {
+    Object.entries((t && t.resources) || {}).forEach(([key, value]) => {
+      if (typeof value === 'number') pool[key] = (pool[key] || 0) + value;
+    });
+  });
+  pool.research = (state.research.state && state.research.state.research) || 0;
+  return pool;
+}
+
+function levelLabel(node, card) {
+  if (card.state === 'maxed') return `${card.level} — maximum`;
+  if (node.kind === 'rank' || node.endless) return `${card.level || 0} → ${(card.level || 0) + 1}`;
+  return 'unique';
+}
+
+function fmtSigned(value) {
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded > 0 ? '+' : ''}${rounded} %`;
+}
+
+function doctrineMarkup(node, card) {
+  const chosen = card.choice;
+  const settled = Boolean(chosen) || card.state === 'researching';
+  const options = node.options
+    .map((option) => {
+      const picked = option.key === chosen;
+      const reachable = card.state !== 'locked';
+      const effects = option.effects.map((e) => e.label).join(' · ');
+      return `<button class="dopt${picked ? ' pick' : ''}"
+        data-doctrine="${esc(option.key)}" ${settled || !reachable ? 'disabled' : ''}
+        title="${esc(option.summary || '')}">
+        <span class="dn">${esc(option.label)}${picked ? ' · retenue' : ''}</span>
+        ${esc(effects)}
+      </button>`;
+    })
+    .join('');
+  const heading = settled
+    ? 'Voie retenue'
+    : card.state === 'locked'
+    ? 'Deux voies exclusives — le choix se fera ici'
+    : 'Choisissez une voie — définitif';
+  return `<div class="doctrine">
+    <span class="ov">${heading}</span>
+    ${options}
+  </div>`;
+}
+
+function nodeActionMarkup(node, card, pool) {
+  if (card.state === 'maxed') {
+    return '<button class="btn" disabled>Acquis</button>';
+  }
+  if (card.state === 'researching') {
+    const event = pendingEventFor(node.name);
+    return `<button class="btn" data-cancel-research="${esc(event ? event.id : '')}"
+      ${event ? '' : 'disabled'}>Annuler — 50 % remboursé</button>`;
+  }
+  if (card.state === 'locked') {
+    return '<button class="btn" disabled>Prérequis non atteints</button>';
+  }
+
+  const affordable = Object.entries(card.cost || {}).every(
+    ([key, value]) => (pool[key] || 0) >= value
+  );
+  const full =
+    (state.research.state.used_slots || 0) >= (state.research.state.slots || 0);
+
+  if (full) {
+    return '<button class="btn" disabled>Aucun emplacement libre</button>';
+  }
+  if (node.kind === 'doctrine' && !card.choice) {
+    /* Le bouton reste, mais la voie se choisit au-dessus : le serveur refuse
+       une doctrine sans voie, et l'interface doit dire pourquoi avant l'aller-
+       retour. */
+    return '<button class="btn" disabled>Choisissez une voie ci-dessus</button>';
+  }
+  return `<button class="btn${affordable ? ' btn--pri' : ''}"
+    data-research="${esc(node.name)}" ${affordable ? '' : 'disabled'}>
+    ${affordable ? 'Lancer la recherche' : 'Ressources insuffisantes'}
+  </button>`;
+}
+
+function pendingEventFor(name) {
+  return ((state.research.state && state.research.state.pending) || []).find(
+    (e) => e.extraArgs && e.extraArgs.type === name
+  );
+}
+
+/* ---------- la file ---------- */
+
+function renderResearchQueue() {
+  const payload = state.research.state;
+  if (!payload) return;
+
+  const rows = (payload.pending || [])
+    .map((event) => {
+      const args = event.extraArgs || {};
+      const node = researchNode(args.type);
+      const branch = node ? branchMeta(node.branch) : null;
+      return `<div class="qrow" style="--h:${esc(branch ? branch.accent : 'var(--acc)')}"
+        data-research-event="${esc(event.id)}">
+        <span class="qn">${esc(args.label || humanize(args.type || ''))}
+          <em>${esc((args.level || 1) - 1)} → ${esc(args.level || 1)}</em></span>
+        <span class="bar"><i data-research-bar="${esc(event.id)}"
+          data-created="${esc(event.createdAt)}" data-ends="${esc(event.finishingAt)}"></i></span>
+        <span class="qt" data-research-left="${esc(event.finishingAt)}">—</span>
+        <button class="btn btn--sm" data-cancel-research="${esc(event.id)}">Annuler</button>
+      </div>`;
+    })
+    .join('');
+
+  const free = Math.max(0, (payload.slots || 0) - (payload.pending || []).length);
+  const slots = Array.from({ length: free })
+    .map(
+      () =>
+        `<div class="qslot">Emplacement libre — une académie de plus tous les 10 niveaux</div>`
+    )
+    .join('');
+
+  $('#research-queue').innerHTML =
+    `<span class="ov">File de recherche · ${esc((payload.pending || []).length)} sur ${esc(
+      payload.slots || 0
+    )}</span>${rows}${slots}`;
+
+  updateResearchBars();
+}
+
+/* Les comptes à rebours avancent sur l'horloge locale, comme ceux des
+   chantiers : une lecture par seconde du serveur ne dirait rien de plus. Le
+   retour à zéro déclenche une relecture, elle. */
+function updateResearchBars() {
+  const now = Date.now();
+  let finished = false;
+
+  document.querySelectorAll('[data-research-bar]').forEach((bar) => {
+    const start = parseUtc(bar.dataset.created);
+    const end = parseUtc(bar.dataset.ends);
+    if (!start || !end) return;
+    const total = end.getTime() - start.getTime();
+    const done = total > 0 ? (now - start.getTime()) / total : 1;
+    bar.style.width = `${Math.max(0, Math.min(100, done * 100)).toFixed(1)}%`;
+  });
+
+  document.querySelectorAll('[data-research-left]').forEach((label) => {
+    const end = parseUtc(label.dataset.researchLeft);
+    if (!end) return;
+    const left = (end.getTime() - now) / 1000;
+    label.textContent = left > 0 ? fmtDuration(left) : 'terminé';
+    if (left <= 0) finished = true;
+  });
+
+  return finished;
+}
+
+/* ---------- actions ---------- */
+
+async function startResearch(name) {
+  const card = researchCard(name);
+  try {
+    await api.research(name, (card && card.choice) || null);
+    const node = researchNode(name);
+    toast(`${(node && node.label) || humanize(name)} : recherche lancée.`, 'info', 'Recherche');
+    await loadResearch();
+  } catch (e) {
+    handleApiError(e, 'Recherche refusée');
+  }
+}
+
+async function cancelResearch(eventId) {
+  try {
+    await api.cancelResearch(Number(eventId));
+    toast('Recherche annulée, la moitié de la dépense est rendue.', 'info', 'Recherche');
+    await loadResearch();
+  } catch (e) {
+    handleApiError(e, 'Annulation refusée');
+  }
+}
+
+/* Le choix d'une voie n'est pas envoyé seul : il est porté par la commande. On
+   le retient localement le temps de cliquer sur « Lancer », et l'interface
+   montre laquelle est armée. */
+function armDoctrine(key) {
+  const card = researchCard(state.research.selected);
+  /* Verrouille compris : armer une voie sur un noeud hors d'atteinte laisserait
+     croire que le choix est fait, alors que rien ne sera commande. */
+  if (!card || card.state === 'researching' || card.state === 'maxed') return;
+  if (card.state === 'locked') return;
+  card.choice = card.choice === key ? null : key;
+  renderNodeCard();
+}
+
+function selectResearchNode(name) {
+  if (!state.research.nodes.has(name)) return;
+  state.research.selected = name;
+  renderTree();
+  renderNodeCard();
+}
+
+/* Ouvre un nœud et l'amène sous les yeux : utilisé par les prérequis de la
+   fiche, qui désignent des nœuds souvent hors du cadre. */
+function revealResearchNode(name) {
+  if (!state.research.nodes.has(name)) return;
+  const node = researchNode(name);
+  if (node.branch !== state.research.branch) {
+    state.research.branch = node.branch;
+    state.research.viewBranch = null;
+    renderBranchRail();
+  }
+  state.research.selected = name;
+  const positions = treeLayout(state.research.branch).positions;
+  centreOnSelected(positions);
+  renderTree();
+  renderNodeCard();
+}
+
+function selectBranch(name) {
+  if (state.research.branch === name) return;
+  state.research.branch = name;
+  ensureResearchSelection();
+  renderBranchRail();
+  renderTree();
+  renderNodeCard();
+}
+
+function startResearchTimers() {
+  stopResearchTimers();
+  researchTimer = setInterval(() => {
+    if (updateResearchBars()) loadResearch();
+    if (state.research.tick++ % 30 === 29) loadResearch();
+  }, 1000);
+}
+
+function stopResearchTimers() {
+  if (researchTimer) clearInterval(researchTimer);
+  researchTimer = null;
+}
+
+/* Déplacement et zoom, branchés à l'identique de la carte de la galaxie : deux
+   canevas qui se parcourent de la même façon n'en font qu'un à apprendre. */
+function initTreeNavigation() {
+  const frame = $('#tree-frame');
+  if (!frame) return;
+
+  on('#tree-zoom-in', 'click', () => zoomTreeCentre(TREE_ZOOM_STEP));
+  on('#tree-zoom-out', 'click', () => zoomTreeCentre(1 / TREE_ZOOM_STEP));
+  on('#tree-fit', 'click', fitTree);
+  on('#tree-focus', 'click', () => {
+    const branch = branchMeta(state.research.branch);
+    if (!branch) return;
+    centreOnSelected(treeLayout(branch.name).positions, { keepZoom: false });
+    applyTreeView();
+  });
+
+  /* `passive: false` : sans cela le navigateur refuse l'annulation et la page
+     défile pendant qu'on zoome. */
+  frame.addEventListener(
+    'wheel',
+    (ev) => {
+      if (!state.research.view) return;
+      ev.preventDefault();
+      const point = treePointerPoint(ev);
+      if (!point) return;
+      zoomTreeAround(point, ev.deltaY < 0 ? TREE_ZOOM_STEP : 1 / TREE_ZOOM_STEP);
+    },
+    { passive: false }
+  );
+
+  let drag = null;
+
+  frame.addEventListener('pointerdown', (ev) => {
+    if (!state.research.view || ev.button !== 0) return;
+    const point = treePointerPoint(ev);
+    if (!point) return;
+
+    drag = {
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      viewX: state.research.view.x,
+      viewY: state.research.view.y,
+      scale: point.scale,
+      captured: false,
+      panning: false,
+      /* Course maximale depuis l'appui : c'est elle, et non le seul fait
+         d'avoir déplacé, qui décide si le relâchement était un clic. */
+      moved: 0,
+    };
+    state.research.dragged = false;
+    /* Pas de capture ici : `setPointerCapture` réoriente aussi les `click` qui
+       suivent, et la cible deviendrait le cadre — `closest('[data-node]')` ne
+       trouverait plus rien et un simple clic cesserait de sélectionner. On ne
+       prend le pointeur qu'au moment où un vrai glissement commence. */
+  });
+
+  frame.addEventListener('pointermove', (ev) => {
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+
+    const dx = ev.clientX - drag.startX;
+    const dy = ev.clientY - drag.startY;
+    /* Distance vraie, et non `|dx| + |dy|` : cette dernière compte une dérive
+       en diagonale une fois et demie ce qu'elle vaut, et un clic de biais était
+       donc plus vite refusé qu'un clic droit. */
+    drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+
+    /* En deçà, la main n'a pas encore quitté son point d'appui. */
+    if (!drag.panning && drag.moved < TREE_PAN_START) return;
+
+    if (!drag.panning) {
+      drag.panning = true;
+      frame.classList.add('map-frame--panning');
+    }
+
+    /* On déplace dès six pixels, mais on ne renonce au clic qu'à quatorze : le
+       geste hésitant fait les deux, ce qui est exactement ce qu'on en attend. */
+    if (drag.moved > TREE_CLICK_SLOP && !drag.captured) {
+      /* La capture arrive ICI, et pas au premier pixel de déplacement.
+         `setPointerCapture` réoriente vers l'élément capturant non seulement
+         les événements de pointeur mais aussi le `click` qui suit : la cible
+         devient le cadre, et `closest('[data-node]')` ne trouve plus rien.
+         Capturer dès le début du déplacement rendait donc TOUT clic un peu
+         glissé inopérant, quel que soit le seuil qu'on mettait ailleurs — le
+         nœud n'était plus la cible, il n'y avait plus rien à sélectionner.
+
+         Sous ce seuil, la capture ne manque à personne : le pointeur n'a pas
+         bougé assez pour sortir du cadre. */
+      state.research.dragged = true;
+      try {
+        frame.setPointerCapture(ev.pointerId);
+        drag.captured = true;
+      } catch (e) {
+        /* capture refusée : le glissement marche tant que le pointeur reste
+           dans le cadre, ce qui est le cas courant */
+      }
+    }
+
+    state.research.view.x = drag.viewX - dx / drag.scale;
+    state.research.view.y = drag.viewY - dy / drag.scale;
+    applyTreeView();
+  });
+
+  const endDrag = (ev) => {
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    if (drag.captured) {
+      try {
+        frame.releasePointerCapture(ev.pointerId);
+      } catch (e) {
+        /* le pointeur a pu être perdu en route */
+      }
+    }
+    drag = null;
+    frame.classList.remove('map-frame--panning');
+  };
+
+  frame.addEventListener('pointerup', endDrag);
+  frame.addEventListener('pointercancel', endDrag);
+
+  /* Les proportions de la fenêtre suivent celles du cadre : sans cela, replier
+     le navigateur laisserait des bandes vides jusqu'au prochain rendu. */
+  window.addEventListener('resize', () => {
+    if (!state.research.open || !state.research.view) return;
+    const view = state.research.view;
+    setTreeView(view.x + view.w / 2, view.y + view.h / 2, view.w);
+    applyTreeView();
+  });
+}
+
+function initResearch() {
+  /* La sélection d'abord, la navigation ensuite. C'est le geste principal de
+     l'écran : il ne doit pas pouvoir tomber avec un bouton de zoom. */
+  on('#branch-rail', 'click', (ev) => {
+    const button = ev.target.closest('[data-branch]');
+    if (button) selectBranch(button.dataset.branch);
+  });
+
+  on('#tree-frame', 'click', (ev) => {
+    /* Un clic qui clôt un glissement ne désigne rien : on vient de déplacer
+       l'arbre. Sans ce garde, relâcher au-dessus d'un nœud le sélectionnerait
+       au passage. */
+    if (state.research.dragged) {
+      state.research.dragged = false;
+      return;
+    }
+    const node = ev.target.closest('[data-node]');
+    if (node) selectResearchNode(node.dataset.node);
+  });
+
+  /* Le graphe se parcourt au clavier : les nœuds portent `tabindex`, encore
+     faut-il que la touche fasse ce que le clic fait. */
+  on('#tree-frame', 'keydown', (ev) => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const node = ev.target.closest('[data-node]');
+    if (!node) return;
+    ev.preventDefault();
+    selectResearchNode(node.dataset.node);
+  });
+
+  on('#node-body', 'click', (ev) => {
+    const goto = ev.target.closest('[data-goto]');
+    if (goto) {
+      revealResearchNode(goto.dataset.goto);
+      return;
+    }
+    const doctrine = ev.target.closest('[data-doctrine]');
+    if (doctrine && !doctrine.disabled) {
+      armDoctrine(doctrine.dataset.doctrine);
+      return;
+    }
+    const start = ev.target.closest('[data-research]');
+    if (start) {
+      startResearch(start.dataset.research);
+      return;
+    }
+    const cancel = ev.target.closest('[data-cancel-research]');
+    if (cancel && cancel.dataset.cancelResearch) {
+      cancelResearch(cancel.dataset.cancelResearch);
+    }
+  });
+
+  on('#research-queue', 'click', (ev) => {
+    const cancel = ev.target.closest('[data-cancel-research]');
+    if (cancel && cancel.dataset.cancelResearch) {
+      cancelResearch(cancel.dataset.cancelResearch);
+    }
+  });
+
+  /* En dernier : déplacement et zoom sont un confort, la sélection est l'écran.
+     Ce qui peut tomber tombe après ce qui ne le doit pas. */
+  initTreeNavigation();
+}
+
+/* ============================================================
    câblage
    ============================================================ */
 
@@ -1373,9 +2757,11 @@ function initEvents() {
 
 const CHROME_ICONS = {
   map: 'galaxy',
+  research: 'research',
   worlds: 'worlds',
   'refresh-territory': 'refresh',
   'refresh-map': 'refresh',
+  'refresh-research': 'refresh',
   moderation: 'sliders',
   settings: 'settings',
   logout: 'logout',
@@ -1446,6 +2832,12 @@ function runChromeAction(name) {
       break;
     case 'refresh-map':
       loadGalaxyMap();
+      break;
+    case 'research':
+      openResearch();
+      break;
+    case 'refresh-research':
+      loadResearch();
       break;
     case 'moderation':
       openModeration();
@@ -2556,6 +3948,11 @@ async function applyRoute({ push = false } = {}) {
     return;
   }
 
+  if (route.research) {
+    await openResearch({ push });
+    return;
+  }
+
   const wanted = route.territoryId;
   if (wanted && state.myTerritories.some((t) => t.id === wanted)) {
     await selectTerritory(wanted, { push });
@@ -2582,6 +3979,7 @@ async function boot() {
   initChrome();
   initModeration();
   initGalaxyMap();
+  initResearch();
 
   // Route publique : la liste des galaxies s'obtient avant toute connexion,
   // ce qui permet de choisir la sienne sur l'ecran de login.

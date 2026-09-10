@@ -10,6 +10,13 @@ from sqlalchemy.orm import relationship, synonym
 
 class UserEventType(enum.Enum):
     message = "message"
+    # La recherche n'appartient a aucun lieu : elle est le seul chantier du jeu
+    # qui pende au joueur et non a un territoire. Voir
+    # `app/models/game/technologies/technology.py`.
+    research = "research"
+
+    def __str__(self):
+        return self.name
 
 
 class PositionalEventType(enum.Enum):
@@ -63,8 +70,11 @@ class UserEvent(Base, Event):
             event_type=event_type,
             extra_args=extra_args
         )
-        db.session.flush()
+        # `add` avant `flush`, et non l'inverse : la version precedente vidait
+        # la session avant d'y mettre l'evenement, qui repartait donc sans `id`.
+        # Annuler une recherche demande precisement cet identifiant.
         db.session.add(event)
+        db.session.flush()
         return event
 
     @classmethod

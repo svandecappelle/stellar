@@ -1,11 +1,40 @@
 {
+    "/api/technologies/tree": {
+        "tags": ["Technologies"],
+        "method": "GET",
+        "summary": "Static technology tree: branches, tiers, nodes, costs and effects",
+        "responses": {
+            "200": {
+                "description": "Technology tree catalogue"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
     "/api/technologies": {
         "tags": ["Technologies"],
         "method": "GET",
-        "summary": "Get current user technologies",
+        "summary": "Current user research state: levels, pending research, data pool and slots",
         "responses": {
             "200": {
-                "description": "Technology list"
+                "description": "Research state"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/technology/{name}": {
+        "tags": ["Technologies"],
+        "method": "POST",
+        "summary": "Start researching the next level. Body may carry {\"choice\": \"...\"} for a doctrine node",
+        "responses": {
+            "200": {
+                "description": "Research event"
+            },
+            "400": {
+                "description": "Refused: unknown node, missing prerequisite, no free slot or not enough resources"
             },
             "401": {
                 "description": "Not authorized"
@@ -15,10 +44,10 @@
     "/api/technology/{name}/{territory}": {
         "tags": ["Technologies"],
         "method": "POST",
-        "summary": "Increase technology for a territory",
+        "summary": "Deprecated: same as POST /api/technology/{name}. The territory is ignored, research is paid empire-wide",
         "responses": {
             "200": {
-                "description": "Technology event"
+                "description": "Research event"
             },
             "400": {
                 "description": "Bad request"
@@ -28,10 +57,26 @@
             }
         }
     },
+    "/api/technology/queue/{event_id}": {
+        "tags": ["Technologies"],
+        "method": "DELETE",
+        "summary": "Cancel a running research, refunding half of what was spent",
+        "responses": {
+            "200": {
+                "description": "Cancelled research event"
+            },
+            "400": {
+                "description": "No such research in progress"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
     "/api/technologies/events": {
         "tags": ["Technologies"],
         "method": "GET",
-        "summary": "Get pending technology events",
+        "summary": "Pending research events only",
         "responses": {
             "200": {
                 "description": "Pending events"

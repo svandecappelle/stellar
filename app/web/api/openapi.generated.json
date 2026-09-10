@@ -1406,13 +1406,40 @@
       "get": {
         "responses": {
           "200": {
-            "description": "Technology list"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branches": {},
+                    "modifiers": {},
+                    "pending": {},
+                    "research": {},
+                    "research_gain": {},
+                    "slots": {},
+                    "technologies": {},
+                    "used_slots": {}
+                  },
+                  "required": [
+                    "research",
+                    "research_gain",
+                    "slots",
+                    "used_slots",
+                    "branches",
+                    "pending",
+                    "modifiers",
+                    "technologies"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Research state"
           },
           "401": {
             "description": "Not authorized"
           }
         },
-        "summary": "Get current user technologies",
+        "summary": "Current user research state: levels, pending research, data pool and slots",
         "tags": [
           "Technologies"
         ]
@@ -1422,41 +1449,97 @@
       "get": {
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "properties": {
-                      "createdAt": {},
-                      "details": {},
-                      "eventType": {},
-                      "extraArgs": {},
-                      "finishingAt": {},
-                      "id": {},
-                      "updatedAt": {}
-                    },
-                    "required": [
-                      "id",
-                      "eventType",
-                      "extraArgs",
-                      "details",
-                      "createdAt",
-                      "updatedAt",
-                      "finishingAt"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
-                }
-              }
-            },
             "description": "Pending events"
           },
           "401": {
             "description": "Not authorized"
           }
         },
-        "summary": "Get pending technology events",
+        "summary": "Pending research events only",
+        "tags": [
+          "Technologies"
+        ]
+      }
+    },
+    "/api/technologies/tree": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Technology tree catalogue"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Static technology tree: branches, tiers, nodes, costs and effects",
+        "tags": [
+          "Technologies"
+        ]
+      }
+    },
+    "/api/technology/queue/{event_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled research event"
+          },
+          "400": {
+            "description": "No such research in progress"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Cancel a running research, refunding half of what was spent",
+        "tags": [
+          "Technologies"
+        ]
+      }
+    },
+    "/api/technology/{name}": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Research event"
+          },
+          "400": {
+            "description": "Refused: unknown node, missing prerequisite, no free slot or not enough resources"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Start researching the next level. Body may carry {\"choice\": \"...\"} for a doctrine node",
         "tags": [
           "Technologies"
         ]
@@ -1494,7 +1577,7 @@
         },
         "responses": {
           "200": {
-            "description": "Technology event"
+            "description": "Research event"
           },
           "400": {
             "description": "Bad request"
@@ -1503,7 +1586,7 @@
             "description": "Not authorized"
           }
         },
-        "summary": "Increase technology for a territory",
+        "summary": "Deprecated: same as POST /api/technology/{name}. The territory is ignored, research is paid empire-wide",
         "tags": [
           "Technologies"
         ]

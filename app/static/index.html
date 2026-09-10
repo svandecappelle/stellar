@@ -135,6 +135,11 @@
     <div class="acts">
       <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
               aria-label="Carte de la galaxie"></button>
+      <!-- La recherche est imperiale : elle ne peut pas etre un onglet de
+           « Developpement planetaire », qui decrit un monde. Elle a donc son
+           entree dans la barre, a cote de la carte. -->
+      <button class="btn btn--icon" data-act="research" title="Recherche"
+              aria-label="Recherche"></button>
       <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
               aria-label="Mes territoires"></button>
       <button class="btn btn--icon" data-act="refresh-territory" title="Rafraîchir"
@@ -210,6 +215,8 @@
     </div>
 
     <div class="acts">
+      <button class="btn btn--icon" data-act="research" title="Recherche"
+              aria-label="Recherche"></button>
       <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
               aria-label="Mes territoires"></button>
       <button class="btn btn--icon" data-act="refresh-map" title="Rafraîchir"
@@ -264,6 +271,115 @@
       </div>
       <div class="rule"></div>
       <div id="map-sel-body"><p class="empty">Choisissez une étoile ou une flotte.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== RECHERCHE ====================
+     La recherche appartient au joueur, toutes galaxies confondues, et se paie
+     sur l'ensemble de ses mondes : elle ne peut pas vivre dans la fiche d'une
+     planete. C'est donc une vue de premier niveau, sur la meme charpente en
+     trois colonnes que la carte — rail, canevas, selection — dont elle reprend
+     les classes telles quelles.
+
+     Trente-six noeuds ne se lisent pas d'un coup dans un panneau : le canevas
+     n'en montre qu'une branche a la fois, celle que le rail designe. Les
+     prerequis venus d'ailleurs entrent par la gauche en trait fantome. -->
+<section id="view-research" class="scene hidden">
+
+  <div class="topbar">
+    <div class="sysbox">
+      <span class="ov" id="res-galaxy">Empire</span>
+      <span class="val">Recherche</span>
+    </div>
+
+    <div class="resbar">
+      <span class="ov">Réserve de l'empire</span>
+      <div class="res-grid" id="research-pool"></div>
+    </div>
+
+    <div class="acts">
+      <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
+              aria-label="Carte de la galaxie"></button>
+      <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
+              aria-label="Mes territoires"></button>
+      <button class="btn btn--icon" data-act="refresh-research" title="Rafraîchir"
+              aria-label="Rafraîchir"></button>
+      <div class="menu" data-menu>
+        <button class="btn btn--icon" data-menu-toggle aria-haspopup="menu"
+                aria-expanded="false" title="Menu" aria-label="Menu"></button>
+        <div class="menu-pop" data-menu-pop hidden role="menu">
+          <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body-cols">
+    <div class="rail rail--branches" id="branch-rail">
+      <span class="ov" style="text-align:center">Branches</span>
+    </div>
+
+    <div class="panel panel--hazard map-panel">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Arbre technologique</span>
+          <span class="t" id="branch-title">—</span>
+          <span class="deposits" id="branch-tiers"></span>
+        </div>
+        <span class="loading" id="research-updated"></span>
+      </div>
+      <div class="rule"></div>
+
+      <div class="map-stage">
+        <div class="map-frame map-frame--tree" id="tree-frame"><p class="empty">Chargement…</p></div>
+        <!-- Sous le cadre et non par-dessus : la carte de la galaxie peut se
+             permettre des boutons flottants, son fond est vide par endroits.
+             L'arbre, lui, remplit le sien — posés dessus, ils cachaient des
+             nœuds. Hors du cadre aussi parce que celui-ci est repeint a chaque
+             lecture, et des boutons a l'interieur seraient refaits avec lui. -->
+        <!-- Ce que veulent dire les couleurs. Sans elle, un cadre plus clair
+             qu'un autre est une nuance de plus a deviner : la legende est ce
+             qui transforme quatre teintes en quatre etats. -->
+        <div class="tree-legend" id="tree-legend">
+          <span class="tree-key tree-key--owned">Acquis</span>
+          <span class="tree-key tree-key--doing">En recherche</span>
+          <span class="tree-key tree-key--free">Disponible</span>
+          <span class="tree-key tree-key--locked">Verrouillé</span>
+          <span class="tree-key tree-key--path">Chemin vers la sélection</span>
+          <span class="tree-key tree-key--opens">◆ ouvre un bâtiment ou une unité</span>
+        </div>
+
+        <div class="tree-controls">
+          <p class="map-hint">Molette pour zoomer · glisser pour déplacer · cliquez
+            un nœud pour voir ce qui y mène</p>
+          <div class="tree-tools">
+            <button class="btn btn--sm" id="tree-zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+            <button class="btn btn--sm" id="tree-zoom-in" title="Zoom avant" aria-label="Zoom avant">+</button>
+            <button class="btn btn--sm" id="tree-focus" title="Centrer sur la sélection">Centrer</button>
+            <button class="btn btn--sm" id="tree-fit" title="Revoir la branche entière">Recadrer</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- La file vit sous le graphe, jamais dans une fenetre : c'est ce qu'on
+           regarde en revenant, et elle dit combien d'emplacements sont ouverts
+           et ce qui en ouvrirait un de plus. -->
+      <div class="queue" id="research-queue"></div>
+    </div>
+
+    <div class="panel panel--hazard map-side">
+      <div class="panel-head">
+        <div>
+          <span class="ov" id="node-branch">Sélection</span>
+          <span class="t" id="node-title">—</span>
+        </div>
+      </div>
+      <div class="rule"></div>
+      <div id="node-body"><p class="empty">Choisissez un nœud dans l'arbre.</p></div>
     </div>
   </div>
 </section>

@@ -42,7 +42,14 @@ def import_models():
         for file_name in file_names:
             if file_name.endswith("py") and file_name not in EXCLUDE_FILES:
                 module_path, _ = os.path.splitext(os.path.join(dir_path, file_name))
-                importlib.import_module(module_path.replace(os.sep, "."))
+                # Les deux separateurs, et pas seulement celui de la plateforme.
+                # `MODELS_DIRECTORY` est ecrit avec des barres obliques, que
+                # `os.path.join` conserve telles quelles : sous Windows, ou
+                # `os.sep` vaut la contre-barre, le prefixe restait « app/models »
+                # et l'import echouait sur « No module named 'app/models' ». Toute
+                # migration etait donc injouable depuis un poste Windows.
+                module_path = module_path.replace(os.sep, ".").replace("/", ".")
+                importlib.import_module(module_path)
 
 
 def main():

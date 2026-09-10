@@ -19,7 +19,11 @@ class ShipType(enum.Enum):
             "population": 1
         },
         "integrity": 2000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "ciblage": 3
+            }
+        }
     }
     Fighter = {
         "name": "Fighter",
@@ -44,7 +48,11 @@ class ShipType(enum.Enum):
             "population": 1
         },
         "integrity": 12000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "coques_renforcees": 4
+            }
+        }
     }
     Cruiser = {
         "name": "Cruiser",
@@ -57,7 +65,11 @@ class ShipType(enum.Enum):
             "population": 3
         },
         "integrity": 27000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "blindage_composite": 5
+            }
+        }
     }
     Frigate = {
         "name": "Frigate",
@@ -71,7 +83,11 @@ class ShipType(enum.Enum):
             "population": 5
         },
         "integrity": 60000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "artillerie_lourde": 6
+            }
+        }
     }
     MotherShip = {
         "name": "MotherShip",
@@ -86,7 +102,15 @@ class ShipType(enum.Enum):
             "population": 20
         },
         "integrity": 120000,
-        "requirements": {}
+        # Le vaisseau-mere et la station etaient constructibles des la premiere
+        # heure : les deux coques les plus lourdes du jeu ne demandaient rien.
+        # C'est le deblocage que la percee `Antimatiere` porte dans l'arbre.
+        "requirements": {
+            "technologies": {
+                "antimatiere": 1,
+                "titan": 1
+            }
+        }
     }
     OrbitalStation = {
         "name": "OrbitalStation",
@@ -100,7 +124,12 @@ class ShipType(enum.Enum):
             "population": 25
         },
         "integrity": 10000000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "antimatiere": 1,
+                "bouclier_planetaire": 6
+            }
+        }
     }
 
     def duration(self, shipyard):

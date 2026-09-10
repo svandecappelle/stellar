@@ -14,7 +14,7 @@ class TestDefenses:
     @pytest.mark.parametrize('item', (
         [d for d in DefenseType]
     ))
-    def test_create_defense(self, client, session, item):
+    def test_create_defense(self, client, session, item, grant_technologies):
         response = client.get(
             '/api/territories'
         )
@@ -34,8 +34,11 @@ class TestDefenses:
         # l'epreuve ici est la mise en chantier et son egrenage dans le temps,
         # pas l'approvisionnement.
         #
-        # Rien a faire du cote des technologies : le `requirements` des pieces
-        # n'est lu que par l'interface, le serveur ne le verifie nulle part.
+        # Les technologies, elles, sont desormais verifiees : quatre pieces sur
+        # six en reclament, et sans elles la commande part en 400 avant meme
+        # qu'on parle de ressources. On les offre — ce qui est mis a l'epreuve
+        # ici est la mise en chantier, le verrou a son propre test.
+        grant_technologies(territory.user, item)
         territory.add(type=ResourceType.credits, amount=300000)
         territory.add(type=ResourceType.tritium, amount=300000)
         for material in ResourceType.materials():
@@ -113,7 +116,7 @@ class TestRaiseDefenses:
     @pytest.mark.parametrize('item', (
         [d for d in DefenseType]
     ))
-    def test_raise_create_defense_prerequisite(self, client, session, item):
+    def test_raise_create_defense_prerequisite(self, client, session, item, grant_technologies):
         response = client.get(
             '/api/territories'
         )
@@ -122,7 +125,10 @@ class TestRaiseDefenses:
         territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
-        # 
+        # Les technologies sont offertes pour que le refus porte bien sur les
+        # ressources : sans elles, quatre pieces sur six seraient refusees pour
+        # une autre raison et ce test ne verifierait plus rien.
+        grant_technologies(territory.user, item)
         territory.iron = 0
         session.commit()
 
@@ -189,3 +195,68 @@ class TestDefenseOrderCost:
             assert order(3).status_code == 200
             assert territory.resources[ResourceType.iron] == pytest.approx(
                 before - 3 * unit['iron'])
+
+
+class TestDefenseTechnologyLock:
+    """
+    Les prerequis technologiques des pieces, verifies pour de bon.
+
+    `DefenseType` les declare depuis toujours — l'Artillerie laser demande
+    `laser: 5` — mais rien ne les lisait : `describeRequirements` les affichait
+    dans la console, `Territory.build` ne les regardait pas, et n'importe qui
+    pouvait assembler une batterie ionique sans avoir rien cherche. Le nom
+    `laser` qu'ils reclamaient n'existait meme pas dans l'enum des technologies.
+    """
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_locked_piece_is_refused_before_any_question_of_cost(
+            self, client, session):
+        """
+        Le refus tombe meme les soutes pleines : ce n'est pas une question
+        d'argent.
+        """
+        response = client.get('/api/territories')
+        territory = Territory.get(id=response.json['territories'][0]['id'])
+        for material in ResourceType.materials():
+            territory.add(type=material, amount=300000)
+        territory.add(type=ResourceType.credits, amount=300000)
+        territory.add(type=BuildingType.power_station, amount=15)
+        session.commit()
+
+        response = client.post(
+            f'/api/territory/{territory.id}/defense',
+            json={"items": [{"type": DefenseType.LaserArtillery.name,
+                             "quantity": 1}]})
+
+        assert response.status_code == 400
+        assert "laser" in response.json["message"]
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_same_piece_passes_once_the_line_is_researched(
+            self, client, session, grant_technologies):
+        response = client.get('/api/territories')
+        territory = Territory.get(id=response.json['territories'][0]['id'])
+        for material in ResourceType.materials():
+            territory.add(type=material, amount=300000)
+        territory.add(type=ResourceType.credits, amount=300000)
+        territory.add(type=BuildingType.power_station, amount=15)
+        grant_technologies(territory.user, DefenseType.LaserArtillery)
+        session.commit()
+
+        response = client.post(
+            f'/api/territory/{territory.id}/defense',
+            json={"items": [{"type": DefenseType.LaserArtillery.name,
+                             "quantity": 1}]})
+
+        assert response.status_code == 200
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_piece_that_asks_for_nothing_needs_no_research(self, client, session):
+        response = client.get('/api/territories')
+        territory = Territory.get(id=response.json['territories'][0]['id'])
+
+        assert territory.missing_technologies(DefenseType.FlackCannon) == {}
+        assert territory.missing_technologies(DefenseType.LaserArtillery) == {'laser': 5}

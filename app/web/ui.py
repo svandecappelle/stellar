@@ -16,7 +16,7 @@ from app.models.game.buildings import BuildingType
 from app.models.game.defense import DefenseType
 from app.models.game.planet import PlanetArchetype, scheme_map
 from app.models.game.ship import ShipType
-from app.models.game.technologies.technology_type import TechnologyType
+from app.models.game.technologies.technology_type import tree as technology_tree
 from app.models.game.territory import ResourceType
 
 STATIC_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static')
@@ -77,8 +77,10 @@ def get_catalog():
         'buildings': [b.name for b in BuildingType],
         'ships': [_unit_entry(s) for s in ShipType],
         'defenses': [_unit_entry(d) for d in DefenseType],
-        'technologies': [
-            {'name': t.name, 'cost': t.value.get('base_cost', {})}
-            for t in TechnologyType
-        ],
+        # L'arbre entier : branches, paliers et noeuds. Le catalogue portait
+        # jusqu'ici un nom et un cout de base par technologie, ce qui suffisait
+        # a une liste plate et ne suffit plus a un graphe. Meme charge utile que
+        # `/api/technologies/tree`, servie ici pour que la console n'ait qu'une
+        # lecture a faire au demarrage.
+        'technologies': technology_tree(),
     })

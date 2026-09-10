@@ -153,7 +153,8 @@ class TestTerritory:
     @pytest.mark.parametrize("building", [b for b in BuildingType])
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
-    def test_factory_reduce_time_of_building(self, client, session, building):
+    def test_factory_reduce_time_of_building(
+            self, client, session, building, grant_technologies):
         response = client.get(
             '/api/territories'
         )
@@ -162,6 +163,10 @@ class TestTerritory:
         territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
+        # L'usine et le chantier naval sont derriere l'arbre : sans leurs
+        # technologies la commande part en 400 avant qu'on ait pu mesurer quoi
+        # que ce soit. Ce qui est eprouve ici est une duree, pas un verrou.
+        grant_technologies(territory.user, building)
         # Add energy to ensure have prerequisites on energy
         if building != BuildingType.power_station:
             territory.add(type=BuildingType.power_station, amount=1)
@@ -239,7 +244,7 @@ class TestRaiseTerritory:
     @pytest.mark.usefixtures("authenticate_as_user")
     def test_not_my_territory(self, client):
         """
-        Test new user have a territory
+        Un ordre pose sur le monde d'un autre est refuse.
         ---
         :param client: http client
         """
@@ -257,10 +262,11 @@ class TestRaiseTerritory:
         assert len(response.json['territories']) == 1
         assert response.json['territories'][0].get('id') is not None
 
-        # Add event using increase a tech
-        response = client.post(
-            f'/api/technology/computer/666'
-        )
+        # Le monde d'un autre reste inaccessible : c'est la construction qui
+        # porte cette verification, parce que c'est elle qui s'exerce sur un
+        # lieu. La recherche ne la porte plus — elle appartient au joueur et se
+        # paie sur tout son empire, il n'y a plus de territoire a valider.
+        response = client.post('/api/territory/666/academy')
         assert response.status_code == 400
         assert response.json['message'] == "Territory does not owned by you"
 

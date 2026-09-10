@@ -1,27 +1,26 @@
 from datetime import datetime
-import enum
 
 from app.application import db
 from app.models.base import Base
+from app.models.game.modifiers import Modifier, ModifierScope, ModifierSet, ModifierType
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, JSON, VARCHAR
 from sqlalchemy.orm import relationship
 
 
-class FactionAdvantageType(enum.Enum):
-    Cost = "cost"
-    Power = "power"
-    Production = "production"
-    Resistance = "resistance"
-    TimeReduce = "time_reduce"
-
-
-class FactionAdvantageScope(enum.Enum):
-    Resource = "resources"
-    Ships = "ships"
-    Buildings = "buildings"
-    Defenses = "defenses"
-    Technologies = "technologies"
+#: Une faction n'a plus son vocabulaire a elle : ce qu'elle pose sont des
+#: modificateurs, comme ceux que rend l'arbre technologique, et les deux
+#: s'empilent dans le meme `ModifierSet`. Les deux noms restent parce qu'ils
+#: sont lus partout dans le jeu et dans les tests ; ils ne designent plus qu'un
+#: alias.
+#:
+#: Les membres des cinq premiers cas portent les memes noms qu'avant, et c'est
+#: le nom que SQLAlchemy ecrit en base : les lignes deja enregistrees restent
+#: lisibles. Le type Postgres, lui, garde son nom d'origine grace au `name=`
+#: pose sur les colonnes ci-dessous — sans quoi SQLAlchemy en deduirait
+#: `modifiertype` et ne retrouverait plus le type existant.
+FactionAdvantageType = ModifierType
+FactionAdvantageScope = ModifierScope
 
 
 class FactionAdvantages(Base):
@@ -32,8 +31,10 @@ class FactionAdvantages(Base):
 
     id = Column(Integer, primary_key=True)
     faction_id = Column(Integer, ForeignKey("factions.id"), nullable=False)
-    advantage_type = Column(Enum(FactionAdvantageType), nullable=False)
-    advantage_scope = Column(Enum(FactionAdvantageScope), nullable=False)
+    advantage_type = Column(
+        Enum(ModifierType, name='factionadvantagetype'), nullable=False)
+    advantage_scope = Column(
+        Enum(ModifierScope, name='factionadvantagescope'), nullable=False)
     advantage_scope_args = Column(JSON, nullable=False)
 
     def __init__(self, faction_id, advantage_type, advantage_scope, advantage_scope_args):
@@ -164,15 +165,46 @@ class Faction(Base):
         session.add(advantage)
         session.flush()
 
+    @property
+    def modifiers(self):
+        """
+        Ce que la faction apporte, dit dans le vocabulaire commun.
+        ---
+        Chaque ligne d'avantage devient un `Modifier`. La cle `scope` des
+        arguments — heritee, et qui designait en fait une cible et non une
+        portee — se lit ici comme la cible : c'est ce qu'elle a toujours voulu
+        dire (`{'scope': 'silicium'}` sur une portee Resource).
+        """
+        modifiers = []
+        for advantage in self.advantages:
+            args = advantage.advantage_scope_args or {}
+            target = args.get('scope')
+            modifiers.append(Modifier(
+                type=advantage.advantage_type,
+                scope=advantage.advantage_scope,
+                percentage=args.get('percentage', 0),
+                flat=args.get('flat', 0),
+                target=None if target in (None, True) else target,
+                source="faction:%s" % self.name,
+            ))
+        return modifiers
+
     def apply(self, obj, advantage_scope, scope=None):
         """
+        Appliquer les avantages de la faction a une valeur.
+        ---
+        Conserve pour les appelants qui ne connaissent que la faction. Le calcul
+        vit desormais dans `ModifierSet` : les pourcentages d'une meme portee
+        s'y additionnent au lieu de se composer, ce qui ne change rien tant
+        qu'une faction n'a qu'un avantage par portee — c'est le cas des trois
+        factions livrees — et rend l'affichage fidele au calcul des qu'elle en
+        aura deux.
+
+        Prefer `user.modifiers` a ce raccourci : lui seul empile aussi la
+        recherche.
         """
-        advantages = [a for a in self.advantages if a.advantage_scope == advantage_scope]
-        for a in advantages:
-            if a.advantage_scope_args.get('scope', True) is True or a.advantage_scope_args['scope'] == scope:
-                if a.advantage_scope_args['percentage']:
-                    obj += obj * a.advantage_scope_args['percentage'] / 100
-        return obj
+        return ModifierSet(self.modifiers).apply(
+            value=obj, scope=advantage_scope, target=scope)
 
     @property
     def serialize(self):

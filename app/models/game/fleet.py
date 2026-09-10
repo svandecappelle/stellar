@@ -405,6 +405,17 @@ class Fleet(Base):
         seconds_per_unit = TRAVEL_SECONDS_PER_UNIT / GalaxySettings.value(
             galaxy_name=galaxy_name, key='fleet_speed_multiplier')
 
+        # `Champ de distorsion`, `Cartographie des couloirs` et la doctrine de
+        # flotte agissent ici : une flotte plus rapide met moins de secondes par
+        # unite de distance, d'ou la division. Le reglage de galaxie et la
+        # recherche se multiplient, aucun n'annule l'autre.
+        from app.models.game.modifiers import (
+            NO_MODIFIERS, ModifierScope, ModifierType)
+        modifiers = self.user.modifiers if self.user else NO_MODIFIERS
+        speed = modifiers.factor(
+            scope=ModifierScope.Fleet, modifier_type=ModifierType.Speed)
+        seconds_per_unit = seconds_per_unit / speed
+
         if self.is_travelling:
             index, in_leg, _ = self._progress()
             current = self.route

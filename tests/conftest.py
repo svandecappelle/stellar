@@ -141,3 +141,32 @@ def base_universe(session):
         "users": users,
         "galaxy": galaxy
     }
+
+
+@pytest.fixture(scope="function", name="grant_technologies")
+def grant_technologies(session):
+    """
+    Offre a un joueur les technologies qu'une unite reclame.
+    ---
+    `ShipType` et `DefenseType` declarent leurs `requirements.technologies`
+    depuis toujours, mais rien ne les lisait : la console les affichait, le
+    serveur les ignorait. Ils sont desormais verifies par `Territory.build`, et
+    les tests qui commandent une piece verrouillee doivent donc l'avoir
+    debloquee — sinon ils eprouvent le verrou et non la mise en chantier.
+
+    Les niveaux sont offerts, pas achetes : `increase(now=True)` ne facture
+    rien, ce qui laisse les reserves du monde telles que le test les a posees.
+    """
+    from app.models.game.technologies.technology import Technology
+    from app.models.game.technologies.technology_type import TechnologyType
+
+    def grant(user, unit):
+        required = (unit.value.get('requirements') or {}).get('technologies') or {}
+        for name, level in required.items():
+            technology = Technology.get(
+                user=user, type=TechnologyType.get_by_name(name))
+            while (technology.level or 0) < level:
+                technology.increase(now=True)
+        user.forget_modifiers()
+        session.commit()
+    return grant

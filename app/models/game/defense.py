@@ -1,3 +1,9 @@
+# Les `requirements.technologies` de ce fichier sont desormais VERIFIES, par
+# `Territory.missing_technologies`. Ils ne l'etaient pas : la console les
+# affichait, le serveur les ignorait, et le nom `laser` qu'ils reclamaient
+# n'existait meme pas dans l'enum des technologies. Les noms ont ete alignes sur
+# l'arbre (`atom` -> `atomique`, `chemistry` -> `ogives`, `energy` -> `fission`)
+# et c'est ici, et nulle part ailleurs, que se declare ce qu'une piece exige.
 import enum
 from datetime import datetime
 
@@ -30,7 +36,11 @@ class DefenseType(enum.Enum):
             "population": 2
         },
         "integrity": 2000,
-        "requirements": {}
+        "requirements": {
+            "technologies": {
+                "ogives": 2
+            }
+        }
     }
     LaserArtillery = {
         "name": "LaserArtillery",
@@ -44,9 +54,9 @@ class DefenseType(enum.Enum):
         },
         "integrity": 8000,
         "requirements": {
-        	"technologies": {
-        		"laser": 5
-        	}
+            "technologies": {
+                "laser": 5
+            }
         }
     }
     IonArtillery = {
@@ -61,9 +71,9 @@ class DefenseType(enum.Enum):
         },
         "integrity": 12000,
         "requirements": {
-        	"technologies": {
-        		"atom": 8
-        	}
+            "technologies": {
+                "atomique": 8
+            }
         }
     }
     Coilgun = {
@@ -78,10 +88,10 @@ class DefenseType(enum.Enum):
         },
         "integrity": 20000,
         "requirements": {
-        	"technologies": {
-        		"atom": 8,
-        		"chemistry": 6
-        	}
+            "technologies": {
+                "ogives": 6,
+                "atomique": 4
+            }
         }
     }
     Shield = {
@@ -97,9 +107,9 @@ class DefenseType(enum.Enum):
     	},
     	"integrity": 200000,
         "requirements": {
-        	"technologies": {
-        		"energy": 8
-        	}
+            "technologies": {
+                "boucliers": 6
+            }
         }
     }
 

@@ -70,9 +70,13 @@ class TestShips:
     @pytest.mark.parametrize('item', (
         [s for s in ShipType]
     ))
-    def test_create_ships(self, client, session, item):
+    def test_create_ships(self, client, session, item, grant_technologies):
         territory = my_territory(client)
         stock_the_shipyard(territory, session)
+        # Les deux coques les plus lourdes reclament `antimatiere`, verifie
+        # depuis que `Territory.build` lit les prerequis technologiques. Ce
+        # qui est mis a l'epreuve ici est l'affectation a une flotte.
+        grant_technologies(territory.user, item)
 
         # Rien en orbite au depart : un monde neuf n'a pas de flotte.
         response = client.get(f'/api/system/{territory.system_id}/fleets')
@@ -175,10 +179,12 @@ class TestShips:
 
     @pytest.mark.usefixtures("base_universe")
     @pytest.mark.usefixtures("authenticate_as_user")
-    def test_one_fleet_in_orbit_takes_the_output(self, client, session):
+    def test_one_fleet_in_orbit_takes_the_output(
+            self, client, session, grant_technologies):
         """Une seule flotte en orbite : elle recoit ce qui sort du chantier."""
         territory = my_territory(client)
         stock_the_shipyard(territory, session)
+        grant_technologies(territory.user, ShipType.Cruiser)
         existing = Fleet.create(
             system_id=territory.system_id,
             user=territory.user,

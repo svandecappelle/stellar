@@ -10,7 +10,8 @@ from sqlalchemy.orm import relationship
 from app.application import db
 from app.models.base import Base
 from app.models.game.buildings import BuildingType, Building
-from app.models.game.community.faction import FactionAdvantageScope
+from app.models.game.modifiers import (
+    NO_MODIFIERS, ModifierScope, ModifierType)
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.fleet import Fleet
@@ -77,6 +78,12 @@ class ResourceType(enum.Enum):
     food = "food"
     population = "population"
     tritium = "tritium"
+
+    # Donnees de recherche. Produites par l'academie, elles ne se posent sur
+    # aucun monde : la reserve est imperiale et vit sur `User.research`, parce
+    # que l'arbre technologique l'est aussi. Absente de `stocks()` pour cette
+    # raison — il n'y a pas de colonne `research` sur le territoire.
+    research = "research"
 
     def __str__(self):
         # Without this, `str(ResourceType.iron)` yields "ResourceType.iron" and
@@ -301,6 +308,14 @@ class Territory(Base):
         if 0 < capacity < (self.population or 0):
             self.population = capacity
 
+        # Recevoir un monde, c'est devenir jouable. `User.new` ne pose l'arbre
+        # que lorsqu'un territoire accompagne la creation du compte : un compte
+        # cree sans monde — l'administrateur, par exemple — puis installe plus
+        # tard jouait sans une seule technologie, et son ecran de recherche
+        # n'ouvrait aucune fiche.
+        from app.models.game.technologies.technology import Technology
+        Technology.ensure(user)
+
     def update_view(self):
         """
         Rattraper le temps ecoule depuis la derniere vue du territoire.
@@ -408,6 +423,14 @@ class Territory(Base):
         for r in self.PRODUCED_RESOURCES:
             increased_resources[r] = self.get_hourly_gain(resource_type=r) * hours
             setattr(self, r.name, (getattr(self, r.name) or 0) + increased_resources[r])
+
+        # Les Donnees ne se posent pas sur le monde qui les produit : l'academie
+        # travaille pour l'empire, et l'arbre technologique est imperial. Elles
+        # vont donc a la reserve du joueur, ou toutes les academies versent.
+        research = self.get_hourly_gain(resource_type=ResourceType.research) * hours
+        if research:
+            increased_resources[ResourceType.research] = research
+            self.user.add_research(research)
 
         logger.info(f"Resources increased for territory {self.id}", infos=dict(
             increased_resources=increased_resources,
@@ -524,6 +547,23 @@ class Territory(Base):
             self.stability = max(
                 STABILITY_MIN, stability - STABILITY_DECAY_HOUR * (1.0 - fed) * hours)
 
+    @property
+    def growth_rate(self):
+        """
+        Taux de croissance horaire, modificateurs compris.
+        ---
+        Lu par le calcul (`_grow_population`) comme par l'annonce
+        (`population_growth`). Deux lectures du meme taux : promettre au client
+        une croissance que le tour suivant ne rendrait pas est la faute que
+        cette propriete existe pour eviter.
+        """
+        return self.modifiers.apply(
+            value=POPULATION_GROWTH_RATE,
+            scope=ModifierScope.Territory,
+            modifier_type=ModifierType.Production,
+            target='population_growth',
+        )
+
     def _grow_population(self, hours):
         """
         Croissance logistique vers ce que les fermes savent nourrir.
@@ -542,7 +582,7 @@ class Territory(Base):
         # POPULATION_SEED tient lieu de plancher : une planete repeuplee a zero
         # doit pouvoir repartir, or 0 x taux vaut 0.
         base = max(population, POPULATION_SEED)
-        growth = POPULATION_GROWTH_RATE * base * (1.0 - population / capacity) * hours
+        growth = self.growth_rate * base * (1.0 - population / capacity) * hours
         self.population = min(float(capacity), population + growth)
 
     @property
@@ -570,7 +610,17 @@ class Territory(Base):
             return 0
         harvest = self.get_hourly_gain(resource_type=ResourceType.food)
         fed = harvest / FOOD_PER_POPULATION_HOUR
-        return int(fed * self.planet_archetype.habitability_factor)
+        capacity = fed * self.planet_archetype.habitability_factor
+
+        # Adaptation extreme et Terraformation agissent ici, et nulle part
+        # ailleurs : elles ne font pas pousser plus de ble, elles font tenir
+        # plus de monde sur la meme recolte.
+        return int(self.modifiers.apply(
+            value=capacity,
+            scope=ModifierScope.Territory,
+            modifier_type=ModifierType.Capacity,
+            target=ResourceType.population.name,
+        ))
 
     @property
     def population_growth(self):
@@ -588,7 +638,7 @@ class Territory(Base):
         if capacity <= 0 or population >= capacity:
             return 0.0
         base = max(population, POPULATION_SEED)
-        return POPULATION_GROWTH_RATE * base * (1.0 - population / capacity)
+        return self.growth_rate * base * (1.0 - population / capacity)
 
     @property
     def food_balance(self):
@@ -639,6 +689,17 @@ class Territory(Base):
         """
         return next(b for b in self.buildings if b.type == building_type)
 
+    @property
+    def modifiers(self):
+        """
+        Ce qui modifie les valeurs de ce monde : faction et recherche du
+        proprietaire, dans un seul ensemble.
+
+        Vide pour un monde sans proprietaire : la production depend du joueur,
+        et il n'y en a pas.
+        """
+        return self.user.modifiers if self.user else NO_MODIFIERS
+
     def get_hourly_gain(self, resource_type):
         """
         ---
@@ -652,13 +713,17 @@ class Territory(Base):
         if resource_type == ResourceType.energy:
             # Volcanic crusts are worth drilling, icy ones are not.
             hourly_gain *= self.planet_archetype.energy_factor
-        if self.user.faction:
-            hourly_gain = self.user.faction.apply(
-                obj=hourly_gain,
-                advantage_scope=FactionAdvantageScope.Resource,
-                scope=resource_type.name
-            )
-        return hourly_gain
+
+        # Faction ET recherche, empilees : `Extraction assistee` et le bonus
+        # silicium des Technocrates s'additionnent ici, au meme endroit et par
+        # le meme calcul. La version precedente n'interrogeait que la faction,
+        # et aucune technologie n'aurait pu toucher a la production.
+        return self.modifiers.apply(
+            value=hourly_gain,
+            scope=ModifierScope.Resource,
+            modifier_type=ModifierType.Production,
+            target=resource_type.name,
+        )
 
     def add(self, type, amount):
         logger.info(f"Adding {amount} of {type} to territory {self.id}", infos=dict(
@@ -702,8 +767,18 @@ class Territory(Base):
             resources=resources
         ))
         for k, val in prerequisites.items():
-            if val > resources[ResourceType(k)]:
-                logger.debug(f"Prerequisite not met: {k} requires {val} but only {resources[ResourceType(k)]} available")
+            if not val:
+                continue
+            # `.get` et non `[]` : un cout peut nommer une ressource que le
+            # territoire ne detient pas. Les Donnees sont dans ce cas — la
+            # reserve de recherche appartient au joueur, pas au monde — et la
+            # lecture directe levait un KeyError sur le premier batiment venu,
+            # puisque `BuildingType.get_cost` enumere toutes les ressources.
+            # Une ressource absente vaut zero : un cout non nul dessus est
+            # simplement hors de portee de ce territoire, ce qui est vrai.
+            held = resources.get(ResourceType(k), 0)
+            if val > held:
+                logger.debug(f"Prerequisite not met: {k} requires {val} but only {held} available")
                 return False
         return True
 
@@ -740,9 +815,17 @@ class Territory(Base):
         rattraper ici un solde negatif masquerait la commande qui n'aurait pas
         du passer.
         """
+        stocks = ResourceType.stocks()
         for resource, amount in cost.items():
             resource = ResourceType(resource)
             if not amount or resource in self.NON_CONSUMABLE:
+                continue
+            # Une ressource qui n'est pas une colonne du territoire ne se debite
+            # pas ici : les Donnees se prennent sur le joueur, par
+            # `User.spend_empire`. Sans ce filtre, le `setattr` poserait un
+            # attribut fantome sur l'instance et la depense disparaitrait au
+            # prochain chargement.
+            if resource not in stocks:
                 continue
             setattr(self, resource.name, (getattr(self, resource.name) or 0) - amount)
 
@@ -757,6 +840,8 @@ class Territory(Base):
         ---
         :return:
         """
+        if self.missing_technologies(building_type):
+            return False
         building = next(b for b in self.buildings if b.type == building_type)
         return self.match_prerequisite(building.cost)
 
@@ -765,6 +850,17 @@ class Territory(Base):
         ---
         :return:
         """
+        # Deux batiments passent derriere l'arbre — l'usine et le chantier naval
+        # — et le refus doit le dire : un « prerequis non atteint » qui parle de
+        # ressources quand il manque une technologie envoie chercher au mauvais
+        # endroit.
+        missing = self.missing_technologies(building_type)
+        if missing:
+            raise ValueError(
+                "Cannot build %s. Requires: %s." % (
+                    building_type.name,
+                    ", ".join("%s %d" % (name, level) for name, level in missing.items())))
+
         building = next(b for b in self.buildings if b.type == building_type)
         if building:
             # Paye a la commande, comme le chantier de vaisseaux : c'est le
@@ -783,6 +879,31 @@ class Territory(Base):
             )
             # TODO do it after event finished --> self.add(type=building_type, amount=1)
 
+    def missing_technologies(self, element):
+        """
+        Les technologies qui manquent pour construire cette unite.
+        ---
+        `BuildingType`, `ShipType` et `DefenseType` declarent leurs prerequis
+        sous `requirements.technologies`. Ils n'etaient lus par personne : le
+        nom `laser` qu'ils reclamaient n'existait meme pas dans l'enum des
+        technologies. Il existe maintenant, et il est verifie ici — pour une
+        coque, une batterie comme pour un batiment.
+
+        :param element: membre de `BuildingType`, `ShipType` ou `DefenseType`
+        :return: {nom de technologie: niveau requis}, vide si tout est acquis
+        """
+        from app.models.game.technologies.technology import Technology
+
+        required = (element.value.get('requirements') or {}).get('technologies') or {}
+        if not required or not self.user:
+            return {}
+
+        levels = Technology.levels(user=self.user)
+        return {
+            name: level for name, level in required.items()
+            if levels.get(name, 0) < level
+        }
+
     def build(self, type, item, spawn=None):
         """
         Build ships or defenses on the territory.
@@ -796,15 +917,32 @@ class Territory(Base):
 
         if type == PositionalEventType.ship:
             element = ShipType[item["type"]]
+            scope = ModifierScope.Ships
         elif type == PositionalEventType.defense:
             element = DefenseType[item["type"]]
+            scope = ModifierScope.Defenses
+
+        # Les prerequis technologiques, verifies pour de bon.
+        #
+        # `DefenseType` les declare depuis toujours — l'Artillerie laser demande
+        # `laser: 5`, la Coilgun `atomique: 8` — mais rien ne les lisait : la
+        # console les affichait, le serveur les ignorait, et n'importe qui
+        # pouvait assembler une batterie ionique sans avoir rien cherche. C'est
+        # ce qui donne son poids a toute la branche Armement.
+        missing = self.missing_technologies(element)
+        if missing:
+            raise ValueError(
+                "Cannot build %s. Requires: %s." % (
+                    element.name,
+                    ", ".join("%s %d" % (name, level) for name, level in missing.items())))
 
         # Le cout de la commande, pas celui d'une piece : `element.cost` est
         # unitaire, et la verification le prenait tel quel. Une commande de dix
         # passait donc avec de quoi en payer une seule -- ce que le message
         # d'erreur juste en dessous dementait deja en annoncant la quantite.
         quantity = item["quantity"]
-        cost = {resource: amount * quantity for resource, amount in element.cost.items()}
+        unit_cost = self.modifiers.apply_cost(element.cost, scope=scope)
+        cost = {resource: amount * quantity for resource, amount in unit_cost.items()}
         if not self.match_prerequisite(cost):
             raise ValueError(f"Cannot build {quantity} {element.name}. Prerequisites not reached.")
         self.spend(cost)
@@ -814,6 +952,7 @@ class Territory(Base):
         # batiments et lente sur ses flottes.
         unitary_duration = element.duration(shipyard=shipyard) / GalaxySettings.value(
             self.galaxy_name, 'build_time_divider')
+        unitary_duration = self.modifiers.shorten(unitary_duration, scope=scope)
         extra_args = {
             "name": element.name,
             "quantity": item["quantity"],

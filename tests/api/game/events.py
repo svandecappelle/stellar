@@ -31,31 +31,32 @@ class TestEvents:
         territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
 
-        # `computer` coute du cristal. Un monde tellurique en extrait, mais il
-        # n'en a rien en caisse a l'instant zero et on commande tout de suite :
-        # sans ce ravitaillement la recherche part en 400. Ce qui est mis a
+        # `Architecture de calcul` se paie en Donnees, en silicium et en
+        # credits. Les Donnees viennent de la reserve du joueur — l'academie les
+        # produit, et il n'y en a aucune a l'instant zero. Ce qui est mis a
         # l'epreuve ici est la creation de l'evenement, pas le cout.
         territory = Territory.get(id=territory_id)
-        territory.add(type=ResourceType.cristal, amount=300000)
+        territory.add(type=ResourceType.silicium, amount=300000)
+        territory.add(type=ResourceType.credits, amount=300000)
+        territory.user.add_research(300000)
         session.commit()
 
-        # Add event using increase a tech
-        response = client.post(
-            f'/api/technology/computer/{territory_id}'
-        )
+        # Add event using increase a tech. Plus de territoire dans le chemin :
+        # la recherche appartient au joueur et se paie sur tout son empire.
+        response = client.post('/api/technology/calcul')
         assert response.status_code == 200
-        assert response.json['eventType'] == 'technology'
-        assert response.json['extraArgs'] == {
-            'type': 'computer'
-        }
+        assert response.json['eventType'] == 'research'
+        assert response.json['extraArgs']['type'] == 'calcul'
+        assert response.json['extraArgs']['level'] == 1
 
         # Check tech is not yet completed
         response = client.get(
             '/api/technologies'
         )
         assert response.status_code == 200
-        assert len(response.json) == len(TechnologyType)
-        assert list(map(lambda x: x['level'], response.json)) == [0] * len(TechnologyType)
+        assert len(response.json['technologies']) == len(TechnologyType)
+        assert [t['level'] for t in response.json['technologies']] ==             [0] * len(TechnologyType)
+        assert response.json['used_slots'] == 1
 
         # Check event is created
         response = client.get(

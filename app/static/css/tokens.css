@@ -132,12 +132,19 @@
   --res-food:#A0E17A;
   --res-population:#E5AEF5;
   --res-tritium:#F58C82;
+
+  /* Les Donnees de recherche. Elles ne se posent sur aucun monde — la reserve
+     est imperiale — mais elles se lisent comme une ressource, et portent donc
+     une teinte comme les autres. */
+  --res-research:#8FB4FF;
 }
 .theme-admiralty{
+  --res-research:#8FA8C4;
   --res-credits:#E3A340; --res-energy:#6FBFA8; --res-population:#B08FC4; --res-tritium:#C48A7A;
   --res-cristal:#7FB8C4; --res-uranium:#8FBF6E;
 }
 .theme-drydock  {
+  --res-research:#7FA0FF;
   --res-credits:#FFC24D; --res-energy:#4FD6B8; --res-population:#B77FD6; --res-tritium:#FF6B1A;
   --res-iron:#7FA6BC; --res-uranium:#7ED957;
 }

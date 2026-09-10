@@ -154,6 +154,25 @@ export const api = {
       body: { to: targetId, items: [{ type, quantity }] },
     }),
 
+  /* ---- recherche ----
+     Deux lectures, et la separation compte : `technologyTree` publie la FORME
+     de l'arbre — couts, durees, prerequis, effets — sans rien savoir du joueur,
+     et se met en cache une fois pour toutes ; `technologies` publie l'ETAT du
+     joueur dedans, et se relit a chaque geste.
+
+     Aucun territoire nulle part : la recherche appartient au joueur, toutes
+     galaxies confondues, et se paie sur l'ensemble de ses mondes. */
+  technologyTree: () => request('/api/technologies/tree'),
+  technologies: () => request('/api/technologies'),
+  /* `choice` n'a de sens que sur une doctrine, ou il est obligatoire. */
+  research: (name, choice = null) =>
+    request(`/api/technology/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: choice ? { choice } : {},
+    }),
+  cancelResearch: (eventId) =>
+    request(`/api/technology/queue/${eventId}`, { method: 'DELETE' }),
+
   /* ---- constructions ---- */
   upgradeBuilding: (territoryId, building) =>
     request(`/api/territory/${territoryId}/${building}`, { method: 'POST' }),

@@ -313,9 +313,17 @@ button{font:inherit;color:inherit}
    constants, faute de quoi zoomer epaissirait tout.
    ============================================================ */
 .map-panel{flex:1;min-width:0}
-.map-side{width:340px;flex:none}
+
+/* `.body-cols > .panel{flex:1}` porte deux classes et un combinateur : il
+   l'emportait sur `.map-side`, qui n'en porte qu'une. La regle ci-dessous
+   n'appliquait donc rien, et le panneau de selection prenait la moitie de
+   l'ecran au lieu de ses 340 px — sur la carte de la galaxie comme sur l'arbre
+   technologique, ou c'est le dessin qui a besoin de la place. On lui rend la
+   specificite qu'il lui fallait plutot que d'ajouter un `!important`, qui
+   aurait cache le conflit au lieu de le resoudre. */
+.body-cols > .panel.map-side{width:340px;flex:none}
 @media (max-width:1100px){
-  .map-side{width:100%}
+  .body-cols > .panel.map-side{width:100%}
 }
 
 .map-frame{
@@ -387,6 +395,7 @@ button{font:inherit;color:inherit}
 /* Le curseur dit ce que la carte accepte, avant meme qu'on essaie. */
 .map-frame{cursor:grab}
 .map-frame.map-frame--panning{cursor:grabbing}
+.map-frame--panning .tree-node{cursor:grabbing}
 .map-frame.map-frame--panning .map-star,
 .map-frame.map-frame--panning .map-fleet{cursor:grabbing}
 
@@ -457,3 +466,351 @@ button{font:inherit;color:inherit}
    chose sans rien supposer — et rend la fenetre verifiable hors navigateur. */
 .modal.hidden{display:none}
 .modal-card{width:100%;max-width:520px}
+
+/* ============================================================
+   RECHERCHE — l'arbre technologique
+
+   Rien de neuf dans la charpente : la vue reprend `.rail`, `.map-panel`,
+   `.map-frame` et `.map-side` de la carte de galaxie, qui posent deja les
+   trois colonnes et le cadre a `viewBox`. Ce qui suit ne decrit que ce qu'un
+   graphe de noeuds ajoute — le rail de branches, les noeuds eux-memes, la file
+   et la fiche.
+
+   Aucune couleur de branche ici : elle vient du serveur (`Branch.accent`) et se
+   pose en variable `--h` sur l'element, parce que les deux clients doivent
+   teinter un meme noeud de la meme facon.
+   ============================================================ */
+
+/* ---------- rail de branches ---------- */
+/* Plus large que le rail d'orbites : une orbite se reconnait a sa bille, une
+   branche a son nom et a ce qu'on y a depense. */
+.rail--branches{width:190px;align-items:stretch;gap:6px}
+
+.brbtn{
+  display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;
+  width:100%;padding:8px 10px;cursor:pointer;
+  background:var(--row-bg);border:var(--bw) solid transparent;
+  border-left:var(--row-edge) solid var(--h,var(--bc));
+  border-radius:var(--r);
+  transition:background var(--dur-fast),border-color var(--dur-fast);
+}
+.brbtn:hover{background:var(--row-bg-h)}
+.brbtn[aria-pressed="true"]{background:var(--row-bg-h);border-color:var(--bc);border-left-color:var(--h)}
+.brbtn .bn{
+  font-family:var(--f-disp);font-size:13px;font-weight:700;color:var(--fg-hi);
+  letter-spacing:var(--val-track);
+}
+.brbtn .bs{
+  font-family:var(--f-num);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--fg-off);font-variant-numeric:tabular-nums;
+}
+.brbtn[aria-pressed="true"] .bs{color:var(--h)}
+
+/* ---------- le graphe ---------- */
+/* Le cadre de l'arbre est un canevas, comme celui de la carte : le dessin fait
+   dix colonnes de large et ne tient dans aucun panneau, alors on s'y deplace
+   plutot que de tout reduire jusqu'a rendre les libelles illisibles. La
+   difference avec `.map-frame` tient a la hauteur, fixee ici : trois noeuds par
+   palier n'ont pas besoin d'un cadre en 16/10. */
+.map-frame--tree{
+  aspect-ratio:auto;
+  height:520px;min-height:380px;max-height:calc(100vh - 300px);
+  overflow:hidden;
+}
+.map-frame--tree svg{width:100%;height:100%;display:block}
+
+/* Une bande par palier impair. Sur dix colonnes de cartes sombres, un filet
+   vertical se perd ; une alternance donne a l'oeil de quoi situer la
+   profondeur sans avoir a suivre quoi que ce soit. */
+.tree-band{fill:var(--fg-hi);opacity:.022}
+.tree-tier-label{
+  fill:var(--fg-off);font-family:var(--f-disp);font-size:11px;letter-spacing:.22em;
+  text-anchor:middle;pointer-events:none;font-weight:600;
+}
+
+/* Les liaisons. Trois etats seulement, et ils se distinguent par l'epaisseur
+   autant que par la teinte : sur un fond sombre, une nuance seule ne se voit
+   pas. */
+.tree-link{
+  fill:none;stroke:var(--bc-soft);stroke-width:1.2;stroke-dasharray:5 5;
+  vector-effect:non-scaling-stroke;
+}
+/* Prerequis deja tenu : la teinte de la branche, trait plein. */
+.tree-link--held{stroke:var(--h,var(--acc));stroke-width:1.8;stroke-dasharray:none;opacity:.75}
+/* Un prerequis venu d'une autre branche : il entre par la gauche, sans origine
+   visible — son noeud n'est pas sur ce dessin. */
+.tree-link--foreign{stroke:var(--fg-off);stroke-dasharray:3 4}
+
+.tree-node{cursor:pointer}
+.tree-node__box{
+  fill:var(--row-bg);stroke:var(--bc-soft);stroke-width:1.2;
+  vector-effect:non-scaling-stroke;transition:stroke var(--dur-fast);
+}
+.tree-node:hover .tree-node__box{stroke:var(--fg)}
+.tree-node__edge{fill:var(--fg-off)}
+.tree-node__name{
+  fill:var(--fg);font-family:var(--f-disp);font-size:14px;font-weight:700;
+  pointer-events:none;letter-spacing:.01em;
+}
+/* Ce que le noeud fait, lisible sans l'ouvrir. C'est le gain de place des
+   cartes agrandies : la question « et celui-la, il sert a quoi ? » se
+   repondait auparavant en un clic par noeud. */
+.tree-node__effect{
+  fill:var(--fg-dim);font-family:var(--f-body);font-size:11.5px;
+  pointer-events:none;
+}
+.tree-node__badge{
+  fill:var(--fg-off);font-family:var(--f-num);font-size:12px;font-weight:700;
+  text-anchor:end;pointer-events:none;font-variant-numeric:tabular-nums;
+}
+.tree-node__opens{
+  fill:var(--good);font-family:var(--f-disp);font-size:10px;
+  text-anchor:end;pointer-events:none;letter-spacing:.04em;
+}
+.tree-node__track{fill:var(--bc-soft)}
+.tree-node__fill{fill:var(--fg-off)}
+
+/* ---- les quatre etats d'un noeud ----
+   Ils doivent se distinguer d'un coup d'oeil, et pas seulement de pres : c'est
+   la premiere chose qu'on lit dans une grille de vingt-six cartes. Chacun
+   change le FOND autant que le trait — une nuance de bordure seule se perd des
+   qu'on dezoome. */
+
+/* Acquis : la couleur de la branche, et un fond teinte. */
+.tree-node--owned .tree-node__box,
+.tree-node--maxed .tree-node__box{stroke:var(--h);stroke-width:1.8;fill:var(--row-bg-h)}
+.tree-node--owned .tree-node__edge,
+.tree-node--owned .tree-node__fill,
+.tree-node--owned .tree-node__badge,
+.tree-node--maxed .tree-node__edge,
+.tree-node--maxed .tree-node__fill,
+.tree-node--maxed .tree-node__badge{fill:var(--h)}
+.tree-node--owned .tree-node__name,
+.tree-node--maxed .tree-node__name{fill:var(--fg-hi)}
+.tree-node--owned .tree-node__effect,
+.tree-node--maxed .tree-node__effect{fill:var(--fg)}
+
+/* En cours : l'accent du theme, qui est la couleur de « quelque chose se
+   passe » partout ailleurs dans la console. */
+.tree-node--researching .tree-node__box{stroke:var(--acc);stroke-width:2.2;fill:var(--lvl-bg)}
+.tree-node--researching .tree-node__edge,
+.tree-node--researching .tree-node__fill,
+.tree-node--researching .tree-node__badge{fill:var(--acc)}
+.tree-node--researching .tree-node__name{fill:var(--fg-hi)}
+.tree-node--researching .tree-node__effect{fill:var(--fg)}
+
+/* Disponible : rien ne le retient, et cela doit se voir de loin. */
+.tree-node--available .tree-node__box{stroke:var(--fg);stroke-width:1.6}
+.tree-node--available .tree-node__name{fill:var(--fg-hi)}
+.tree-node--available .tree-node__effect{fill:var(--fg)}
+.tree-node--available .tree-node__edge{fill:var(--fg-dim)}
+
+/* Verrouille : en retrait, mais lisible. Le pointille a disparu — sur vingt
+   cartes il faisait un grésillement, et c'est le contraste du trait qui dit
+   deja l'etat. */
+.tree-node--locked .tree-node__box{stroke:var(--bc-soft);fill:var(--bg-scene-flat)}
+.tree-node--locked .tree-node__name{fill:var(--fg-dim)}
+.tree-node--locked .tree-node__effect{fill:var(--fg-off)}
+
+.tree-node--on .tree-node__box{stroke:var(--fg-hi);stroke-width:2.4}
+.tree-node__halo{
+  fill:none;stroke:var(--fg-hi);stroke-width:1.4;opacity:.7;
+  vector-effect:non-scaling-stroke;
+}
+
+/* ---------- la file de recherche ---------- */
+.queue{
+  display:flex;flex-direction:column;gap:6px;
+  margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--bc-soft);
+}
+.qrow{
+  display:grid;grid-template-columns:1fr 120px auto auto;gap:12px;align-items:center;
+  background:var(--row-bg);border-left:var(--row-edge) solid var(--h,var(--acc));
+  padding:7px 10px;border-radius:var(--r);
+}
+.qrow .qn{font-family:var(--f-disp);font-size:12.5px;color:var(--fg-hi)}
+.qrow .qn em{font-style:normal;color:var(--h,var(--acc));font-variant-numeric:tabular-nums}
+.qrow .qt{
+  font-family:var(--f-num);font-size:11.5px;color:var(--acc);
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+.qrow .bar{margin-top:0}
+.qslot{
+  border:1px dashed var(--bc-soft);border-radius:var(--r);padding:7px 10px;
+  font-family:var(--f-num);font-size:11px;color:var(--fg-off);
+}
+
+/* ---------- la fiche d'un noeud ---------- */
+.node-card{display:flex;flex-direction:column;gap:var(--sp-3)}
+
+/* Un cran par niveau : le joueur voit d'un coup d'oeil ou il en est dans un
+   rang de vingt sans avoir a lire « 7 / 20 ». */
+.lvl-strip{display:flex;gap:3px}
+.lvl-strip i{flex:1;height:7px;background:var(--bc-soft);display:block;border-radius:var(--r)}
+.lvl-strip i.f{background:var(--h,var(--acc))}
+.lvl-strip i.q{background:var(--acc);opacity:.5}
+
+.eff{
+  background:var(--lvl-bg);border:1px solid var(--bc-soft);border-radius:var(--r);
+  padding:9px 11px;font-size:12.5px;line-height:1.5;color:var(--fg);
+}
+.eff + .eff{margin-top:6px}
+.eff .now{font-family:var(--f-num);color:var(--acc);font-weight:600}
+.eff .nxt{font-family:var(--f-num);color:var(--good);font-weight:600}
+
+/* Les deux voies d'une doctrine. Le choix est definitif : elles sont montrees
+   cote a cote, jamais dans un menu deroulant qui laisserait croire qu'on
+   revient dessus. */
+.doctrine{display:flex;flex-direction:column;gap:6px}
+.dopt{
+  border:var(--bw) solid var(--bc-soft);background:var(--row-bg);border-radius:var(--r);
+  padding:9px 11px;font-size:12px;line-height:1.45;color:var(--fg-dim);
+  text-align:left;width:100%;cursor:pointer;font-family:var(--f-body);
+}
+.dopt:hover{background:var(--row-bg-h);border-color:var(--bc)}
+.dopt .dn{
+  display:block;font-family:var(--f-disp);font-size:13px;font-weight:700;color:var(--fg-hi);
+  margin-bottom:3px;
+}
+.dopt.pick{border-color:var(--h,var(--acc));background:var(--lvl-bg)}
+.dopt[disabled]{cursor:default;opacity:var(--row-off-op)}
+
+.node-req{font-size:12px;color:var(--fg-dim);line-height:1.5;margin:0}
+.node-req b{color:var(--bad-fg);font-weight:600}
+
+.node-kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+  border-bottom:1px solid var(--bc-soft);margin:0}
+.node-kv:last-of-type{border-bottom:0}
+.node-kv dt{
+  font-family:var(--f-disp);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--fg-off);
+}
+.node-kv dd{
+  margin:0;font-family:var(--f-num);font-size:12.5px;color:var(--fg-hi);
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+
+.node-costs{display:flex;flex-wrap:wrap;gap:10px}
+.node-actions{display:flex;flex-direction:column;gap:6px}
+
+/* Un prerequis se clique : il designe un noeud, presque toujours hors du cadre
+   et souvent dans une autre branche. Il garde l'apparence du texte qu'il est —
+   un bouton dessine ici couperait la phrase en deux. */
+.node-link{
+  font:inherit;color:var(--bad-fg);font-weight:600;background:none;border:0;
+  padding:0;cursor:pointer;border-bottom:1px dotted currentColor;
+}
+.node-link:hover{color:var(--acc)}
+.node-link:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+
+/* Les commandes du canevas de l'arbre : sous le cadre, sur la meme ligne que
+   l'aide. Posees par-dessus le dessin comme celles de la carte, elles
+   masquaient des noeuds — l'arbre remplit son cadre, la carte non. */
+.tree-controls{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  flex-wrap:wrap;margin-top:var(--sp-2);
+}
+.tree-controls .map-hint{margin:0;flex:1;min-width:220px}
+.tree-tools{display:flex;gap:var(--sp-2);flex:none}
+.tree-tools .btn{min-width:38px;justify-content:center}
+
+/* ---------- le chemin d'acces ---------- */
+/* Le chemin est peint en BLANC, et non dans l'accent du theme.
+   ---
+   L'accent d'Admiralty est un ambre `#E3A340`, celui de la branche Industrie un
+   ambre `#D9A441` : sur cette branche, un chemin en accent se confondait avec
+   la teinte des noeuds qu'il traversait, et ne montrait rien. Le blanc est la
+   seule valeur qui tienne contre les cinq teintes de branche ET les trois
+   accents de theme, parce qu'il ne joue pas sur la teinte mais sur la clarte.
+
+   Le trait double : une ligne pale par-dessus une ligne sombre plus large. Sur
+   un fond charge, un trait clair seul se noie dans ce qu'il croise. */
+.tree-node--path .tree-node__box{
+  stroke:var(--fg-hi);stroke-width:2.2;stroke-dasharray:none;
+}
+.tree-node--path .tree-node__name{fill:var(--fg-hi)}
+.tree-node--path .tree-node__effect{fill:var(--fg)}
+
+/* Assez pour que le chemin ressorte, pas assez pour rendre le reste illisible :
+   l'arbre doit rester lisible pendant qu'on regarde un chemin, sans quoi on ne
+   voit plus ou il mene. */
+.tree-node--faded{opacity:.42}
+
+.tree-link--path{
+  stroke:var(--fg-hi);stroke-width:2.6;stroke-dasharray:none;opacity:1;
+  filter:drop-shadow(0 0 3px rgba(0,0,0,.9));
+}
+.tree-link--foreign.tree-link--path{stroke-dasharray:4 4}
+
+/* Dans la fiche : la liste des etapes, dans l'ordre ou on peut les monter. */
+.path{display:flex;flex-direction:column;gap:var(--sp-2)}
+.path-list{
+  list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;
+}
+.path-step{
+  display:grid;grid-template-columns:26px 1fr auto;gap:8px;align-items:baseline;
+  background:var(--row-bg);border-left:2px solid var(--acc);padding:5px 9px;
+  border-radius:var(--r);font-size:12.5px;
+}
+/* Une etape acquise reste affichee : savoir ce qui est fait vaut autant que
+   savoir ce qui reste, et la retirer ferait changer le chemin de forme a
+   mesure qu'on avance. */
+.path-step--done{border-left-color:var(--good);opacity:.62}
+.path-tier{
+  font-family:var(--f-disp);font-size:10px;letter-spacing:.1em;color:var(--fg-off);
+}
+.path-name{
+  font:inherit;font-family:var(--f-disp);font-weight:600;color:var(--fg-hi);
+  background:none;border:0;padding:0;text-align:left;cursor:pointer;
+}
+.path-name:hover{color:var(--acc)}
+.path-name:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.path-branch{
+  font-family:var(--f-disp);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--h);grid-column:2;
+}
+.path-level{
+  font-family:var(--f-num);font-size:11.5px;color:var(--fg-dim);
+  font-variant-numeric:tabular-nums;grid-column:3;grid-row:1;
+}
+.path-step--done .path-level{color:var(--good)}
+.path-tier-note{margin:0;font-size:12px;color:var(--fg-dim);line-height:1.5}
+.path-tier-note b{color:var(--bad-fg)}
+.path-folded{margin:0;font-size:11.5px;color:var(--fg-off);font-family:var(--f-num)}
+
+
+/* ---------- legende de l'arbre ---------- */
+/* Chaque cle porte le trait qu'elle nomme, a gauche : la pastille reprend la
+   bordure du noeud correspondant, pas une couleur choisie a part. Une legende
+   dont les couleurs ne sont pas celles du dessin ne sert a rien. */
+.tree-legend{
+  display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-4);
+  margin-top:var(--sp-2);font-family:var(--f-num);font-size:11px;color:var(--fg-dim);
+}
+.tree-key{display:inline-flex;align-items:center;gap:6px}
+.tree-key::before{
+  content:"";width:14px;height:10px;display:inline-block;flex:none;
+  border:2px solid var(--bc-soft);background:var(--row-bg);border-radius:var(--r);
+}
+.tree-key--owned::before{border-color:var(--h,var(--fg));background:var(--row-bg-h)}
+.tree-key--doing::before{border-color:var(--acc);background:var(--lvl-bg)}
+.tree-key--free::before{border-color:var(--fg)}
+.tree-key--locked::before{border-color:var(--bc-soft);background:var(--bg-scene-flat)}
+/* Trois pixels, comme le trait du chemin sur le dessin : « disponible » et
+   « chemin » ne different que par l'epaisseur, et la legende doit montrer la
+   meme difference. */
+.tree-key--path::before{border-color:var(--fg-hi);border-width:3px}
+.tree-key--opens{color:var(--good)}
+.tree-key--opens::before{display:none}
+/* Ce qu'un noeud ouvre : en vert, juste sous le bouton — c'est un argument pour
+   le presser, pas une note de bas de fiche. */
+.node-req--opens{color:var(--good)}
+.node-req--opens b{color:var(--good)}
+
+/* Un noeud que le catalogue annonce et dont le joueur n'a aucun etat : la base
+   est en retard d'une migration. Marque plutot que masque — le cacher ferait un
+   arbre troue sans dire pourquoi. */
+.tree-node--unknown{opacity:.32}
+.tree-node--unknown .tree-node__box{stroke:var(--bad);stroke-dasharray:3 4}
+.tree-node--unknown .tree-node__name{fill:var(--bad-fg)}

@@ -19,7 +19,10 @@ from config.configuration import AppConfig
 global db
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
-app.config['SECRET_KEY'] = 'the quick brown fox jumps over the lazy dog'
+# La cle de signature des sessions est posee par `Starter.configure`, une
+# fois la configuration lue : ici, elle serait forcement une constante du
+# depot — et une constante du depot laisse forger un cookie de session pour
+# n'importe quel compte a quiconque en a lu le code. Voir `app.security`.
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 login_manager = LoginManager(app)
 paranoid = Paranoid(app)

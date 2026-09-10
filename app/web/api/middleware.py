@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 
-import hashlib
 import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import UserMixin, login_user, logout_user, current_user
-from app.application import app, json_description, login_required, serialize
+from app.application import app, db, json_description, login_required, serialize
 from app.models.user import User
 
 
@@ -40,24 +39,37 @@ def get_user_logged():
 @serialize(without_rights=True)
 @json_description(file='descriptions/authentication.json')
 def authentication():
-    # Yet in dev
-    if not request.json.get("username") or not request.json.get("username"):
+    """
+    Ouvre une session a partir d'un identifiant et d'un mot de passe.
+    ---
+    Un seul message de refus pour les trois cas — nom vide, compte inconnu,
+    mot de passe faux. Distinguer « ce compte n'existe pas » de « ce n'est pas
+    le bon mot de passe » revient a offrir la liste des comptes du serveur a
+    qui prend la peine de la demander.
+    """
+    payload = request.get_json(silent=True) or {}
+    username = payload.get("username")
+    password = payload.get("password")
+
+    if not username or not password:
         logout_user()
         return abort(401, "Invalid credentials")
-    remember = request.json.get('remember_me', False)
-    username = request.json['username']
-    password = request.json['password']
 
     if not User.exists(username=username):
         return abort(401, "Invalid credentials")
+
     user = User.get(username=username)
-    given = hashlib.sha256(password.encode('utf-8'))
-    if given.hexdigest() != user.password:
+    if not user.check_password(password):
         return abort(401, "Invalid credentials")
+
+    # `check_password` a pu remplacer une empreinte SHA-256 par une empreinte
+    # scrypt : cette conversion-la n'a lieu qu'une fois par compte, et la perdre
+    # la ferait recommencer a chaque connexion.
+    db.session.commit()
 
     login_user(AuthUser(
         username=user.username,
-    ), remember=remember)
+    ), remember=payload.get('remember_me', False))
     return current_user.get()
 
 

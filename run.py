@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.application import app, db, dburi, flaskrun
+from app.security import secret_key
 from app.models.base import Base
 from app.models.game.galaxy import Galaxy
 from app.models.user import User
@@ -41,6 +42,9 @@ class Starter(object):
         cls.logger = logging.getLogger('Starter')
         cls.logger.info("[%s] configuring..." % config_file)
         AppConfig.load(config_file=config_file)
+        # Apres la lecture de la configuration, et seulement apres : c'est
+        # elle qui peut porter la cle.
+        app.config['SECRET_KEY'] = secret_key()
         app.config['SQLALCHEMY_DATABASE_URI'] = dburi()
         cls.routing()
 

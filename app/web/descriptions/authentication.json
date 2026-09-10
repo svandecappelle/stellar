@@ -1,6 +1,8 @@
 {
     "/api/auth": {
-        "tags": ["Authentication"],
+        "tags": [
+            "Authentication"
+        ],
         "method": "GET",
         "summary": "Get currently authenticated user",
         "responses": {
@@ -13,7 +15,9 @@
         }
     },
     "/api/auth/login": {
-        "tags": ["Authentication"],
+        "tags": [
+            "Authentication"
+        ],
         "method": "POST",
         "summary": "Authenticate user",
         "responses": {
@@ -44,8 +48,13 @@
         }
     },
     "/api/auth/logout": {
-        "tags": ["Authentication"],
-        "method": ["GET", "POST"],
+        "tags": [
+            "Authentication"
+        ],
+        "method": [
+            "GET",
+            "POST"
+        ],
         "summary": "Logout current user",
         "responses": {
             "200": {
@@ -54,7 +63,9 @@
         }
     },
     "/api/auth/me": {
-        "tags": ["Authentication"],
+        "tags": [
+            "Authentication"
+        ],
         "method": "GET",
         "summary": "Get own user profile",
         "responses": {
@@ -67,12 +78,181 @@
         }
     },
     "/api/resource": {
-        "tags": ["Authentication"],
+        "tags": [
+            "Authentication"
+        ],
         "method": "GET",
         "summary": "Get sample protected resource",
         "responses": {
             "200": {
                 "description": "Sample payload"
+            }
+        }
+    },
+    "/api/users": {
+        "tags": [
+            "Authentication"
+        ],
+        "method": "POST",
+        "summary": "Create an account",
+        "description": "The account is created without a world: the player claims their first telluric world afterwards, and it is that assignment which lays their technology tree. Opens a session straight away.",
+        "responses": {
+            "201": {
+                "description": "Account created, session opened"
+            },
+            "400": {
+                "description": "Name, email or password refused"
+            },
+            "409": {
+                "description": "That name is taken"
+            },
+            "429": {
+                "description": "Too many attempts"
+            }
+        },
+        "requestBody": {
+            "required": true,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "username",
+                            "password",
+                            "email"
+                        ],
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "minLength": 3,
+                                "maxLength": 32
+                            },
+                            "password": {
+                                "type": "string",
+                                "minLength": 8,
+                                "maxLength": 256
+                            },
+                            "email": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/auth/token": {
+        "tags": [
+            "Authentication"
+        ],
+        "method": "POST",
+        "summary": "Exchange credentials for a device token",
+        "description": "The token is returned once and only once: the server keeps nothing but its digest. Store it on the device and present it to /api/auth/session on later starts, so the password is never asked again. Opens a session too, so a first sign-in is a single round trip.",
+        "responses": {
+            "200": {
+                "description": "Token issued, session opened"
+            },
+            "401": {
+                "description": "Invalid credentials"
+            },
+            "429": {
+                "description": "Too many attempts"
+            }
+        },
+        "requestBody": {
+            "required": true,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "username",
+                            "password"
+                        ],
+                        "properties": {
+                            "username": {
+                                "type": "string"
+                            },
+                            "password": {
+                                "type": "string"
+                            },
+                            "device": {
+                                "type": "string",
+                                "description": "Label shown in the device list"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/auth/session": {
+        "tags": [
+            "Authentication"
+        ],
+        "method": "POST",
+        "summary": "Reopen a session from a device token",
+        "description": "Using a token pushes its deadline back: a player who plays never sees the form again, an abandoned machine stops opening sessions on its own. Unknown, revoked and expired tokens all answer alike.",
+        "responses": {
+            "200": {
+                "description": "Session opened"
+            },
+            "401": {
+                "description": "Invalid token"
+            },
+            "429": {
+                "description": "Too many attempts"
+            }
+        },
+        "requestBody": {
+            "required": true,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "token"
+                        ],
+                        "properties": {
+                            "token": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/auth/tokens": {
+        "tags": [
+            "Authentication"
+        ],
+        "method": "GET",
+        "summary": "List the devices that can open a session",
+        "responses": {
+            "200": {
+                "description": "Registered devices"
+            },
+            "401": {
+                "description": "Not authorized"
+            }
+        }
+    },
+    "/api/auth/token/{token_id}": {
+        "tags": [
+            "Authentication"
+        ],
+        "method": "DELETE",
+        "summary": "Disconnect one device",
+        "responses": {
+            "200": {
+                "description": "Device disconnected"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "404": {
+                "description": "No such device"
             }
         }
     }

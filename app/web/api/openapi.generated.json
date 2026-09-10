@@ -153,6 +153,201 @@
         ]
       }
     },
+    "/api/auth/session": {
+      "post": {
+        "description": "Using a token pushes its deadline back: a player who plays never sees the form again, an abandoned machine stops opening sessions on its own. Unknown, revoked and expired tokens all answer alike.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {},
+                    "user": {}
+                  },
+                  "required": [
+                    "device",
+                    "user"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Session opened"
+          },
+          "401": {
+            "description": "Invalid token"
+          },
+          "429": {
+            "description": "Too many attempts"
+          }
+        },
+        "summary": "Reopen a session from a device token",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/auth/token": {
+      "post": {
+        "description": "The token is returned once and only once: the server keeps nothing but its digest. Store it on the device and present it to /api/auth/session on later starts, so the password is never asked again. Opens a session too, so a first sign-in is a single round trip.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "device": {
+                    "description": "Label shown in the device list",
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "username": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "device": {},
+                    "token": {},
+                    "user": {}
+                  },
+                  "required": [
+                    "token",
+                    "device",
+                    "user"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Token issued, session opened"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          },
+          "429": {
+            "description": "Too many attempts"
+          }
+        },
+        "summary": "Exchange credentials for a device token",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/auth/token/{token_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device disconnected"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "No such device"
+          }
+        },
+        "summary": "Disconnect one device",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/auth/tokens": {
+      "delete": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "revoked": {}
+                  },
+                  "required": [
+                    "revoked"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "DELETE /api/auth/tokens"
+      },
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "devices": {}
+                  },
+                  "required": [
+                    "devices"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Registered devices"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "List the devices that can open a session",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
     "/api/docs": {
       "get": {
         "responses": {
@@ -2164,6 +2359,62 @@
         "summary": "Get user by username",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/users": {
+      "post": {
+        "description": "The account is created without a world: the player claims their first telluric world afterwards, and it is that assignment which lays their technology tree. Opens a session straight away.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "maxLength": 256,
+                    "minLength": 8,
+                    "type": "string"
+                  },
+                  "username": {
+                    "maxLength": 32,
+                    "minLength": 3,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "username",
+                  "password",
+                  "email"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "201": {
+            "description": "Account created, session opened"
+          },
+          "400": {
+            "description": "Name, email or password refused"
+          },
+          "409": {
+            "description": "That name is taken"
+          },
+          "429": {
+            "description": "Too many attempts"
+          }
+        },
+        "summary": "Create an account",
+        "tags": [
+          "Authentication"
         ]
       }
     }

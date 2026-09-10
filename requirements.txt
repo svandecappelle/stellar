@@ -17,6 +17,10 @@ Flask==3.1.3
 Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 Flask-Paranoid==0.3.0
+
+# Vient avec Flask, mais `app/security.py` l'importe directement pour ranger et
+# verifier les mots de passe (scrypt). Une dependance qu'on importe se declare.
+Werkzeug==3.1.8
 SQLAlchemy==2.0.52
 
 # `-binary` et non `psycopg2` : la version source se compile contre la libpq de

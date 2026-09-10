@@ -1,4 +1,3 @@
-import hashlib
 from datetime import datetime
 
 from sqlalchemy import Column, Float, Integer, String, DateTime, ForeignKey
@@ -10,6 +9,11 @@ from app.models.game.event import PositionalEvent, UserEvent
 from app.models.game.modifiers import ModifierSet
 from app.models.game.technologies.technology import Technology
 from app.models.role import Role
+# Importe pour son effet : sans lui, SQLAlchemy n'enregistre pas la table
+# des jetons et `create_all` ne la pose pas.
+from app.models.token import DeviceToken  # noqa: F401
+from app.security import (
+    hash_password, needs_rehash, verify_password)
 from logger import logger
 
 
@@ -40,6 +44,7 @@ class User(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     roles = relationship("Role", back_populates="user")
+    tokens = relationship("DeviceToken", back_populates="user")
     technologies = relationship("Technology", back_populates="user")
     territories = relationship("Territory", back_populates="user")
     faction = relationship("Faction")
@@ -68,8 +73,7 @@ class User(Base):
     @classmethod
     def new(cls, username, password, email, territory=None):
         usr = cls(username=username, email=email)
-        given = hashlib.sha256(password.encode('utf-8'))
-        usr.password = given.hexdigest()
+        usr.set_password(password)
         db.session.add(usr)
 
         db.session.flush()
@@ -77,6 +81,37 @@ class User(Base):
             territory.assign(user=usr)
             Technology.initialize(usr)
         return usr
+
+    def set_password(self, plain):
+        """
+        Range un nouveau mot de passe.
+        ---
+        Passe par `app.security` et non par un calcul pose ici : c'est la seule
+        facon que l'inscription, le changement de mot de passe et le
+        rehachage silencieux emploient tous les trois le meme.
+        """
+        self.password = hash_password(plain)
+
+    def check_password(self, plain):
+        """
+        Ce mot de passe est-il le bon ? Le remet a jour au passage si besoin.
+        ---
+        Les anciens comptes portent une empreinte SHA-256 nue, sans sel et sans
+        cout. On ne peut pas la convertir : une empreinte ne se remonte pas. Le
+        seul instant ou le serveur tient le mot de passe en clair est celui-ci,
+        et c'est donc ici que la conversion se fait — une fois, sans que le
+        joueur ait rien a faire.
+
+        L'appelant valide la session : c'est lui qui decide du `commit`.
+        """
+        if not verify_password(self.password, plain):
+            return False
+
+        if needs_rehash(self.password):
+            self.set_password(plain)
+            logger.info("Password rehashed", infos=dict(user_id=self.id))
+
+        return True
 
     def add_role(self, role_type, scope="*"):
         """

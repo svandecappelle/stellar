@@ -1562,6 +1562,14 @@ class Territory(Base):
 
         secedes = self.secedes_at
         return {
+            # Ce drapeau n'existe que pour le client Unity, et il n'est pas
+            # decoratif : `JsonUtility` construit TOUJOURS l'objet imbrique,
+            # meme absent du JSON. Un bloc manquant y devient donc un bloc a
+            # zero, ou `connected` vaut faux — et l'alerte d'isolement se
+            # leverait sur tout monde dont le serveur ne dit rien. Un champ que
+            # seul le serveur peut mettre a vrai est la seule facon de
+            # distinguer « pas raccorde » de « pas de reponse ».
+            'owned': True,
             'capital': bool(self.is_capital),
             # Raccorde au reseau imperial : il existe un chemin jusqu'a la
             # capitale, par des lignes ouvertes ou par le voisinage de systeme.

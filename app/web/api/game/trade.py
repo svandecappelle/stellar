@@ -46,6 +46,11 @@ def get_trade_lines():
     return {
         'lines': [line.serialize
                   for line in TradeLine.of(user=current_user.get(), open_only=False)],
+        # Ce qui voyage, dit par le serveur. Le client dresse sa liste de flux
+        # a partir de la : recopiee, elle offrirait l'energie — qui se produit
+        # et se consomme sur place — et la route la refuserait ensuite. Meme
+        # principe que `construction` sur la fiche territoire.
+        'tradeable': sorted(r.name for r in Territory.TRADEABLE),
     }
 
 

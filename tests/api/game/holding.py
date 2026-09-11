@@ -761,3 +761,64 @@ class TestTheHoldingBlock:
 
         shown = next(t for t in answer.json['territories'] if t['id'] == home.id)
         assert shown['holding']['connected'] is True
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_block_says_it_was_really_filled(
+            self, client, session, base_universe):
+        """
+        `JsonUtility`, seul lecteur JSON du client Unity, construit TOUJOURS
+        l'objet imbrique — meme absent du JSON. Un bloc manquant y devient donc
+        un bloc a zero, ou `connected` vaut faux, et l'alerte d'isolement se
+        leverait sur tout monde dont le serveur ne dit rien. Un champ que seul
+        le serveur peut mettre a vrai est la seule facon de les distinguer.
+        """
+        home = capital(session, base_universe)
+
+        holding = client.get('/api/territory/%d' % home.id).json['holding']
+        assert holding['owned'] is True
+
+
+class TestWhatTravels:
+    """
+    Ce qui circule sur une ligne est une regle du serveur. Recopiee cote
+    client, elle offrirait l'energie — qui se produit et se consomme sur place
+    — et la route la refuserait ensuite.
+    """
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_list_travels_with_the_lines(self, client, session, base_universe):
+        answer = client.get('/api/trade')
+        assert answer.status_code == 200
+
+        tradeable = answer.json['tradeable']
+        assert 'food' in tradeable
+        assert 'iron' in tradeable
+        assert 'credits' in tradeable
+        assert 'tritium' in tradeable
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_what_does_not_travel_is_absent(self, client, session, base_universe):
+        tradeable = client.get('/api/trade').json['tradeable']
+
+        # L'energie n'a pas de stock a deplacer ; la population voyage en
+        # vaisseau de colonisation, ou ne voyage pas. La recherche non plus ne
+        # se transporte pas : elle se depense la ou elle tombe.
+        assert 'energy' not in tradeable
+        assert 'population' not in tradeable
+        assert 'research' not in tradeable
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_route_refuses_exactly_what_the_list_omits(
+            self, client, session, base_universe):
+        """La liste annoncee et le refus rendu viennent du meme ensemble."""
+        user = me(base_universe)
+        home = capital(session, base_universe)
+        far = outpost(session, base_universe, user, position="8_8_8")
+        line = link(session, user, home, far)
+
+        answer = client.post(
+            '/api/trade/%d' % line.id,
+            json={'flows': [{'resource': 'energy', 'rate': 10}]})
+
+        assert answer.status_code == 400
+        assert 'energy' in answer.json['message'].lower()

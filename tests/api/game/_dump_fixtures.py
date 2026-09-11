@@ -22,6 +22,7 @@ import os
 
 import pytest
 
+from app.models.game.buildings import BuildingType
 from app.models.game.planet import PlanetArchetype
 from app.models.game.ship import ShipType
 from app.models.game.territory import Territory
@@ -78,3 +79,40 @@ def test_dump(client, session, base_universe):
     assert answer.status_code == 200
     assert answer.json['holding']['deactivated'] is True
     write('territory-dying.json', answer.json)
+
+    # Le monde d'un autre, tel qu'il apparait dans la liste d'un systeme : sans
+    # bloc de tenue. C'est l'echantillon qui prouve que l'alerte SE TAIT quand
+    # le serveur ne dit rien — `JsonUtility` construit l'objet imbrique meme
+    # absent, et le bloc vide s'y lirait sinon comme « monde isole ».
+    from app.models.user import User
+
+    rival = User.new(username="rivale", password="motdepasse",
+                     email="rivale@testing.com")
+    foreign = world(session, base_universe, PlanetArchetype.telluric, position=5)
+    foreign.assign(user=rival)
+    session.commit()
+
+    answer = client.get('/api/system/%d/territories' % foreign.system_id)
+    assert answer.status_code == 200
+    shown = next(t for t in answer.json['territories'] if t['id'] == foreign.id)
+    assert shown['holding'] is None
+    write('territory-foreign.json', shown)
+
+    # Une ligne ouverte, avec ses flux dans les deux sens : ce que lit le
+    # panneau de commerce. Posee par le modele plutot que par la route — c'est
+    # la FORME de la reponse qu'on echantillonne, pas le geste qui l'ouvre.
+    from app.models.game.trade import TradeLine
+
+    line = TradeLine(user_id=user.id, origin_id=colony.id,
+                     destination_id=platform.id,
+                     flows=[{'resource': 'food', 'rate': 280.0, 'to_origin': False},
+                            {'resource': 'hydrogen', 'rate': 120.0, 'to_origin': True}])
+    session.add(line)
+    colony.get_building(building_type=BuildingType.depot).level = 2
+    platform.get_building(building_type=BuildingType.depot).level = 1
+    session.commit()
+
+    answer = client.get('/api/trade')
+    assert answer.status_code == 200
+    assert answer.json['lines'][0]['throughput'] > 0
+    write('trade-lines.json', answer.json)

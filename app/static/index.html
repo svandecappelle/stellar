@@ -22,6 +22,9 @@
           <h1>Stellar</h1>
           <p>Console de commandement. Authentifiez-vous pour accéder à vos territoires,
              à leurs ressources et à leurs chaînes de construction.</p>
+          <!-- Pose par le serveur, avant toute authentification : personne ne
+               lirait un avis de coupure place derriere le formulaire. -->
+          <p class="admin-notice hidden" id="login-announcement"></p>
           <div class="theme-pick" id="login-theme-pick" style="margin-top:18px"></div>
         </div>
 
@@ -139,6 +142,103 @@
   </div>
 </section>
 
+<!-- ==================== ADMINISTRATION ====================
+     Reservee au role `admin`. Trois choses, dans l'ordre ou l'on s'en inquiete :
+     l'etat du schema — parce qu'un schema en retard ne se voit qu'en pleine
+     partie, sur une colonne absente —, les reglages de la machine, et le
+     journal de ce que les joueurs ont demande.
+
+     L'entree du menu reste cachee tant que le compte ne porte pas le role : la
+     barriere, elle, est sur les routes. Cacher un bouton n'a jamais empeche
+     personne d'appeler une URL. -->
+<section id="view-admin" class="stage hidden">
+  <div class="stage-in">
+    <div class="panel panel--hazard">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Administration du serveur</span>
+          <span class="t">Console d'exploitation</span>
+        </div>
+        <button class="btn btn--sm" type="button" id="admin-back">Retour</button>
+      </div>
+      <div class="rule"></div>
+
+      <div class="admin-tabs" role="tablist">
+        <button class="admin-tab admin-tab--on" data-admin-tab="state" role="tab">État</button>
+        <button class="admin-tab" data-admin-tab="settings" role="tab">Réglages</button>
+        <button class="admin-tab" data-admin-tab="audit" role="tab">Journal d'audit</button>
+      </div>
+
+      <!-- ÉTAT : version du schéma -->
+      <div class="admin-pane" data-admin-pane="state">
+        <p class="mod-intro">Deux révisions à rapprocher : celle que la base porte
+          dans <code>alembic_version</code>, et la tête de la chaîne de migrations
+          du dépôt. Quand elles diffèrent, le code tourne sur un schéma qui n'est
+          pas le sien — et cela ne se voit qu'au premier accès à une colonne
+          absente, c'est-à-dire en pleine partie.</p>
+        <div id="admin-schema"></div>
+      </div>
+
+      <!-- RÉGLAGES -->
+      <div class="admin-pane hidden" data-admin-pane="settings">
+        <p class="mod-intro">Chaque réglage est lu par du code qui existe : la
+          ligne « appliqué par » nomme l'endroit. Rien de ce qui vit dans les
+          fichiers <code>.ini</code> n'est ici — la clé de session et l'adresse de
+          la base se règlent au déploiement, pas depuis une page web.</p>
+        <form id="admin-settings-form">
+          <div id="admin-settings"></div>
+          <div class="mod-actions">
+            <button class="btn btn--pri" type="submit" id="admin-settings-save">Enregistrer</button>
+            <button class="btn" type="button" id="admin-settings-reset">Valeurs par défaut</button>
+          </div>
+          <p class="err-text hidden" id="admin-settings-error"></p>
+        </form>
+      </div>
+
+      <!-- JOURNAL D'AUDIT -->
+      <div class="admin-pane hidden" data-admin-pane="audit">
+        <p class="mod-intro">Les gestes notables, et <strong>tous</strong> les refus
+          du serveur. Ce sont les refus qui comptent : un client honnête n'envoie
+          que ce que l'interface lui permet, et une rafale de 400 ou de 403 est le
+          signe que quelqu'un parle à l'API directement. Aucun mot de passe ni
+          aucune clé n'y figure, même sur un refus de connexion.</p>
+
+        <div class="audit-filters">
+          <label>Joueur
+            <input type="text" id="audit-user" list="audit-players" placeholder="tous">
+            <datalist id="audit-players"></datalist>
+          </label>
+          <label>Geste
+            <select id="audit-action"></select>
+          </label>
+          <label>Issue
+            <select id="audit-outcome">
+              <option value="">toutes</option>
+              <option value="refused">refus</option>
+              <option value="ok">réussites</option>
+            </select>
+          </label>
+          <label>Code
+            <input type="number" id="audit-status" placeholder="401" min="100" max="599">
+          </label>
+          <button class="btn btn--sm btn--pri" type="button" id="audit-apply">Filtrer</button>
+          <button class="btn btn--sm" type="button" id="audit-clear">Tout</button>
+        </div>
+
+        <div id="admin-audit"></div>
+
+        <div class="audit-pager">
+          <button class="btn btn--sm" type="button" id="audit-prev">Précédent</button>
+          <span class="loading" id="audit-count"></span>
+          <button class="btn btn--sm" type="button" id="audit-next">Suivant</button>
+          <span class="grow"></span>
+          <button class="btn btn--sm btn--dgr" type="button" id="audit-purge">Purger l'ancien</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ==================== SCÈNE SYSTÈME ==================== -->
 <section id="view-command" class="scene hidden">
 
@@ -174,6 +274,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
@@ -252,6 +353,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
@@ -333,6 +435,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>

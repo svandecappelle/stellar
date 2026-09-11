@@ -1,0 +1,142 @@
+{
+    "/api/admin/schema": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "GET",
+        "summary": "Database schema revision against the repository migrations",
+        "responses": {
+            "200": {
+                "description": "Schema state, current revision, head, and what is left to play"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Administrator access is required"
+            }
+        }
+    },
+    "/api/admin/settings": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "GET",
+        "summary": "Server-wide settings, with their description and bounds",
+        "responses": {
+            "200": {
+                "description": "Settings, defaults, overrides and parameter descriptions"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Administrator access is required"
+            }
+        },
+        "requestBody": {
+            "required": false,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "settings": {
+                                "type": "object",
+                                "description": "Setting keys to change. A value equal to the default clears the override."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/admin/audit": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "GET",
+        "summary": "Audit trail: what players asked for and what the server answered",
+        "responses": {
+            "200": {
+                "description": "A page of audit entries, newest first"
+            },
+            "400": {
+                "description": "Invalid filter"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Administrator access is required"
+            }
+        }
+    },
+    "/api/admin/audit/purge": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "POST",
+        "summary": "Delete audit entries older than a number of days",
+        "responses": {
+            "200": {
+                "description": "Number of entries removed"
+            },
+            "400": {
+                "description": "Invalid number of days"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Administrator access is required"
+            }
+        },
+        "requestBody": {
+            "required": false,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "days": {
+                                "type": "integer",
+                                "description": "Entries older than this are deleted. Defaults to the configured retention."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/admin/players": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "GET",
+        "summary": "Account names and ids, to populate the audit filter",
+        "responses": {
+            "200": {
+                "description": "Players"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Administrator access is required"
+            }
+        }
+    },
+    "/api/server": {
+        "tags": [
+            "Administration"
+        ],
+        "method": "GET",
+        "summary": "What a visitor may know before signing in: announcement, and whether registration is open",
+        "responses": {
+            "200": {
+                "description": "Public server information"
+            }
+        }
+    }
+}

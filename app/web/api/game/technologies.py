@@ -18,6 +18,7 @@ avait sous les yeux.
 from flask import jsonify, request
 from flask_login import current_user
 
+from app.models.audit import Action, record
 from app.application import app, db, serialize
 from app.application import login_required
 from app.application import json_description
@@ -120,6 +121,7 @@ def increase_technology(name, territory=None):
     technology = Technology.get(user=me, type=tech_type)
 
     event = technology.increase(choice=payload.get('choice'))
+    record(Action.RESEARCH_START, technology=name, choice=payload.get('choice'))
     # Le niveau n'a pas bouge, mais la reserve et les stocks si : l'ensemble
     # memorise ne vaut plus rien pour la suite de la requete.
     me.forget_modifiers()
@@ -138,6 +140,7 @@ def cancel_technology(event_id):
     """
     me = current_user.get()
     event = Technology.cancel(user=me, event_id=event_id)
+    record(Action.RESEARCH_CANCEL, event_id=event_id)
     me.forget_modifiers()
     db.session.commit()
     return event

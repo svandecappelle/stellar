@@ -60,15 +60,46 @@ def caller():
     return request.remote_addr or 'unknown'
 
 
+def configured(bucket, limit, window):
+    """
+    Les bornes de ce seau, telles que l'administrateur les a reglees.
+
+    Le defaut du code est le secours : une base sans la table des reglages, ou
+    une transaction cassee, rendent les valeurs passees par la route. Un frein
+    ne doit pas pouvoir empecher de se connecter parce qu'un reglage est
+    illisible.
+    """
+    try:
+        from app.models.server import ServerSettings
+    except Exception:  # noqa: BLE001 - import circulaire au demarrage
+        return limit, window
+
+    return (
+        _number(ServerSettings.value('%s_attempts' % bucket), limit),
+        _number(ServerSettings.value('%s_window' % bucket), window),
+    )
+
+
+def _number(value, fallback):
+    try:
+        found = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return found if found > 0 else fallback
+
+
 def hit(bucket, key=None, limit=10, window=60):
     """
     Compte un essai. Leve `TooManyAttempts` si le seau deborde.
 
-    :param bucket: le nom de la route freinee.
+    :param bucket: le nom de la route freinee. Sert aussi a retrouver les
+        bornes reglees par l'administrateur — `login_attempts`, `login_window`.
     :param key: ce qu'on compte — l'adresse d'ou vient la requete par defaut.
-    :param limit: essais autorises dans la fenetre.
-    :param window: duree de la fenetre, en secondes.
+    :param limit: essais autorises dans la fenetre, si rien n'est regle.
+    :param window: duree de la fenetre en secondes, si rien n'est regle.
     """
+    limit, window = configured(bucket, limit, window)
+
     now = time.time()
     slot = (bucket, key or caller())
 

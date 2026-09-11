@@ -10,6 +10,7 @@ from app.application import app, db, serialize
 from app.application import login_required
 from app.application import json_description
 
+from app.models.audit import Action, record
 from app.models.game.galaxy import Galaxy
 from app.models.game import starlanes
 from app.models.game.settings import DEFAULTS, PARAMETERS, GalaxySettings
@@ -203,6 +204,11 @@ def update_galaxy_settings(name):
         "Galaxy settings updated",
         infos=dict(galaxy=name, user_id=user.id, settings=settings),
     )
+    # Un changement de rythme profite a toute la galaxie : il doit se voir dans
+    # le journal, sinon une partie acceleree en douce ne se distingue pas d'une
+    # partie jouee vite.
+    record(Action.GALAXY_SETTINGS, galaxy=name, settings=wanted)
+    db.session.commit()
 
     return {
         'galaxy_name': name,

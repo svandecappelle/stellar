@@ -4,6 +4,7 @@ import werkzeug.exceptions as ex
 from flask import jsonify, request, session, g, abort
 from flask_login import UserMixin, login_user, logout_user, current_user
 from app.application import app, db, json_description, login_required, serialize
+from app.models.audit import Action, record
 from app.models.user import User
 
 
@@ -65,6 +66,7 @@ def authentication():
     # `check_password` a pu remplacer une empreinte SHA-256 par une empreinte
     # scrypt : cette conversion-la n'a lieu qu'une fois par compte, et la perdre
     # la ferait recommencer a chaque connexion.
+    record(Action.LOGIN, user_id=user.id, username=user.username)
     db.session.commit()
 
     login_user(AuthUser(
@@ -90,6 +92,11 @@ def logout():
     session. Vider la session apres cet appel emporterait ce drapeau avec le
     reste, et le cookie resterait chez le client.
     """
+    # Notee AVANT la fermeture : apres, `current_user` ne dit plus qui
+    # partait, et la ligne s'ecrirait sans nom.
+    record(Action.LOGOUT)
+    db.session.commit()
+
     session.pop('logged_in', None)
     logout_user()
     return jsonify({'message': 'ok'})

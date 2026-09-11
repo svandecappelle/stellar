@@ -6,6 +6,7 @@ from flask_login import current_user
 from app.application import app, db, serialize
 from app.application import login_required
 from app.application import json_description
+from app.models.audit import Action, record
 from app.models.game.territory import Territory
 from app.models.game.buildings import BuildingType
 from app.models.game.event import PositionalEventType
@@ -83,6 +84,8 @@ def build(territory_id, building):
         logger.info(f"Cannot increase {type} building level. Prerequisites not reached.")
         raise ValueError(f"Cannot increase {building} building level. Prerequisites not reached.")
     event = territory.increase(type)
+    record(Action.TERRITORY_BUILD, territory_id=territory.id,
+           building=building, level=event.level if hasattr(event, 'level') else None)
     db.session.commit()
     return event
 
@@ -112,5 +115,11 @@ def build_defense_or_ship(territory_id):
     events = []
     for item in items:
         events.append(territory.build(type, item, spawn=spawn))
+
+    # Une seule ligne pour la commande entiere, et non une par vaisseau : ce
+    # qu'un administrateur lit est « il a lance trente chasseurs d'un coup »,
+    # pas trente lignes identiques a la seconde pres.
+    record(Action.TERRITORY_BUILD, territory_id=territory.id,
+           kind=str(type), items=items, count=len(events))
     db.session.commit()
     return events

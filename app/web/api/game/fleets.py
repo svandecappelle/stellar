@@ -20,6 +20,7 @@ from flask_login import current_user
 from app.application import app, db, serialize
 from app.application import login_required
 from app.application import json_description
+from app.models.audit import Action, record
 from app.models.game.fleet import Fleet
 from app.models.game.system import System
 from app.models.game.territory import Territory
@@ -157,6 +158,7 @@ def create_fleet(id):
         orbiting_territory_id=_orbit_target(
             payload.get('orbiting_territory_id'), system.id),
     )
+    record(Action.FLEET_CREATE, fleet_id=fleet.id, system_id=system.id)
     db.session.commit()
     return fleet
 
@@ -284,6 +286,12 @@ def travel_fleet(id):
     if route is None:
         raise ConflictError("No route of star lanes leads to this system")
 
+    # Le trajet complet, et pas seulement la destination : une flotte lancee
+    # vers un systeme qu'elle n'a aucun moyen d'avoir vu est le genre de chose
+    # qui ne se remarque qu'en relisant le chemin.
+    record(Action.FLEET_MOVE, fleet_id=fleet.id,
+           from_system=origin.id, to_system=destination.id,
+           hops=len(route) if hasattr(route, '__len__') else None)
     db.session.commit()
     return fleet
 

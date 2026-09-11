@@ -81,6 +81,32 @@ export const api = {
   revokeDevice: (id) => request(`/api/auth/token/${id}`, { method: 'DELETE' }),
   revokeDevices: () => request('/api/auth/tokens', { method: 'DELETE' }),
 
+  /* ---- administration du serveur ----
+     Réservé au rôle `admin`. Le moderateur n'y a pas accès : sa portée est une
+     galaxie, c'est-à-dire une partie, et régler la machine ou lire ce que tous
+     les joueurs ont fait en déborde. */
+  schema: () => request('/api/admin/schema'),
+  serverSettings: () => request('/api/admin/settings'),
+  saveServerSettings: (settings) =>
+    request('/api/admin/settings', { method: 'POST', body: { settings } }),
+  audit: (filters = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== '' && value !== null && value !== undefined) query.set(key, value);
+    });
+    const suffix = query.toString();
+    return request(`/api/admin/audit${suffix ? `?${suffix}` : ''}`);
+  },
+  purgeAudit: (days) =>
+    request('/api/admin/audit/purge', { method: 'POST', body: { days } }),
+  players: () => request('/api/admin/players').then((r) => (r && r.players) || []),
+
+  /* ---- ce qu'un visiteur voit avant d'avoir un compte ----
+     Publique, et volontairement pauvre : un message d'accueil, et si les
+     inscriptions sont ouvertes. Rien sur la version ni le schéma — quelqu'un
+     qui cherche une faille en a plusieurs. */
+  server: () => request('/api/server'),
+
   /* ---- catalogue statique (coûts des vaisseaux / défenses) ---- */
   catalog: () => request('/api/catalog'),
 

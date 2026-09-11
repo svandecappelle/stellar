@@ -15,6 +15,310 @@
   },
   "openapi": "3.0.3",
   "paths": {
+    "/api/admin/audit": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actions": {},
+                    "entries": {},
+                    "page": {},
+                    "pages": {},
+                    "retention_days": {},
+                    "size": {},
+                    "total": {}
+                  },
+                  "required": [
+                    "entries",
+                    "total",
+                    "page",
+                    "size",
+                    "pages",
+                    "actions",
+                    "retention_days"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of audit entries, newest first"
+          },
+          "400": {
+            "description": "Invalid filter"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Administrator access is required"
+          }
+        },
+        "summary": "Audit trail: what players asked for and what the server answered",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/admin/audit/purge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "days": {
+                    "description": "Entries older than this are deleted. Defaults to the configured retention.",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "days": {},
+                    "removed": {}
+                  },
+                  "required": [
+                    "removed",
+                    "days"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Number of entries removed"
+          },
+          "400": {
+            "description": "Invalid number of days"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Administrator access is required"
+          }
+        },
+        "summary": "Delete audit entries older than a number of days",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/admin/players": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "players": {}
+                  },
+                  "required": [
+                    "players"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Players"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Administrator access is required"
+          }
+        },
+        "summary": "Account names and ids, to populate the audit filter",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/admin/schema": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    },
+                    "head": {},
+                    "message": {},
+                    "pending": {},
+                    "revision": {},
+                    "state": {},
+                    "up_to_date": {}
+                  },
+                  "required": [
+                    "state",
+                    "revision",
+                    "head",
+                    "pending",
+                    "up_to_date",
+                    "message",
+                    "command"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Schema state, current revision, head, and what is left to play"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Administrator access is required"
+          }
+        },
+        "summary": "Database schema revision against the repository migrations",
+        "tags": [
+          "Administration"
+        ]
+      }
+    },
+    "/api/admin/settings": {
+      "get": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "settings": {
+                    "description": "Setting keys to change. A value equal to the default clears the override.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "defaults": {},
+                    "overrides": {},
+                    "parameters": {},
+                    "settings": {},
+                    "updated_at": {}
+                  },
+                  "required": [
+                    "settings",
+                    "defaults",
+                    "overrides",
+                    "parameters",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Settings, defaults, overrides and parameter descriptions"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Administrator access is required"
+          }
+        },
+        "summary": "Server-wide settings, with their description and bounds",
+        "tags": [
+          "Administration"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "defaults": {},
+                    "parameters": {},
+                    "settings": {}
+                  },
+                  "required": [
+                    "settings",
+                    "defaults",
+                    "parameters"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /api/admin/settings"
+      },
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "defaults": {},
+                    "parameters": {},
+                    "settings": {}
+                  },
+                  "required": [
+                    "settings",
+                    "defaults",
+                    "parameters"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "PUT /api/admin/settings"
+      }
+    },
     "/api/auth": {
       "get": {
         "responses": {
@@ -1344,6 +1648,34 @@
         "summary": "Get sample protected resource",
         "tags": [
           "Authentication"
+        ]
+      }
+    },
+    "/api/server": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "announcement": {},
+                    "registration_open": {}
+                  },
+                  "required": [
+                    "announcement",
+                    "registration_open"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Public server information"
+          }
+        },
+        "summary": "What a visitor may know before signing in: announcement, and whether registration is open",
+        "tags": [
+          "Administration"
         ]
       }
     },

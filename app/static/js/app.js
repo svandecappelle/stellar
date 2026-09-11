@@ -406,12 +406,398 @@ async function switchGalaxy(name) {
    ============================================================ */
 
 function showView(name) {
-  ['login', 'pick', 'command', 'moderation', 'galaxy', 'research'].forEach((v) => {
-    $(`#view-${v}`).classList.toggle('hidden', v !== name);
-  });
+  ['login', 'pick', 'command', 'moderation', 'galaxy', 'research', 'admin'].forEach(
+    (v) => {
+      $(`#view-${v}`).classList.toggle('hidden', v !== name);
+    }
+  );
   if (name !== 'command') stopTimers();
   if (name !== 'galaxy') stopMapTimers();
   if (name !== 'research') leaveResearch();
+}
+
+/* ============================================================
+   administration du serveur
+
+   Trois choses, dans l'ordre où l'on s'en inquiète : l'état du schéma, les
+   réglages de la machine, et le journal de ce que les joueurs ont demandé.
+
+   L'entrée du menu reste cachée tant que le compte ne porte pas le rôle
+   `admin`. Ce n'est qu'une politesse : la barrière est sur les routes, et
+   cacher un bouton n'a jamais empêché personne d'appeler une URL. C'est
+   d'ailleurs pour cela que la tentative est journalisée.
+   ============================================================ */
+
+const ADMIN = {
+  tab: 'state',
+  settings: null,
+  audit: null,
+  page: 1,
+  filters: {},
+};
+
+function isAdmin() {
+  const roles = (state.user && state.user.roles) || [];
+  return roles.some((r) => r.type === 'admin');
+}
+
+/* Relu à chaque entrée : un rôle peut être retiré entre deux sessions, et
+   `api.login` ne renvoie pas les rôles — seul `/api/auth/me` les porte. */
+function applyAdminAccess() {
+  const allowed = isAdmin();
+  document
+    .querySelectorAll('[data-act="admin"]')
+    .forEach((el) => el.classList.toggle('hidden', !allowed));
+}
+
+async function openAdmin() {
+  if (!isAdmin()) return;
+
+  stopTimers();
+  stopMapTimers();
+  showView('admin');
+  showAdminTab(ADMIN.tab);
+}
+
+function showAdminTab(name) {
+  ADMIN.tab = name;
+
+  document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
+    tab.classList.toggle('admin-tab--on', tab.dataset.adminTab === name);
+  });
+  document.querySelectorAll('[data-admin-pane]').forEach((pane) => {
+    pane.classList.toggle('hidden', pane.dataset.adminPane !== name);
+  });
+
+  if (name === 'state') loadSchema();
+  if (name === 'settings') loadServerSettings();
+  if (name === 'audit') loadAudit();
+}
+
+/* ---- état du schéma ---- */
+
+async function loadSchema() {
+  const box = $('#admin-schema');
+  box.innerHTML = '<p class="empty">Lecture…</p>';
+
+  let body;
+  try {
+    body = await api.schema();
+  } catch (e) {
+    box.innerHTML = `<p class="empty">${esc(
+      e instanceof ApiError ? e.message : 'Lecture impossible'
+    )}</p>`;
+    return;
+  }
+
+  /* Le ton suit l'état : à jour en vert, en retard en rouge. Un schéma en
+     retard n'est pas une information, c'est une action à mener — et il ne se
+     voit autrement qu'au premier accès à une colonne absente. */
+  const bad = !body.up_to_date;
+  const pending = body.pending || [];
+
+  box.innerHTML = `
+    <div class="admin-state ${bad ? 'admin-state--bad' : 'admin-state--ok'}">
+      <span class="admin-state__badge">${esc(body.state)}</span>
+      <span class="admin-state__text">${esc(body.message)}</span>
+    </div>
+    <div class="admin-grid">
+      <div><span class="ov">Révision de la base</span>
+        <span class="admin-rev">${esc(body.revision || '—')}</span></div>
+      <div><span class="ov">Attendue par le code</span>
+        <span class="admin-rev">${esc(body.head || '—')}</span></div>
+      <div><span class="ov">Migrations en attente</span>
+        <span class="admin-rev">${pending.length}</span></div>
+    </div>
+    ${
+      pending.length
+        ? `<div class="rule"></div>
+           <span class="ov">À jouer, de la plus ancienne</span>
+           <ol class="admin-pending">${pending
+             .map(
+               (p) =>
+                 `<li><code>${esc(p.revision)}</code> ${esc(
+                   (p.description || '').split('\n')[0]
+                 )}</li>`
+             )
+             .join('')}</ol>`
+        : ''
+    }
+    ${
+      bad
+        ? `<div class="rule"></div>
+           <p class="mod-intro">La migration ne se lance pas depuis cette page :
+             elle déplace des données, et la déclencher depuis plusieurs
+             instances à la fois est le genre de décision qui revient à
+             l'opérateur. Sur le serveur :</p>
+           <pre class="admin-cmd">${esc(body.command)}</pre>`
+        : ''
+    }`;
+}
+
+/* ---- réglages du serveur ---- */
+
+async function loadServerSettings() {
+  const box = $('#admin-settings');
+  box.innerHTML = '<p class="empty">Lecture…</p>';
+
+  try {
+    ADMIN.settings = await api.serverSettings();
+  } catch (e) {
+    box.innerHTML = `<p class="empty">${esc(
+      e instanceof ApiError ? e.message : 'Lecture impossible'
+    )}</p>`;
+    return;
+  }
+
+  renderServerSettings();
+}
+
+function renderServerSettings(values = null) {
+  const data = ADMIN.settings;
+  if (!data) return;
+
+  const settings = values || data.settings || {};
+
+  /* Le formulaire est construit à partir de ce que le serveur décrit, bornes
+     comprises : c'est lui qui applique le réglage, c'est à lui de dire ce qu'il
+     fait. Redire ici les bornes les ferait diverger au premier changement. */
+  $('#admin-settings').innerHTML = (data.parameters || [])
+    .map((p) => {
+      const value = settings[p.key];
+      const changed = Object.prototype.hasOwnProperty.call(data.overrides || {}, p.key);
+      return `<div class="mod-field">
+        <div class="mod-field__head">
+          <label for="set-${esc(p.key)}">${esc(p.label)}</label>
+          <span class="mod-field__state">${changed ? 'modifié' : 'par défaut'}</span>
+        </div>
+        <p class="mod-field__help">${esc(p.description)}</p>
+        <div class="mod-field__row">
+          ${settingInput(p, value)}
+          ${p.unit ? `<span class="mod-field__bounds">${esc(p.unit)}</span>` : ''}
+          <span class="mod-field__bounds">${esc(boundsOf(p))}</span>
+        </div>
+        <p class="mod-field__help">Appliqué par <code>${esc(p.applied_by)}</code></p>
+      </div>`;
+    })
+    .join('');
+}
+
+function settingInput(p, value) {
+  const id = `set-${esc(p.key)}`;
+  if (p.kind === 'bool') {
+    return `<input type="checkbox" id="${id}" data-setting="${esc(p.key)}"
+              data-kind="bool" ${value ? 'checked' : ''}>`;
+  }
+  if (p.kind === 'int') {
+    return `<input type="number" id="${id}" data-setting="${esc(p.key)}"
+              data-kind="int" value="${esc(String(value ?? p.default))}"
+              min="${esc(String(p.min))}" max="${esc(String(p.max))}" step="1">`;
+  }
+  return `<input type="text" id="${id}" data-setting="${esc(p.key)}"
+            data-kind="text" value="${esc(String(value ?? ''))}"
+            maxlength="${esc(String(p.max_length || 500))}">`;
+}
+
+function boundsOf(p) {
+  if (p.kind === 'int') return `${p.min} – ${p.max} · défaut ${p.default}`;
+  if (p.kind === 'bool') return `défaut ${p.default ? 'oui' : 'non'}`;
+  return `${p.max_length} caractères au plus`;
+}
+
+function readServerSettings() {
+  const wanted = {};
+  document.querySelectorAll('[data-setting]').forEach((input) => {
+    const key = input.dataset.setting;
+    if (input.dataset.kind === 'bool') wanted[key] = input.checked;
+    else if (input.dataset.kind === 'int') wanted[key] = Number(input.value);
+    else wanted[key] = input.value;
+  });
+  return wanted;
+}
+
+async function saveServerSettings() {
+  const err = $('#admin-settings-error');
+  const btn = $('#admin-settings-save');
+  err.classList.add('hidden');
+  btn.disabled = true;
+
+  try {
+    const answer = await api.saveServerSettings(readServerSettings());
+    /* Relu depuis la réponse et non depuis le formulaire : le serveur efface
+       les valeurs égales au défaut, et l'état « modifié » de chaque ligne doit
+       suivre. */
+    ADMIN.settings = await api.serverSettings();
+    renderServerSettings(answer.settings);
+    toast('Réglages enregistrés.', 'ok', 'Serveur');
+  } catch (e) {
+    err.textContent = e instanceof ApiError ? e.message : 'Enregistrement impossible';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function resetServerSettings() {
+  const data = ADMIN.settings;
+  if (!data) return;
+  /* Remet les défauts DANS LE FORMULAIRE, sans enregistrer : le geste reste
+     réversible tant qu'on n'a pas cliqué sur Enregistrer. */
+  renderServerSettings(data.defaults);
+}
+
+/* ---- journal d'audit ---- */
+
+async function loadAudit() {
+  const box = $('#admin-audit');
+  box.innerHTML = '<p class="empty">Lecture…</p>';
+
+  try {
+    ADMIN.audit = await api.audit({ ...ADMIN.filters, page: ADMIN.page, size: 50 });
+  } catch (e) {
+    box.innerHTML = `<p class="empty">${esc(
+      e instanceof ApiError ? e.message : 'Lecture impossible'
+    )}</p>`;
+    return;
+  }
+
+  fillAuditActions(ADMIN.audit.actions || []);
+  renderAudit();
+
+  /* La liste des comptes n'est lue qu'une fois : elle sert à compléter le champ
+     « joueur », pas à être tenue à jour à la seconde. */
+  if (!ADMIN.players) {
+    ADMIN.players = await api.players().catch(() => []);
+    $('#audit-players').innerHTML = ADMIN.players
+      .map((p) => `<option value="${esc(p.username)}">`)
+      .join('');
+  }
+}
+
+function fillAuditActions(actions) {
+  const select = $('#audit-action');
+  if (select.dataset.filled) return;
+  select.innerHTML =
+    '<option value="">tous</option>' +
+    actions.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  select.dataset.filled = '1';
+}
+
+function renderAudit() {
+  const data = ADMIN.audit;
+  if (!data) return;
+
+  if (!data.entries.length) {
+    $('#admin-audit').innerHTML = '<p class="empty">Aucune ligne pour ce filtre.</p>';
+  } else {
+    $('#admin-audit').innerHTML = `<table class="audit">
+      <thead><tr>
+        <th>Quand</th><th>Joueur</th><th>Geste</th>
+        <th>Issue</th><th>Route</th><th>Détails</th>
+      </tr></thead>
+      <tbody>${data.entries.map(auditRow).join('')}</tbody>
+    </table>`;
+  }
+
+  $('#audit-count').textContent = `${data.total} ligne(s) · page ${data.page}/${data.pages} · conservées ${data.retention_days} jours`;
+  $('#audit-prev').disabled = data.page <= 1;
+  $('#audit-next').disabled = data.page >= data.pages;
+}
+
+function auditRow(entry) {
+  const when = parseUtc(entry.created_at);
+  const refused = entry.outcome === 'refused';
+  return `<tr class="${refused ? 'audit--bad' : ''}">
+    <td class="audit__when">${when ? esc(when.toLocaleString('fr-FR')) : '—'}</td>
+    <td>${esc(entry.username || '—')}<span class="audit__ip">${esc(
+      entry.address || ''
+    )}</span></td>
+    <td><code>${esc(entry.action)}</code></td>
+    <td>${refused ? `<span class="audit__code">${esc(String(entry.status || ''))}</span>` : 'ok'}</td>
+    <td class="audit__route">${esc(entry.route || '—')}</td>
+    <td class="audit__details">${esc(summarise(entry.details))}</td>
+  </tr>`;
+}
+
+/* Une ligne de tableau ne peut pas porter un objet entier. On rend les clés
+   utiles à plat, et l'on s'arrête : la charge complète est en base pour qui
+   veut creuser, la vue sert à repérer ce qui sort de l'ordinaire. */
+function summarise(details) {
+  if (!details) return '';
+  const flat = details.payload ? { ...details, ...details.payload } : details;
+  delete flat.payload;
+
+  return Object.entries(flat)
+    .map(([key, value]) => {
+      if (value && typeof value === 'object') {
+        return `${key}=${JSON.stringify(value).slice(0, 60)}`;
+      }
+      return `${key}=${value}`;
+    })
+    .join(' · ')
+    .slice(0, 180);
+}
+
+function readAuditFilters() {
+  ADMIN.filters = {
+    user: $('#audit-user').value.trim(),
+    action: $('#audit-action').value,
+    outcome: $('#audit-outcome').value,
+    status: $('#audit-status').value,
+  };
+  ADMIN.page = 1;
+}
+
+async function purgeAudit() {
+  const days = window.prompt(
+    'Effacer les lignes plus vieilles que combien de jours ?',
+    String((ADMIN.audit && ADMIN.audit.retention_days) || 30)
+  );
+  if (!days) return;
+
+  try {
+    const done = await api.purgeAudit(Number(days));
+    toast(`${done.removed} ligne(s) effacée(s).`, 'ok', 'Journal');
+    await loadAudit();
+  } catch (e) {
+    handleApiError(e, 'Journal');
+  }
+}
+
+function initAdmin() {
+  $('#admin-back').addEventListener('click', () => applyRoute({ push: false }));
+
+  document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => showAdminTab(tab.dataset.adminTab));
+  });
+
+  $('#admin-settings-form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    saveServerSettings();
+  });
+  $('#admin-settings-reset').addEventListener('click', resetServerSettings);
+
+  $('#audit-apply').addEventListener('click', () => {
+    readAuditFilters();
+    loadAudit();
+  });
+  $('#audit-clear').addEventListener('click', () => {
+    $('#audit-user').value = '';
+    $('#audit-action').value = '';
+    $('#audit-outcome').value = '';
+    $('#audit-status').value = '';
+    readAuditFilters();
+    loadAudit();
+  });
+  $('#audit-prev').addEventListener('click', () => {
+    ADMIN.page = Math.max(1, ADMIN.page - 1);
+    loadAudit();
+  });
+  $('#audit-next').addEventListener('click', () => {
+    ADMIN.page += 1;
+    loadAudit();
+  });
+  $('#audit-purge').addEventListener('click', purgeAudit);
 }
 
 /* ============================================================
@@ -651,6 +1037,32 @@ function checkLogin(username, password) {
     return 'Une adresse de courriel valide est requise.';
   }
   return null;
+}
+
+/* Ce que le serveur annonce avant toute connexion : un message d'accueil, et
+   si les inscriptions sont ouvertes.
+
+   Cacher le bouton « Créer un compte » n'est qu'une politesse — elle évite de
+   remplir un formulaire qui sera refusé. La barrière est dans `POST /api/users`,
+   et elle tient qu'on ait vu ce bouton ou non. */
+async function loadServerNotice() {
+  let notice;
+  try {
+    notice = await api.server();
+  } catch (e) {
+    /* Un serveur qui ne répond pas à cette route reste parfaitement jouable :
+       elle n'apporte qu'un confort. */
+    return;
+  }
+
+  const box = $('#login-announcement');
+  box.textContent = notice.announcement || '';
+  box.classList.toggle('hidden', !notice.announcement);
+
+  if (notice.registration_open === false) {
+    $('#login-switch').classList.add('hidden');
+    if (registering) setLoginMode(false);
+  }
 }
 
 function initLogin() {
@@ -3032,6 +3444,9 @@ function runChromeAction(name) {
     case 'moderation':
       openModeration();
       break;
+    case 'admin':
+      openAdmin();
+      break;
     case 'settings':
       openSettings();
       break;
@@ -4124,6 +4539,16 @@ function initGalaxyMap() {
    ============================================================ */
 
 async function enterGame() {
+  /* Les roles ne viennent pas de `api.login`, qui serialise sans droits : seul
+     `/api/auth/me` les porte. Sans cette relecture, l'entree d'administration
+     resterait cachee a un administrateur qui vient de se connecter. */
+  try {
+    state.user = (await api.me()) || state.user;
+  } catch (e) {
+    /* Session ouverte mais lecture refusee : on garde ce qu'on a. */
+  }
+  applyAdminAccess();
+
   // Le droit de moderer se porte sur une galaxie : il se relit a chaque
   // entree, pas une fois pour la session.
   const [territories, catalog] = await Promise.all([
@@ -4194,15 +4619,17 @@ async function applyRoute({ push = false } = {}) {
 async function boot() {
   initTheme();
   initLogin();
+  initAdmin();
   initEvents();
   initChrome();
   initModeration();
   initGalaxyMap();
   initResearch();
 
-  // Route publique : la liste des galaxies s'obtient avant toute connexion,
-  // ce qui permet de choisir la sienne sur l'ecran de login.
-  await loadGalaxies();
+  // Routes publiques : la liste des galaxies, qui permet de choisir la sienne
+  // sur l'ecran de login, et ce que le serveur annonce a qui n'a pas encore de
+  // compte.
+  await Promise.all([loadGalaxies(), loadServerNotice()]);
 
   try {
     state.user = await api.me();

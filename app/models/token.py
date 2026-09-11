@@ -42,14 +42,16 @@ from app.security import new_token, token_digest
 from logger import logger
 
 
-#: Duree de vie d'un jeton, en jours, repoussee a chaque usage.
+#: Duree de vie d'un jeton, en jours, repoussee a chaque usage. DEFAUT :
+#: l'administrateur peut la changer a chaud, voir `lifetime_days`.
 #:
 #: Quatre-vingt-dix jours : assez long pour qu'un joueur regulier ne revoie
 #: jamais le formulaire, assez court pour qu'une machine abandonnee cesse d'etre
 #: une porte ouverte avant qu'on ne s'en souvienne.
 LIFETIME_DAYS = 90
 
-#: Jetons vivants au plus par compte.
+#: Jetons vivants au plus par compte. DEFAUT : reglable a chaud, voir
+#: `max_per_user`.
 #:
 #: Sans plafond, un client qui redemande un jeton a chaque demarrage — parce
 #: qu'il l'a mal range, parce qu'il tourne dans un conteneur jetable — en
@@ -59,6 +61,39 @@ MAX_PER_USER = 10
 #: Longueur d'un libelle d'appareil. Ce qui l'affiche est une liste, pas une
 #: page : au-dela, on tronque.
 MAX_LABEL = 120
+
+
+def lifetime_days():
+    """
+    Duree de vie reglee, `LIFETIME_DAYS` a defaut.
+
+    Le reglage est relu a CHAQUE emission et a chaque usage, non fige au
+    demarrage : la baisser doit raccourcir les cles au prochain passage, sans
+    quoi il faudrait redemarrer le serveur pour qu'une decision d'administrateur
+    prenne effet. En contrepartie, la baisser ne raccourcit pas retroactivement
+    les cles deja emises — leur echeance est ecrite en base.
+    """
+    return _number('device_token_days', LIFETIME_DAYS)
+
+
+def max_per_user():
+    """Plafond regle, `MAX_PER_USER` a defaut."""
+    return _number('max_devices_per_user', MAX_PER_USER)
+
+
+def _number(key, fallback):
+    """
+    Un reglage entier, avec son defaut en secours.
+    ---
+    Ne leve jamais : une base sans la table des reglages doit remettre des
+    jetons comme avant, pas refuser de se connecter.
+    """
+    try:
+        from app.models.server import ServerSettings
+        value = int(ServerSettings.value(key))
+    except Exception:  # noqa: BLE001
+        return fallback
+    return value if value > 0 else fallback
 
 
 class DeviceToken(Base):
@@ -124,7 +159,7 @@ class DeviceToken(Base):
             digest=token_digest(plain),
             label=(label or '')[:MAX_LABEL] or None,
             created_at=now,
-            expires_at=now + timedelta(days=LIFETIME_DAYS),
+            expires_at=now + timedelta(days=lifetime_days()),
         )
         db.session.add(token)
         db.session.flush()
@@ -138,7 +173,8 @@ class DeviceToken(Base):
     @classmethod
     def _trim(cls, user, now):
         """
-        Ne garde que les `MAX_PER_USER` jetons vivants les plus recents.
+        Ne garde que les N jetons vivants les plus recents, N etant le
+        plafond regle sur le serveur.
         ---
         Les revoques et les perimes ne comptent pas : ils n'ouvrent plus rien.
         """
@@ -146,11 +182,12 @@ class DeviceToken(Base):
             token for token in cls.of(user=user)
             if token.is_usable(now)
         ]
-        if len(alive) <= MAX_PER_USER:
+        ceiling = max_per_user()
+        if len(alive) <= ceiling:
             return
 
         alive.sort(key=lambda t: t.created_at)
-        for token in alive[:len(alive) - MAX_PER_USER]:
+        for token in alive[:len(alive) - ceiling]:
             token.revoked_at = now
             logger.info(
                 "Device token dropped, too many on the account",
@@ -201,7 +238,7 @@ class DeviceToken(Base):
         """
         now = now or datetime.utcnow()
         self.last_used_at = now
-        self.expires_at = now + timedelta(days=LIFETIME_DAYS)
+        self.expires_at = now + timedelta(days=lifetime_days())
         return self
 
     # ── Revocation ──────────────────────────────────────────────────────────

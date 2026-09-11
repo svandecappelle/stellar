@@ -6,6 +6,7 @@ from app.application import app, db, serialize
 from app.application import login_required
 from app.application import json_description
 
+from app.models.audit import Action, record
 from app.models.game.community.faction import Faction
 from app.models.game.planet import PlanetArchetype
 from app.models.game.territory import Territory
@@ -55,6 +56,8 @@ def affect_first_territory(id):
         )
 
     territory.assign(user=user)
+    record(Action.TERRITORY_CLAIM, territory_id=territory.id,
+           galaxy=galaxy_name, system_id=territory.system_id)
     db.session.commit()
     # Celui qu'on vient d'attribuer, pas le premier de la liste : le joueur
     # peut deja tenir un monde dans une autre galaxie.
@@ -92,5 +95,15 @@ def affect_faction_to_user(faction_id):
     user = current_user.get()
     if user.faction:
         raise ConflictError("User already has a faction")
+
     user.affect_faction(faction=faction)
+
+    # Le `commit` manquait. En test, la session survit a la requete et la
+    # faction paraissait posee ; en production, la session `scoped` est rendue
+    # au bout de chaque requete et ce qui n'a pas ete valide part avec elle —
+    # le joueur choisissait donc sa faction sans qu'elle soit jamais
+    # enregistree. Revele par l'annulation que fait le journal d'audit sur un
+    # refus, qui rend la session au propre entre deux appels comme le ferait la
+    # production.
+    db.session.commit()
     return None

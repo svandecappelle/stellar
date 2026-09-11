@@ -29,6 +29,8 @@ from flask import jsonify, request, abort
 from flask_login import login_user, current_user
 
 from app.application import app, db, json_description, login_required, serialize
+from app.models.audit import Action, record
+from app.models.server import ServerSettings
 from app.models.token import DeviceToken
 from app.models.user import User
 from app.security import WeakPassword, check_password_policy
@@ -74,6 +76,13 @@ def register():
     """
     hit('register', limit=5, window=600)
 
+    if not ServerSettings.value('registration_open'):
+        # 403 et non 503 : le serveur va tres bien, il a decide de ne pas
+        # accepter de compte. La console lit le meme reglage sur `/api/server`
+        # et cesse de proposer l'inscription — ceci est la barriere, cela
+        # n'etait que la politesse.
+        return abort(403, "Registration is closed on this server.")
+
     payload = request.get_json(silent=True) or {}
     username = (payload.get('username') or '').strip()
     password = payload.get('password')
@@ -99,10 +108,17 @@ def register():
         # rien qu'une partie ne montre deja.
         return abort(409, "That name is taken.")
 
+    # `User.new` vide la session : l'identifiant existe donc deja, et la trace
+    # peut partir AVANT la validation. L'ordre compte — une ligne d'audit posee
+    # apres le `commit` ne serait validee par personne, et la session `scoped`
+    # rendue en fin de requete l'emporterait. En test, ou la session survit a la
+    # requete, cela ne se verrait pas.
     user = User.new(username=username, password=password, email=email)
-    db.session.commit()
 
     logger.info("Account created", infos=dict(user_id=user.id))
+    record(Action.REGISTER, user_id=user.id, username=user.username, email=email)
+
+    db.session.commit()
 
     # La session s'ouvre dans la foulee : demander au joueur de se reconnecter
     # juste apres s'etre inscrit n'apporte rien.
@@ -145,6 +161,14 @@ def issue_token():
         return abort(401, "Invalid credentials")
 
     plain, token = DeviceToken.issue(user=user, label=payload.get('device'))
+
+    # La valeur en clair n'est PAS journalisee — `record` la retirerait de toute
+    # facon, mais on ne la lui donne pas. Seul l'identifiant de la ligne y va :
+    # il suffit a rapprocher une emission de la revocation qui la suivra.
+    record(Action.TOKEN_ISSUE, user_id=user.id, username=user.username,
+           device_id=token.id, label=token.label)
+    record(Action.LOGIN, user_id=user.id, username=user.username)
+
     db.session.commit()
 
     forget('login')
@@ -176,6 +200,8 @@ def open_session():
     # L'echeance est glissante : l'usage la repousse. Un joueur qui joue ne
     # revoit jamais le formulaire, une machine oubliee s'eteint toute seule.
     token.touch()
+    record(Action.SESSION_OPEN, user_id=token.user_id,
+           username=token.user.username, device_id=token.id)
     db.session.commit()
 
     forget('session')
@@ -215,6 +241,7 @@ def revoke_token(token_id):
         return abort(404, "No such device.")
 
     token.revoke()
+    record(Action.TOKEN_REVOKE, device_id=token.id, label=token.label)
     db.session.commit()
     return jsonify(token.serialize)
 
@@ -226,5 +253,6 @@ def revoke_all_tokens():
     """Deconnecte tous les appareils, y compris celui qui le demande."""
     me = current_user.get()
     closed = DeviceToken.revoke_all(user=me)
+    record(Action.TOKEN_REVOKE, devices=closed, scope='all')
     db.session.commit()
     return jsonify({'revoked': closed})

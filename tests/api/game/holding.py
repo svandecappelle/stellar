@@ -660,3 +660,104 @@ class TestANewColonyIsNeverBornIsolated:
         assert founded.is_connected is True
         assert TradeLine.between(
             origin=founded, destination=user.territories[0]) is not None
+
+
+# ── Ce que le client voit de la tenue ────────────────────────────────────────
+
+
+class TestTheHoldingBlock:
+    """
+    Un monde peut mourir d'isolement sans que rien ne le dise. La fiche
+    territoire porte donc ce qu'il faut pour le voir venir — et ne le porte
+    qu'a son proprietaire : le raccordement d'un monde ennemi est la carte de
+    son reseau, que rien dans le jeu ne permet d'observer autrement.
+    """
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_capital_reads_as_held_and_connected(
+            self, client, session, base_universe):
+        home = capital(session, base_universe)
+
+        answer = client.get('/api/territory/%d' % home.id)
+        assert answer.status_code == 200
+
+        holding = answer.json['holding']
+        assert holding['capital'] is True
+        assert holding['connected'] is True
+        assert holding['deactivated'] is False
+        assert holding['secedes_at'] is None
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_cut_off_world_says_so(self, client, session, base_universe):
+        user = me(base_universe)
+        capital(session, base_universe)
+        far = outpost(session, base_universe, user, position="8_8_8")
+
+        answer = client.get('/api/territory/%d' % far.id)
+        assert answer.json['holding']['connected'] is False
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_line_reconnects_it(self, client, session, base_universe):
+        user = me(base_universe)
+        home = capital(session, base_universe)
+        far = outpost(session, base_universe, user, position="8_8_8")
+        link(session, user, home, far)
+
+        answer = client.get('/api/territory/%d' % far.id)
+        assert answer.json['holding']['connected'] is True
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_dead_world_names_the_day_it_leaves(
+            self, client, session, base_universe):
+        """
+        C'est le seul chiffre qui compte quand tout va mal : combien de temps
+        reste-t-il. Sans lui le joueur ne decouvre la perte qu'une fois faite.
+        """
+        user = me(base_universe)
+        capital(session, base_universe)
+        far = outpost(session, base_universe, user, position="8_8_8")
+
+        started = datetime.utcnow() - timedelta(days=1)
+        far.stability = 0
+        far.unstable_since = started
+        session.commit()
+
+        holding = client.get('/api/territory/%d' % far.id).json['holding']
+        assert holding['deactivated'] is True
+        assert holding['stability'] == 0
+
+        leaves = datetime.fromisoformat(holding['secedes_at'])
+        assert leaves == started + timedelta(days=SECESSION_DAYS)
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_someone_elses_world_tells_nothing(
+            self, client, session, base_universe):
+        """
+        Le bloc est absent, pas vide : un `connected: false` sur un monde
+        ennemi serait une reponse, et personne n'a le droit de la lire.
+        """
+        from app.models.user import User
+
+        rival = User.new(username="rivale", password="motdepasse",
+                         email="rivale@testing.com")
+        theirs = outpost(session, base_universe, rival, position="6_6_6")
+
+        # La fiche territoire refuse deja un monde qu'on ne tient pas ; c'est la
+        # liste d'un systeme qui montre ceux des autres, et c'est donc par la
+        # que la carte de leur reseau pourrait fuir.
+        answer = client.get('/api/system/%d/territories' % theirs.system_id)
+        assert answer.status_code == 200
+
+        shown = next(t for t in answer.json['territories'] if t['id'] == theirs.id)
+        assert shown['holding'] is None
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_it_travels_with_the_system_view(self, client, session, base_universe):
+        """La liste d'un systeme est ce que le client lit le plus souvent."""
+        home = capital(session, base_universe)
+
+        answer = client.get('/api/system/%d/territories' % home.system_id)
+        assert answer.status_code == 200
+
+        shown = next(t for t in answer.json['territories'] if t['id'] == home.id)
+        assert shown['holding']['connected'] is True

@@ -15,6 +15,7 @@ apparie par nom de champ et en silence, une cle renommee ici laisse le client
 a zero sans rien dire.
 """
 
+from datetime import datetime, timedelta
 import io
 import json
 import os
@@ -62,3 +63,18 @@ def test_dump(client, session, base_universe):
     answer = client.get('/api/territory/%d' % platform.id)
     assert answer.status_code == 200
     write('territory-platform.json', answer.json)
+
+    # Le monde qui se meurt : coupe du reseau, eteint, et son compte a rebours
+    # en cours. C'est le seul cas pour lequel l'alerte existe, et le seul ou la
+    # date de secession est remplie.
+    dying = world(session, base_universe, PlanetArchetype.telluric, position=4)
+    dying.assign(user=user)
+    dying.is_capital = False
+    dying.stability = 0
+    dying.unstable_since = datetime.utcnow() - timedelta(days=1, hours=6)
+    session.commit()
+
+    answer = client.get('/api/territory/%d' % dying.id)
+    assert answer.status_code == 200
+    assert answer.json['holding']['deactivated'] is True
+    write('territory-dying.json', answer.json)

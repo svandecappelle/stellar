@@ -1536,6 +1536,47 @@ class Territory(Base):
             'refusals': refused,
         }
 
+    def holding_status(self, user=None):
+        """
+        Ce qu'il en est de la tenue de ce monde : raccorde, eteint, et quand il
+        partira s'il reste ainsi.
+
+        Rendu au SEUL proprietaire qui regarde, et `None` a tout autre. Deux
+        raisons, et les deux comptent :
+
+          · Dire d'un monde ennemi qu'il est isole publierait la carte de son
+            reseau, que rien dans le jeu ne permet d'observer autrement. Un
+            joueur saurait ou frapper sans avoir rien explore.
+
+          · Le raccordement se calcule par un parcours du reseau du
+            proprietaire. Le faire pour chaque monde affiche d'un systeme
+            etranger couterait autant de parcours que de mondes, pour une
+            reponse que personne n'a le droit de lire.
+
+        Le client, lui, ne le consulte que sur ses propres mondes : un bloc
+        absent n'y change rien.
+        """
+        watcher = user if user is not None else self._current_user()
+        if watcher is None or not self.user_id or self.user_id != watcher.id:
+            return None
+
+        secedes = self.secedes_at
+        return {
+            'capital': bool(self.is_capital),
+            # Raccorde au reseau imperial : il existe un chemin jusqu'a la
+            # capitale, par des lignes ouvertes ou par le voisinage de systeme.
+            'connected': self.is_connected,
+            # Stabilite a zero : production nulle, chantiers geles. Le monde
+            # est eteint, pas encore perdu.
+            'deactivated': self.is_deactivated,
+            'stability': self.stability_score,
+            # Le compte a rebours de la secession. Nul tant que le monde n'est
+            # pas tombe a zero — c'est la seule chose qui le declenche.
+            'unstable_since': (self.unstable_since.isoformat()
+                               if self.unstable_since else None),
+            'secedes_at': secedes.isoformat() if secedes else None,
+        }
+
     def build_refusal(self, building_type):
         """
         Pourquoi ce batiment ne peut pas monter d'un niveau, `None` s'il le peut.
@@ -1791,6 +1832,10 @@ class Territory(Base):
             # liste de batiments : sans lui, il proposerait une ferme sur une
             # plateforme orbitale, que le serveur refuse.
             'construction': self.construction_offer(),
+            # Raccordement, extinction, secession — ce qu'il faut pour voir
+            # venir la perte d'un monde. Nul pour qui n'en est pas le
+            # proprietaire : voir `holding_status`.
+            'holding': self.holding_status(),
             # Colonie ou plateforme : le client n'affiche ni les memes chiffres
             # ni les memes boutons pour l'une et pour l'autre.
             'orbital': bool(self.orbital),

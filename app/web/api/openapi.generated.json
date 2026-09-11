@@ -2681,6 +2681,165 @@
         ]
       }
     },
+    "/api/trade": {
+      "get": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "destination_id": {
+                    "type": "integer"
+                  },
+                  "origin_id": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "lines": {}
+                  },
+                  "required": [
+                    "lines"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Trade lines"
+          },
+          "401": {
+            "description": "Not authorized"
+          }
+        },
+        "summary": "Trade lines of the current player, open and closed",
+        "tags": [
+          "Trade"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "POST /api/trade"
+      }
+    },
+    "/api/trade/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "DELETE /api/trade/{id}"
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "flows": {
+                    "description": "Each entry: resource, rate per hour, and to_origin for the direction.",
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The line"
+          },
+          "400": {
+            "description": "Invalid flow"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "404": {
+            "description": "No such line"
+          }
+        },
+        "summary": "Declare what flows on a line, and in which direction",
+        "tags": [
+          "Trade"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "summary": "PUT /api/trade/{id}"
+      }
+    },
     "/api/user/{username}": {
       "get": {
         "parameters": [

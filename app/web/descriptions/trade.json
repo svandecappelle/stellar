@@ -1,0 +1,52 @@
+{
+    "/api/trade": {
+        "tags": ["Trade"],
+        "method": "GET",
+        "summary": "Trade lines of the current player, open and closed",
+        "responses": {
+            "200": {"description": "Trade lines"},
+            "401": {"description": "Not authorized"}
+        },
+        "requestBody": {
+            "required": false,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "origin_id": {"type": "integer"},
+                            "destination_id": {"type": "integer"}
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/api/trade/{id}": {
+        "tags": ["Trade"],
+        "method": "POST",
+        "summary": "Declare what flows on a line, and in which direction",
+        "responses": {
+            "200": {"description": "The line"},
+            "400": {"description": "Invalid flow"},
+            "401": {"description": "Not authorized"},
+            "404": {"description": "No such line"}
+        },
+        "requestBody": {
+            "required": true,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "flows": {
+                                "type": "array",
+                                "description": "Each entry: resource, rate per hour, and to_origin for the direction."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

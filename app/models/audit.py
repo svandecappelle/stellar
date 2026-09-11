@@ -166,6 +166,11 @@ class Action(object):
     FLEET_CREATE = 'fleet.create'
     FLEET_MOVE = 'fleet.move'
 
+    TRADE_OPEN = 'trade.open'
+    TRADE_FLOWS = 'trade.flows'
+    TRADE_CLOSE = 'trade.close'
+    TERRITORY_SECEDE = 'territory.secede'
+
     GALAXY_CREATE = 'galaxy.create'
     GALAXY_SETTINGS = 'galaxy.settings'
 

@@ -12,6 +12,7 @@ from app.models.game.fleet import Fleet
 from app.models.game.planet import PlanetArchetype, SETTLEMENT_STATION
 from app.models.game.ship import ShipType
 from app.models.game.territory import Territory
+from app.models.game.trade import TradeLine
 from app.web.api.exceptions import BadRequestError, ConflictError, NotFoundError
 
 @app.route('/api/events', methods=['GET'])
@@ -85,6 +86,18 @@ def claim_territory(id):
         # population par defaut de la planete ; c'est celle du vaisseau qui
         # compte, sans quoi coloniser reviendrait a fabriquer des gens.
         territory.population = COLONISTS_PER_SHIP
+
+    # Le vaisseau qui vient de fonder ce monde EST son premier convoi : il
+    # ouvre la ligne vers la capitale. Sans cela, une colonie naitrait isolee —
+    # sans depot, et sans les ressources pour en batir un — et perdrait de la
+    # stabilite des la premiere heure. Rien a ouvrir si elle est deja raccordee,
+    # ce qui est le cas d'une plateforme posee dans un systeme deja tenu.
+    if settled and not territory.is_connected:
+        capital = Territory.capital_of(user=user, galaxy_name=galaxy_name)
+        if capital is not None:
+            db.session.add(TradeLine(
+                user_id=user.id, origin_id=capital.id,
+                destination_id=territory.id))
 
     record(Action.TERRITORY_CLAIM, territory_id=territory.id,
            galaxy=galaxy_name, system_id=territory.system_id,

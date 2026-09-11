@@ -153,6 +153,27 @@ class ShipType(enum.Enum):
             }
         }
     }
+    # Le cargo ouvre une ligne de commerce, et s'y consomme : il fait le
+    # premier voyage, la route reste. C'est ce qui fait qu'une ligne se
+    # construit au lieu de se decreter, et ce qui donne du poids a la
+    # geographie — la distance est un cout en temps, pas un mur.
+    Freighter = {
+        "name": "Freighter",
+        "base_cost": {
+            "iron": 3200,
+            "titanium": 600,
+            "silicium": 700,
+            "credits": 400,
+            "energy": 0,
+            "population": 8
+        },
+        "integrity": 5000,
+        "requirements": {
+            "technologies": {
+                "convoyeurs": 3
+            }
+        }
+    }
     # La plateforme se pose sur ce qui ne se colonise pas. Elle ne demande pas
     # la technologie du corps vise — geante, asteroide ou anomalie exigent
     # chacun la leur, verifiee a l'arrimage : une coque qui les cumulerait

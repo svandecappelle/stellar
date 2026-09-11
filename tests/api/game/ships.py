@@ -41,6 +41,13 @@ def stock_the_shipyard(territory, session):
                      'uranium', 'hydrogen', 'neutronium', 'credits'):
         setattr(territory, resource, 10000000)
     territory.population = 10000
+
+    # Les vivres aussi, et pour la meme raison. Les coques les plus lourdes
+    # demandent des centaines d'heures de chantier : sans reserve, la colonie
+    # traverse la simulation en famine, sa stabilite tombe a zero et le monde
+    # finit par faire secession — apres quoi il ne construit plus rien. Ce qui
+    # est mis a l'epreuve ici est une livraison, pas un siege.
+    territory.food = 10000000
     session.commit()
 
 

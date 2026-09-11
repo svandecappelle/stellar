@@ -1,6 +1,6 @@
 import functools
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import enum
 import math
 
@@ -445,6 +445,10 @@ class Territory(Base):
         # est craquable tout de suite, sans attendre le tour suivant.
         self._run_cracking(hours=elapsed)
 
+        # Et le commerce en dernier : ce qui vient d'etre produit et craque part
+        # sur les lignes dans la meme tranche, plutot que d'attendre un tour.
+        self._run_trade(hours=elapsed)
+
         logger.info(f"Territory {self.id} caught up", infos=dict(
             time_elapsed=elapsed,
             events_applied=len(finished),
@@ -593,14 +597,29 @@ class Territory(Base):
 
         stability = float(self.stability if self.stability is not None else STABILITY_MAX)
 
-        if fed >= 1.0:
+        # Deux moteurs, et ils s'additionnent : un monde qu'on assiege ET qu'on
+        # affame tombe en une nuit, la ou chacun pris seul laisse des jours.
+        # L'isolement ronge, la faim tue.
+        isolation = 0.0 if self.is_connected else STABILITY_ISOLATION_HOUR
+
+        if fed >= 1.0 and not isolation:
             self._grow_population(hours=hours)
             self.stability = min(STABILITY_MAX, stability + STABILITY_RECOVERY_HOUR * hours)
         else:
+            if fed >= 1.0:
+                # Nourri mais coupe : la population croit quand meme. Ce n'est
+                # pas la faim qui la retient, c'est le reste de l'empire qui
+                # manque.
+                self._grow_population(hours=hours)
+
             # La population stagne : aucune croissance n'est appliquee ici. La
             # famine se paie en stabilite, jamais en habitants.
+            famine = STABILITY_DECAY_HOUR * (1.0 - fed)
             self.stability = max(
-                STABILITY_MIN, stability - STABILITY_DECAY_HOUR * (1.0 - fed) * hours)
+                STABILITY_MIN, stability - (famine + isolation) * hours)
+
+        # Le compte a rebours de la secession, et la secession elle-meme.
+        self._check_secession()
 
     @property
     def growth_rate(self):
@@ -731,6 +750,100 @@ class Territory(Base):
         self.tritium = (self.tritium or 0) + made
         return made
 
+    # ── Le commerce ─────────────────────────────────────────────────────────
+
+    #: Ce qui circule sur une ligne. Ni l'energie, qui se produit et se consomme
+    #: sur place sans stock, ni la population, qui voyage en vaisseau de
+    #: colonisation ou ne voyage pas.
+    TRADEABLE = frozenset(
+        ResourceType.materials()
+        + [ResourceType.credits, ResourceType.food, ResourceType.tritium])
+
+    def _run_trade(self, hours):
+        """
+        Fait couler les lignes dont ce territoire est le DEPART.
+
+        Le depart seulement, et c'est ce qui evite de compter deux fois : les
+        deux bouts se mettent a jour chacun de leur cote, et une ligne jouee par
+        les deux transporterait le double. Les flux vont dans les deux sens
+        malgre cela — c'est la ligne qui est parcourue, pas la direction.
+
+        :return: {nom de ressource: quantite deplacee}, pour la trace.
+        """
+        if hours <= 0 or not self.user_id:
+            return {}
+
+        from app.models.game.trade import TradeLine
+
+        moved = {}
+        # Meme raison que pour le raccordement : la lecture des lignes ne doit
+        # pas ecrire `updated_at` au milieu du tour.
+        with db.session.no_autoflush:
+            lines = [
+                line for line in TradeLine.of(user=self.user)
+                if line.origin_id == self.id
+            ]
+
+        for line in lines:
+            if line.is_blockaded:
+                # Un robinet, pas une demolition : la ligne reste ouverte et
+                # recoulera des que la flotte hostile s'en ira.
+                continue
+
+            other = line.destination
+            if other is None or other.user_id != self.user_id:
+                continue
+
+            budget = line.throughput * hours
+            for flow in line.flows:
+                if budget <= 0:
+                    break
+                shifted = self._shift(
+                    flow=flow, other=other, budget=budget, hours=hours)
+                if shifted:
+                    budget -= shifted[1]
+                    moved[shifted[0]] = moved.get(shifted[0], 0.0) + shifted[1]
+
+        return moved
+
+    def _shift(self, flow, other, budget, hours):
+        """
+        Deplace un flux, borne par le debit restant et par ce qu'il y a en stock.
+
+        Le debit declare est HORAIRE : sur deux heures il deplace deux fois
+        plus. Le traiter comme une quantite absolue faisait d'une ligne un
+        transfert unique, quelle que soit la duree ecoulee.
+
+        :return: (nom de ressource, quantite) ou None si rien n'a bouge.
+        """
+        name = (flow or {}).get('resource')
+        try:
+            resource = ResourceType(name)
+        except ValueError:
+            return None
+
+        if resource not in self.TRADEABLE:
+            return None
+
+        rate = float(flow.get('rate') or 0)
+        if rate <= 0:
+            return None
+
+        # `to_origin` : le sens du flux sur la ligne. Faux — le defaut — va du
+        # depart vers l'arrivee.
+        towards_origin = bool(flow.get('to_origin'))
+        source, target = (other, self) if towards_origin else (self, other)
+
+        available = float(getattr(source, resource.name, 0) or 0)
+        amount = min(rate * hours, budget, available)
+        if amount <= 0:
+            return None
+
+        setattr(source, resource.name, available - amount)
+        setattr(target, resource.name,
+                float(getattr(target, resource.name, 0) or 0) + amount)
+        return resource.name, amount
+
     # ── Prendre ce monde ────────────────────────────────────────────────────
 
     @property
@@ -816,6 +929,204 @@ class Territory(Base):
         self.stability = STABILITY_MAX
         self.unstable_since = None
         return self
+
+    # ── Tenir ce monde ──────────────────────────────────────────────────────
+
+    @property
+    def is_connected(self):
+        """
+        Ce monde est-il raccorde au reseau imperial ?
+
+        Il l'est s'il existe un chemin jusqu'a la CAPITALE du joueur dans cette
+        galaxie, par des lignes de commerce ouvertes et non bloquees ; deux
+        territoires d'un meme systeme sont raccordes sans ligne.
+
+        La capitale l'est par definition — sans ce point fixe, deux mondes
+        perdus relies l'un a l'autre se declareraient tous deux raccordes, ce
+        qui viderait la regle de son sens.
+
+        Un monde sans proprietaire n'est ni raccorde ni isole : il ne perd rien,
+        il attend. Rendre `True` plutot que `False` evite qu'un monde en
+        secession ne continue de s'etioler.
+        """
+        if not self.user_id:
+            return True
+        if self.is_capital:
+            return True
+
+        # `no_autoflush` : lire le reseau demande des requetes, et une requete
+        # au milieu du tour de jeu declenche un flush — qui ecrit `updated_at`
+        # par son `onupdate`, c'est-a-dire le jalon meme depuis lequel le tour
+        # compte son temps ecoule. Un chantier y perdait une unite sur les
+        # commandes les plus longues. Le raccordement est une LECTURE : il n'a
+        # aucune raison d'ecrire quoi que ce soit.
+        with db.session.no_autoflush:
+            return self._connected_to_capital()
+
+    def _connected_to_capital(self):
+        capital = Territory.capital_of(user=self.user, galaxy_name=self.galaxy_name)
+        if capital is None:
+            # Aucune capitale : le joueur n'est entre dans cette galaxie par
+            # aucun chemin de prise — un monde attribue a la main, un univers de
+            # test. On ne va pas l'affamer pour cela.
+            return True
+
+        return self._reaches(capital)
+
+    def _reaches(self, capital):
+        """
+        Parcours du reseau, du monde vers la capitale.
+        ---
+        Sur les territoires du joueur DANS CETTE GALAXIE, et sur eux seuls : une
+        ligne ne traverse pas les galaxies, et un monde tenu ailleurs ne raccorde
+        rien ici.
+        """
+        from app.models.game.trade import TradeLine
+
+        galaxy = self.galaxy_name
+        mine = {
+            territory.id: territory
+            for territory in (self.user.territories or [])
+            if territory.galaxy_name == galaxy
+        }
+
+        # Les voisins de systeme, gratuits : une plateforme vit de la colonie
+        # d'a cote sans rien construire.
+        neighbours = {}
+        for territory in mine.values():
+            neighbours.setdefault(territory.id, set())
+            for other in mine.values():
+                if other.id != territory.id and other.system_id == territory.system_id:
+                    neighbours[territory.id].add(other.id)
+
+        for line in TradeLine.of(user=self.user):
+            if line.origin_id not in mine or line.destination_id not in mine:
+                continue
+            if line.is_blockaded:
+                continue
+            neighbours.setdefault(line.origin_id, set()).add(line.destination_id)
+            neighbours.setdefault(line.destination_id, set()).add(line.origin_id)
+
+        seen = {self.id}
+        queue = [self.id]
+        while queue:
+            current = queue.pop()
+            if current == capital.id:
+                return True
+            for neighbour in neighbours.get(current, ()):  # noqa: B007
+                if neighbour not in seen:
+                    seen.add(neighbour)
+                    queue.append(neighbour)
+
+        return False
+
+    @property
+    def is_deactivated(self):
+        """
+        Stabilite a zero : le monde est eteint, pas perdu.
+        ---
+        Production nulle, chantiers geles. Il reste au joueur et remonte des
+        qu'il est nourri ou raccorde — la secession ne vient qu'apres.
+        """
+        return self.stability_score <= STABILITY_MIN
+
+    @property
+    def secedes_at(self):
+        """Quand ce monde fera secession, `None` s'il n'est pas a zero."""
+        if not self.unstable_since:
+            return None
+        return self.unstable_since + timedelta(days=SECESSION_DAYS)
+
+    def _check_secession(self, now=None):
+        """
+        Fait secession si le monde est reste a zero assez longtemps.
+
+        Il part avec TOUT : stock, batiments, population. Celui qui l'a laisse
+        partir perd ce qu'il y avait entasse, mais peut tout recuperer en le
+        reprenant — la secession punit sans confisquer, et un monde riche a
+        l'abandon devient une cible que les voisins ont une raison d'aller
+        chercher.
+
+        Les flottes ne partent pas avec lui : elles appartiennent au joueur, pas
+        au territoire.
+        """
+        now = now or datetime.utcnow()
+
+        if not self.user_id:
+            return False
+        if not self.is_deactivated:
+            # Remonte au-dessus de zero : le compte a rebours s'efface. Teste
+            # avant d'ecrire — reaffecter la meme valeur salit l'instance, et
+            # une instance sale ecrit `updated_at` au prochain flush, c'est-a-
+            # dire le jalon depuis lequel le tour de jeu compte son temps.
+            if self.unstable_since is not None:
+                self.unstable_since = None
+            return False
+
+        if self.unstable_since is None:
+            self.unstable_since = now
+            return False
+
+        if now < self.unstable_since + timedelta(days=SECESSION_DAYS):
+            return False
+
+        logger.info("Territory %d secedes" % self.id, infos=dict(
+            territory_id=self.id, user_id=self.user_id,
+            since=self.unstable_since.isoformat()))
+
+        # Une secession se lit dans le journal comme un geste : c'est un monde
+        # qui change de main, et l'administrateur qui cherche pourquoi un joueur
+        # a fondu doit pouvoir le retrouver.
+        from app.models.audit import Action, record
+        record(Action.TERRITORY_SECEDE, user_id=self.user_id,
+               territory_id=self.id, galaxy=self.galaxy_name,
+               was_capital=bool(self.is_capital))
+
+        was_capital = bool(self.is_capital)
+        former = self.user
+
+        self.user_id = None
+        self.user = None
+        self.is_capital = False
+        self.unstable_since = None
+
+        # Les lignes qui y menaient ne menent plus nulle part.
+        from app.models.game.trade import TradeLine
+        for line in TradeLine.touching(territory=self):
+            line.close(now=now)
+
+        if was_capital:
+            Territory.promote_capital(user=former, galaxy_name=self.galaxy_name)
+
+        return True
+
+    @classmethod
+    def promote_capital(cls, user, galaxy_name):
+        """
+        Designe une nouvelle capitale apres la perte de l'ancienne.
+
+        Sans elle, tous les mondes restants se declareraient isoles et
+        tomberaient l'un apres l'autre : perdre sa capitale couterait l'empire
+        entier, ce qui n'est pas une regle mais un effondrement.
+
+        Le plus ancien monde encore tenu : c'est le plus etabli, et le choix ne
+        demande rien au joueur a un moment ou il n'est probablement pas la.
+        """
+        if user is None or not galaxy_name:
+            return None
+
+        held = sorted(
+            (t for t in (user.territories or [])
+             if t.galaxy_name == galaxy_name and t.user_id == user.id),
+            key=lambda t: t.id)
+        if not held:
+            return None
+
+        chosen = held[0]
+        chosen.is_capital = True
+        logger.info("Capital promoted", infos=dict(
+            territory_id=chosen.id, user_id=user.id, galaxy=galaxy_name))
+        return chosen
 
     @classmethod
     def capital_of(cls, user, galaxy_name):
@@ -1342,3 +1653,12 @@ class Territory(Base):
             'starving': self.is_starving,
             'updated_at': self.updated_at.isoformat(),
         }
+
+
+# Enregistre la table des lignes de commerce aupres des metadonnees. `create_all`
+# ne batit que les modeles IMPORTES, et rien n'importe ce module au chargement :
+# les lectures ne s'en font qu'a l'interieur de methodes, pour ne pas boucler.
+# Sans cette ligne, la table manque partout ou le schema sort de `create_all` —
+# c'est-a-dire dans toute la suite de tests. Meme motif que
+# `app/models/user.py`, qui enregistre ainsi les jetons d'appareil.
+from app.models.game.trade import TradeLine  # noqa: E402,F401

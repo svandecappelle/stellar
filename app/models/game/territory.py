@@ -138,6 +138,25 @@ class ResourceType(enum.Enum):
         return cls.materials() + [cls.credits, cls.food, cls.population, cls.tritium]
 
 
+def _indexed(offer):
+    """
+    Ajoute la forme INDEXEE des prerequis a une offre de prise.
+
+    `JsonUtility`, le seul lecteur JSON du client Unity, ne sait pas
+    deserialiser un objet dont les cles sont inconnues a la compilation : il
+    apparie par nom de CHAMP. Un dictionnaire `{"forage": 3}` ne peut donc pas
+    etre lu, et la console web, elle, prefere le dictionnaire.
+
+    On sert les deux. Meme raison et meme forme que
+    `technology_type.describe()`, qui a paye cette lecon avant nous.
+    """
+    offer['requires_list'] = [
+        {'name': name, 'level': level}
+        for name, level in sorted((offer.get('requires') or {}).items())
+    ]
+    return offer
+
+
 class Territory(Base):
     __tablename__ = 'territory'
 
@@ -899,6 +918,90 @@ class Territory(Base):
 
         return None
 
+    def claim_offer(self, user=None):
+        """
+        Ce qu'il faudrait pour prendre ce monde, tel que le client doit l'afficher.
+
+        Rend le geste, la coque a amener, ce qui manque et — quand il y a un
+        refus — la phrase a montrer. Le client dessine son bouton a partir de
+        la : recopier la regle des archetypes cote client la ferait diverger au
+        premier equilibrage, et c'est deja arrive a d'autres tables de ce jeu.
+
+        `user` par defaut : celui de la session. Le territoire n'est pas oblige
+        de le savoir, mais toutes les lectures passent par une route
+        authentifiee, et le demander a l'appelant a chaque serialisation
+        obligerait a le faire descendre partout.
+        """
+        from app.models.game.planet import SETTLEMENT_COLONY
+
+        if user is None:
+            user = self._current_user()
+
+        archetype = self.planet_archetype
+        kind = archetype.settlement if archetype is not None else SETTLEMENT_COLONY
+        station = kind == SETTLEMENT_STATION
+
+        offer = {
+            'kind': kind,
+            # La coque a amener en orbite. Le premier monde d'une galaxie n'en
+            # demande aucune — un joueur qui n'a rien ne peut pas en avoir
+            # construit — et `hull` est alors nul.
+            'hull': ShipType.ExtractionPlatform.name if station else ShipType.ColonyShip.name,
+            'requires': (archetype.station_requires if station
+                         else (archetype.colonisation_requires() or {})),
+            'taken': self.is_claimed,
+            'available': False,
+            'first': False,
+            'refusal': None,
+        }
+
+        if user is None:
+            # Lecture anonyme : on decrit le monde, on ne promet rien.
+            offer['refusal'] = "Sign in to claim a world."
+            return _indexed(offer)
+
+        # La premiere prise d'une galaxie ne demande ni coque ni technologie,
+        # seulement un monde tellurique. C'est un cas a part, et le dire evite
+        # au client d'aller chercher une coque qu'il ne peut pas avoir.
+        settled = any(t.galaxy_name == self.galaxy_name
+                      for t in (user.territories or []))
+        if not settled:
+            offer['first'] = True
+            offer['hull'] = None
+            offer['requires'] = {}
+            if self.is_claimed:
+                offer['refusal'] = "This world already has an owner."
+            elif archetype != PlanetArchetype.telluric:
+                offer['refusal'] = (
+                    "A starting world must be telluric, not %s."
+                    % (archetype.name if archetype else "unknown"))
+            else:
+                offer['available'] = True
+            return _indexed(offer)
+
+        refusal = self.claim_refusal(user=user)
+        offer['refusal'] = refusal
+        offer['available'] = refusal is None
+        return _indexed(offer)
+
+    @staticmethod
+    def _current_user():
+        """
+        Le joueur de la session, `None` hors requete.
+        ---
+        Lu ici plutot que passe en argument : la serialisation est appelee par
+        une dizaine de routes, et faire descendre le joueur jusqu'a elle
+        toucherait chacune pour un champ.
+        """
+        try:
+            from flask_login import current_user
+
+            if not current_user.is_authenticated:
+                return None
+            return current_user.get()
+        except Exception:  # noqa: BLE001 - hors contexte de requete
+            return None
+
     def claim(self, user, now=None):
         """
         Attribue ce monde au joueur, en colonie ou en plateforme.
@@ -1637,6 +1740,11 @@ class Territory(Base):
             # batiments rendent. Sans ca le client afficherait une recolte brute
             # et le joueur ne comprendrait pas pourquoi sa reserve fond.
             'upkeep': {ResourceType.food.name: self.food_upkeep},
+            # Ce qu'il faudrait pour prendre ce monde, du point de vue de celui
+            # qui regarde. C'est le serveur qui tranche : une regle recopiee
+            # dans deux clients divergerait au premier equilibrage, et le
+            # bouton se dessine a partir d'ici.
+            'claim': self.claim_offer(),
             # Colonie ou plateforme : le client n'affiche ni les memes chiffres
             # ni les memes boutons pour l'une et pour l'autre.
             'orbital': bool(self.orbital),

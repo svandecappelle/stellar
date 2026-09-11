@@ -501,3 +501,97 @@ class TestCracking:
         refinery_on_dry = (10 + 12 * 3 * pow(1.1, 3)) * desert.water_factor
 
         assert taken.cracking_capacity > refinery_on_dry * 2
+
+
+# ── Ce que le serveur offre au client ────────────────────────────────────────
+
+class TestTheClaimOffer:
+    """
+    Le client dessine son bouton a partir de `claim`, et de rien d'autre. Une
+    regle d'archetypes recopiee cote client divergerait au premier equilibrage
+    — c'est deja arrive a d'autres tables de ce jeu.
+    """
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_first_world_asks_for_no_hull(self, client, session, base_universe):
+        user = me(session, base_universe)
+        for territory in list(user.territories):
+            territory.user_id = None
+            territory.is_capital = False
+        session.commit()
+
+        target = world(session, base_universe, PlanetArchetype.telluric)
+        offer = target.claim_offer(user=user)
+
+        assert offer['first'] is True
+        assert offer['hull'] is None
+        assert offer['requires'] == {}
+        assert offer['available'] is True
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_second_world_names_its_hull(self, client, session, base_universe):
+        user = me(session, base_universe)
+        target = world(session, base_universe, PlanetArchetype.telluric)
+
+        offer = target.claim_offer(user=user)
+        assert offer['kind'] == SETTLEMENT_COLONY
+        assert offer['hull'] == 'ColonyShip'
+        assert offer['available'] is True
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_gas_giant_names_the_platform_and_its_technology(
+            self, client, session, base_universe):
+        user = me(session, base_universe)
+        target = world(session, base_universe, PlanetArchetype.gas_giant)
+
+        offer = target.claim_offer(user=user)
+        assert offer['kind'] == SETTLEMENT_STATION
+        assert offer['hull'] == 'ExtractionPlatform'
+        assert offer['requires'] == {'forage': 3}
+        assert offer['available'] is False
+        assert 'forage' in offer['refusal']
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_world_already_held_says_so(self, client, session, base_universe):
+        user = me(session, base_universe)
+        offer = user.territories[0].claim_offer(user=user)
+
+        assert offer['taken'] is True
+        assert offer['available'] is False
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_offer_travels_with_the_system_view(
+            self, client, session, base_universe):
+        user = me(session, base_universe)
+        target = world(session, base_universe, PlanetArchetype.gas_giant)
+
+        answer = client.get('/api/system/%d/territories' % target.system_id)
+        assert answer.status_code == 200
+
+        shown = next(t for t in answer.json['territories'] if t['id'] == target.id)
+        assert shown['claim']['kind'] == SETTLEMENT_STATION
+        assert shown['claim']['hull'] == 'ExtractionPlatform'
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_requirements_travel_in_both_shapes(
+            self, client, session, base_universe):
+        """
+        `JsonUtility` — le seul lecteur JSON du client Unity — apparie par nom
+        de CHAMP : il ne sait pas lire `{"forage": 3}`. La console web, elle,
+        prefere le dictionnaire. On sert les deux, comme l'arbre technologique.
+        """
+        user = me(session, base_universe)
+        target = world(session, base_universe, PlanetArchetype.gas_giant)
+
+        offer = target.claim_offer(user=user)
+        assert offer['requires'] == {'forage': 3}
+        assert offer['requires_list'] == [{'name': 'forage', 'level': 3}]
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_world_with_nothing_to_research_carries_an_empty_list(
+            self, client, session, base_universe):
+        user = me(session, base_universe)
+        target = world(session, base_universe, PlanetArchetype.telluric)
+
+        offer = target.claim_offer(user=user)
+        assert offer['requires_list'] == []

@@ -131,6 +131,49 @@ class ShipType(enum.Enum):
             }
         }
     }
+    # Les deux coques de l'expansion. Elles se CONSOMMENT a l'usage : c'est la
+    # seule regle neuve du modele de flotte, et elle vaut pour les deux.
+    #
+    # Le vaisseau de colonisation coute des habitants, et beaucoup : quarante
+    # sur les cent d'un monde de depart. L'expansion se paie en gens, pas
+    # seulement en metal, sans quoi rien n'empecherait d'essaimer sans fin.
+    ColonyShip = {
+        "name": "ColonyShip",
+        "base_cost": {
+            "iron": 2400,
+            "silicium": 900,
+            "credits": 300,
+            "energy": 0,
+            "population": 40
+        },
+        "integrity": 4000,
+        "requirements": {
+            "technologies": {
+                "poussee_chimique": 2
+            }
+        }
+    }
+    # La plateforme se pose sur ce qui ne se colonise pas. Elle ne demande pas
+    # la technologie du corps vise — geante, asteroide ou anomalie exigent
+    # chacun la leur, verifiee a l'arrimage : une coque qui les cumulerait
+    # interdirait de batir la plateforme avant de savoir tout arraisonner.
+    ExtractionPlatform = {
+        "name": "ExtractionPlatform",
+        "base_cost": {
+            "iron": 9000,
+            "titanium": 3000,
+            "silicium": 1500,
+            "credits": 800,
+            "energy": 0,
+            "population": 5
+        },
+        "integrity": 8000,
+        "requirements": {
+            "technologies": {
+                "moulage_sous_vide": 3
+            }
+        }
+    }
 
     def duration(self, shipyard):
         return self.value["integrity"] / 2500 * (1 + shipyard.level) * 60

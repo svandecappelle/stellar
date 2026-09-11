@@ -4,7 +4,8 @@ from datetime import datetime
 import enum
 import math
 
-from sqlalchemy import Column, Enum, Integer, JSON, String, DateTime, ForeignKey, func
+from sqlalchemy import (
+    Boolean, Column, Enum, Integer, JSON, String, DateTime, ForeignKey, func)
 from sqlalchemy.orm import relationship
 
 from app.application import db
@@ -15,7 +16,8 @@ from app.models.game.modifiers import (
 from app.models.game.defense import Defense, DefenseType
 from app.models.game.event import PositionalEventType, PositionalEvent
 from app.models.game.fleet import Fleet
-from app.models.game.planet import PlanetArchetype
+from app.models.game.planet import (
+    PlanetArchetype, SETTLEMENT_STATION)
 from app.models.game.settings import GalaxySettings
 from app.models.game.ship import ShipType
 from app.models.game.system import System
@@ -58,6 +60,37 @@ STABILITY_DECAY_HOUR = 5.0
 #: tourne au ralenti, il ne s'arrete pas : sinon rien ne pourrait plus le sortir
 #: de la.
 STABILITY_FLOOR_FACTOR = 0.5
+
+#: Points perdus par heure sur un monde coupe du reseau imperial.
+#:
+#: Trois fois plus lent que la famine, et c'est voulu : l'isolement ronge, la
+#: faim tue. Cent points a 1,5 par heure font soixante-sept heures avant
+#: l'extinction, plus le sursis de secession — pres de six jours pour reagir.
+#: Une absence de week-end ne coute pas un monde.
+STABILITY_ISOLATION_HOUR = 1.5
+
+#: Jours passes a zero avant qu'un monde ne fasse secession.
+#:
+#: A zero il est eteint, pas perdu : la fenetre existe pour qu'un joueur absent
+#: puisse rentrer et rattraper. Passe ce delai, le monde entre dans le jeu des
+#: autres.
+SECESSION_DAYS = 3
+
+#: Hydrogene consomme par unite de tritium produite par le craqueur.
+CRACKING_RATIO = 4.0
+
+#: Ce qu'une plateforme orbitale accepte de construire.
+#:
+#: Quatre modules, et pas un de plus : sans population, une ferme ne nourrit
+#: personne, une academie n'a pas de chercheurs et un centre economique n'a pas
+#: de marche. Ce qui reste tourne sans habitants — on extrait, on raffine, on
+#: alimente, on entrepose.
+ORBITAL_MODULES = frozenset({
+    BuildingType.mater_extractor,
+    BuildingType.power_station,
+    BuildingType.depot,
+    BuildingType.gas_cracker,
+})
 
 
 class ResourceType(enum.Enum):
@@ -133,9 +166,27 @@ class Territory(Base):
     # seule, sans que le joueur ne construise quoi que ce soit.
     food = Column(Integer, default=1000, nullable=False)
 
-    # Stabilite, de 0 a 100. Un monde nourri revient a 100 ; un monde affame y
-    # descend, et ce qu'il produit descend avec elle.
+    # Stabilite, de 0 a 100. Un monde nourri et raccorde revient a 100 ; un
+    # monde affame ou coupe du reseau y descend, et ce qu'il produit descend
+    # avec elle.
     stability = Column(Integer, default=STABILITY_MAX, nullable=False)
+
+    # Depuis quand la stabilite est a zero. Nul tant qu'elle ne l'est pas.
+    # C'est cette date qui declenche la secession, et c'est elle qui donne au
+    # joueur absent une fenetre pour rentrer : un monde a zero est eteint, il
+    # n'est pas encore perdu.
+    unstable_since = Column(DateTime, nullable=True)
+
+    # Plateforme orbitale plutot que colonie. Un territoire orbital possede le
+    # corps sans l'habiter : pas de population, donc pas de famine, et seuls
+    # les modules d'`ORBITAL_MODULES` s'y construisent.
+    orbital = Column(Boolean, default=False, nullable=False)
+
+    # Capitale du joueur DANS CETTE GALAXIE. Elle est raccordee par definition :
+    # l'isolement se mesure en chemin jusqu'a elle, et non en nombre de lignes.
+    # Sans ce point fixe, deux mondes perdus relies l'un a l'autre se
+    # declareraient tous deux raccordes.
+    is_capital = Column(Boolean, default=False, nullable=False)
 
     # Planet archetype: decides which materials can be extracted here.
     archetype = Column(Enum(PlanetArchetype), nullable=True)
@@ -390,6 +441,10 @@ class Territory(Base):
         # dont les fermes suffisent pourtant tout juste.
         self._run_life_cycle(hours=elapsed)
 
+        # Pour la meme raison : l'hydrogene sorti dans cette tranche de temps
+        # est craquable tout de suite, sans attendre le tour suivant.
+        self._run_cracking(hours=elapsed)
+
         logger.info(f"Territory {self.id} caught up", infos=dict(
             time_elapsed=elapsed,
             events_applied=len(finished),
@@ -606,6 +661,10 @@ class Territory(Base):
         Zero pour un monde sans proprietaire : la production depend du joueur
         (sa faction notamment), et un monde inhabite n'en a pas.
         """
+        # Une plateforme orbitale ne porte personne : il n'y a pas de sol ou
+        # poser une ville, et c'est toute la difference entre les deux gestes.
+        if self.orbital:
+            return 0
         if not self.user_id or not FOOD_PER_POPULATION_HOUR:
             return 0
         harvest = self.get_hourly_gain(resource_type=ResourceType.food)
@@ -621,6 +680,152 @@ class Territory(Base):
             modifier_type=ModifierType.Capacity,
             target=ResourceType.population.name,
         ))
+
+    # ── Le craqueur ─────────────────────────────────────────────────────────
+
+    @property
+    def cracking_capacity(self):
+        """
+        Tritium que le craqueur sortirait en une heure, hydrogene a volonte.
+
+        Ce que le module rend VRAIMENT est borne par l'hydrogene en reserve :
+        voir `_run_cracking`. Cette valeur-ci est ce que le client annonce, et
+        ce qu'un joueur compare au niveau suivant.
+        """
+        cracker = self.get_building(building_type=BuildingType.gas_cracker)
+        level = cracker.level or 0
+        if level <= 0 or not self.accepts(BuildingType.gas_cracker):
+            return 0.0
+
+        # Meme forme que la raffinerie, trois fois plus haut : craquer une
+        # geante doit valoir mieux que raffiner de l'eau, sans rendre la
+        # raffinerie inutile sur les mondes qui en ont.
+        return 35.0 * level * pow(1.1, level) * self.stability_factor
+
+    def _run_cracking(self, hours):
+        """
+        Casse l'hydrogene en tritium, dans la limite de ce qu'il y a en reserve.
+
+        Le seul batiment du jeu dont l'ENTREE est une ressource. Il ne figure
+        donc pas dans `PRODUCED_RESOURCES` : une production qui consomme ne se
+        decrit pas par une courbe seule, et la laisser dans la boucle generale
+        aurait fait descendre une colonne sous zero.
+
+        Joue APRES la production : l'hydrogene extrait dans la meme tranche de
+        temps est craquable tout de suite, ce qui evite qu'une plateforme
+        n'attende un tour pour transformer ce qu'elle vient de sortir.
+        """
+        if hours <= 0:
+            return 0.0
+
+        wanted = self.cracking_capacity * hours
+        if wanted <= 0:
+            return 0.0
+
+        available = max(0.0, float(self.hydrogen or 0))
+        made = min(wanted, available / CRACKING_RATIO)
+        if made <= 0:
+            return 0.0
+
+        self.hydrogen = available - (made * CRACKING_RATIO)
+        self.tritium = (self.tritium or 0) + made
+        return made
+
+    # ── Prendre ce monde ────────────────────────────────────────────────────
+
+    @property
+    def is_claimed(self):
+        return self.user_id is not None
+
+    def settlement_kind(self):
+        """
+        Le geste que ce corps accepte : `colony` ou `station`.
+        ---
+        Lu de l'archetype, jamais decide ici : c'est la table des archetypes qui
+        dit ce qu'un monde est, et deux endroits qui en decideraient
+        finiraient par ne plus dire la meme chose.
+        """
+        archetype = self.planet_archetype
+        return archetype.settlement if archetype is not None else None
+
+    def claim_refusal(self, user):
+        """
+        Ce qui empeche ce joueur de prendre ce monde, `None` s'il le peut.
+
+        Rend une PHRASE, pas un booleen : un bouton eteint sans raison envoie
+        chercher au mauvais endroit, et c'est ici qu'on sait pourquoi. Ne
+        verifie ni la flotte ni la coque — cela depend de ce qui est en orbite,
+        que le modele de territoire n'a pas a interroger.
+        """
+        from app.models.game.technologies.technology import Technology
+
+        if self.is_claimed:
+            return "This world already has an owner."
+
+        archetype = self.planet_archetype
+        if archetype is None:
+            return "This world has no archetype and cannot be claimed."
+
+        if archetype.settlement == SETTLEMENT_STATION:
+            required = archetype.station_requires
+        else:
+            required = archetype.colonisation_requires()
+            if required is None:
+                # Ne devrait pas arriver : la table des paliers couvre tous les
+                # archetypes colonisables. Le dire plutot que de laisser passer.
+                return "No known method settles a %s world." % archetype.name
+
+        levels = Technology.levels(user=user)
+        missing = {
+            name: level for name, level in (required or {}).items()
+            if levels.get(name, 0) < level
+        }
+        if missing:
+            return "Requires: %s." % ", ".join(
+                "%s %d" % (name, level) for name, level in sorted(missing.items()))
+
+        return None
+
+    def claim(self, user, now=None):
+        """
+        Attribue ce monde au joueur, en colonie ou en plateforme.
+
+        C'est le chemin unique : la premiere attribution d'une galaxie, la
+        colonisation et l'arrimage d'une plateforme passent tous par ici. Ce qui
+        les distingue — une coque en orbite, un monde deja tenu — se verifie
+        avant, dans la route.
+        """
+        now = now or datetime.utcnow()
+        orbital = self.settlement_kind() == SETTLEMENT_STATION
+
+        self.orbital = orbital
+        self.assign(user=user)
+
+        if orbital:
+            # Une plateforme ne porte personne. `assign` a pu laisser la
+            # population par defaut du monde : on la vide, sans quoi une
+            # plateforme mangerait — et mourrait de faim.
+            self.population = 0
+            self.food = 0
+
+        # La premiere prise dans une galaxie fait la capitale. C'est le point
+        # fixe du reseau : l'isolement se mesure en chemin jusqu'a elle.
+        if not self.capital_of(user=user, galaxy_name=self.galaxy_name):
+            self.is_capital = True
+
+        self.stability = STABILITY_MAX
+        self.unstable_since = None
+        return self
+
+    @classmethod
+    def capital_of(cls, user, galaxy_name):
+        """La capitale de ce joueur dans cette galaxie, `None` s'il n'en a pas."""
+        if user is None or not galaxy_name:
+            return None
+        for territory in (user.territories or []):
+            if territory.is_capital and territory.galaxy_name == galaxy_name:
+                return territory
+        return None
 
     @property
     def population_growth(self):
@@ -683,11 +888,25 @@ class Territory(Base):
 
     def get_building(self, building_type):
         """
-        ---
-        :param building_type:
-        :return:
+        Le batiment de ce type sur ce monde, cree au niveau zero s'il manque.
+
+        Les lignes sont posees une par type a la naissance du territoire : un
+        type ajoute au jeu apres coup n'existe donc sur aucun monde deja cree,
+        et cette methode levait alors un `StopIteration` nu — impossible a lire
+        dans une trace, et fatal a la premiere lecture du monde. La migration
+        pose les lignes manquantes ; ceci rattrape tout ce qu'elle aurait
+        oublie, et rattrapera le prochain batiment ajoute.
         """
-        return next(b for b in self.buildings if b.type == building_type)
+        found = next((b for b in self.buildings if b.type == building_type), None)
+        if found is not None:
+            return found
+
+        from app.models.game.buildings import Building
+
+        found = Building(territory_id=self.id, type=building_type)
+        db.session.add(found)
+        self.buildings.append(found)
+        return found
 
     @property
     def modifiers(self):
@@ -834,34 +1053,81 @@ class Territory(Base):
             user_id=self.user_id,
         ))
 
+    def accepts(self, building_type):
+        """
+        Ce monde accepte-t-il ce batiment, quel que soit le reste ?
+        ---
+        Repond a la question de PLACE, pas de moyens : une plateforme n'a pas
+        de sol pour une ferme, et une geante gazeuse est le seul corps dont on
+        puisse craquer les gaz. Les ressources et les technologies se verifient
+        ailleurs — un refus de place ne se corrige pas en attendant.
+        """
+        if self.orbital and building_type not in ORBITAL_MODULES:
+            return False
+
+        # Le craqueur casse de l'hydrogene : sur un monde qui n'en sort pas, il
+        # n'aurait rien a casser.
+        if building_type == BuildingType.gas_cracker:
+            archetype = self.planet_archetype
+            return archetype is not None and archetype.produces(ResourceType.hydrogen.name)
+
+        return True
+
+    def build_refusal(self, building_type):
+        """
+        Pourquoi ce batiment ne peut pas monter d'un niveau, `None` s'il le peut.
+
+        Rend une PHRASE, et dans l'ordre ou l'on peut y remedier : la place
+        d'abord — un refus definitif, que rien ne corrigera —, la technologie
+        ensuite, les ressources en dernier. La route rendait « prerequis non
+        atteint » pour les trois, ce qui envoyait chercher du fer pour une ferme
+        qu'aucune plateforme ne portera jamais.
+        """
+        if self.orbital and building_type not in ORBITAL_MODULES:
+            return (
+                "Cannot build %s on an orbital platform. It has no ground: "
+                "only %s can be built there." % (
+                    building_type.name,
+                    ", ".join(sorted(m.name for m in ORBITAL_MODULES))))
+
+        if not self.accepts(building_type):
+            return ("Cannot build %s here: this world yields no hydrogen to crack."
+                    % building_type.name)
+
+        missing = self.missing_technologies(building_type)
+        if missing:
+            return "Cannot build %s. Requires: %s." % (
+                building_type.name,
+                ", ".join("%s %d" % (name, level)
+                          for name, level in sorted(missing.items())))
+
+        building = self.get_building(building_type=building_type)
+        if not self.match_prerequisite(building.cost):
+            return ("Cannot build %s: not enough resources." % building_type.name)
+
+        return None
+
     def can_be_increased(self, building_type):
         """
         Check if building can be increase of level
         ---
         :return:
         """
-        if self.missing_technologies(building_type):
-            return False
-        building = next(b for b in self.buildings if b.type == building_type)
-        return self.match_prerequisite(building.cost)
+        return self.build_refusal(building_type) is None
 
     def increase(self, building_type):
         """
         ---
         :return:
         """
-        # Deux batiments passent derriere l'arbre — l'usine et le chantier naval
-        # — et le refus doit le dire : un « prerequis non atteint » qui parle de
-        # ressources quand il manque une technologie envoie chercher au mauvais
-        # endroit.
-        missing = self.missing_technologies(building_type)
-        if missing:
-            raise ValueError(
-                "Cannot build %s. Requires: %s." % (
-                    building_type.name,
-                    ", ".join("%s %d" % (name, level) for name, level in missing.items())))
+        # Un seul endroit sait pourquoi un batiment est refuse — pas de sol,
+        # pas d'hydrogene, une technologie ou des ressources manquantes — et
+        # c'est `build_refusal`. Le dupliquer ici ferait deux verites.
+        refusal = self.build_refusal(building_type)
+        if refusal:
+            raise ValueError(refusal)
 
-        building = next(b for b in self.buildings if b.type == building_type)
+        building = self.get_building(building_type=building_type)
         if building:
             # Paye a la commande, comme le chantier de vaisseaux : c'est le
             # moment ou le joueur a montre qu'il en avait les moyens, et rien
@@ -973,7 +1239,7 @@ class Territory(Base):
 
     @property
     def energy(self):
-        building = next(b for b in self.buildings if b.type == BuildingType.power_station)
+        building = self.get_building(building_type=BuildingType.power_station)
         return building.get_hourly_gain[ResourceType.energy] - self.consumption
 
     @property
@@ -1060,6 +1326,10 @@ class Territory(Base):
             # batiments rendent. Sans ca le client afficherait une recolte brute
             # et le joueur ne comprendrait pas pourquoi sa reserve fond.
             'upkeep': {ResourceType.food.name: self.food_upkeep},
+            # Colonie ou plateforme : le client n'affiche ni les memes chiffres
+            # ni les memes boutons pour l'une et pour l'autre.
+            'orbital': bool(self.orbital),
+            'is_capital': bool(self.is_capital),
             'stability': self.stability_score,
             # Le profil du monde : ce que le joueur lit pour juger une
             # planete avant de s'y installer. Des nombres, pas des phrases —

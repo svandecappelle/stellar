@@ -80,9 +80,16 @@ def build(territory_id, building):
     territory = Territory.get(id=territory_id, user=me)
     if not territory:
         raise ValueError("Territory does not owned by you")
-    if not territory.can_be_increased(type):
-        logger.info(f"Cannot increase {type} building level. Prerequisites not reached.")
-        raise ValueError(f"Cannot increase {building} building level. Prerequisites not reached.")
+    # Le garde reste : `spend` ne borne pas a zero — il compte sur l'appelant
+    # pour avoir verifie — et le retirer laisserait construire a credit. Ce qui
+    # change est le MESSAGE : « prerequis non atteint » etait rendu dans tous
+    # les cas, y compris pour une ferme sur une plateforme orbitale, ou
+    # attendre ne changera jamais rien.
+    refusal = territory.build_refusal(type)
+    if refusal:
+        logger.info(f"Cannot increase {type} building level. {refusal}")
+        raise ValueError(refusal)
+
     event = territory.increase(type)
     record(Action.TERRITORY_BUILD, territory_id=territory.id,
            building=building, level=event.level if hasattr(event, 'level') else None)

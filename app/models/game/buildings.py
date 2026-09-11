@@ -90,6 +90,50 @@ class BuildingType(enum.Enum):
         'extraction': lambda n: max(30, 30 * n * pow(1.1, n)),
         'time': lambda x: 5 * pow(3, x)
     }
+    # Le depot : ce qui permet a une ligne de commerce d'exister, et ce qui
+    # fixe son debit. Une ligne demande un depot AUX DEUX BOUTS, et coule au
+    # rythme du plus faible des deux.
+    #
+    # Sans prerequis technologique, et c'est deliberé : une ligne est la seule
+    # reponse a l'isolement, et l'isolement coute de la stabilite des la
+    # premiere heure. Mettre le depot derriere l'arbre reviendrait a punir un
+    # joueur pour une recherche qu'il n'a pas encore pu faire.
+    depot = {
+        'cost': {
+            'iron': lambda n: 120 * pow(1.7, n - 1),
+            'silicium': lambda n: 80 * pow(1.7, n - 1),
+            'credits': lambda n: 60 * pow(1.7, n - 1),
+            'energy': lambda n: 6 * n * pow(1.1, n)
+        },
+        # Aucun `gain` : un depot ne produit rien. Ce qu'il donne est un debit,
+        # lu par la ligne de commerce — voir `app/models/game/trade.py`.
+        'time': lambda x: 5 * pow(3, x)
+    }
+    # Le craqueur : le seul batiment du jeu dont l'ENTREE est une ressource.
+    #
+    # Il casse l'hydrogene en tritium. Jusqu'ici l'hydrogene n'etait consomme
+    # que par trois technologies, tres haut dans l'arbre — et la geante gazeuse,
+    # qui en est de loin la meilleure source, produisait donc une ressource sans
+    # debouche. Le tritium, lui, verrouille l'academie, l'usine et le chantier
+    # naval : c'est ce qui fait d'une plateforme sur geante un accelerateur
+    # industriel, et non un decor.
+    #
+    # Le rendement vit dans `Territory._run_cracking`, pas dans un `gain` : une
+    # production qui consomme ne se decrit pas par une courbe seule.
+    gas_cracker = {
+        'cost': {
+            'iron': lambda n: 300 * pow(1.8, n - 1),
+            'titanium': lambda n: 150 * pow(1.8, n - 1),
+            'credits': lambda n: 250 * pow(1.8, n - 1),
+            'energy': lambda n: 25 * n * pow(1.1, n)
+        },
+        'time': lambda x: 5 * pow(3, x),
+        'requirements': {
+            'technologies': {
+                'raffinage': 2
+            }
+        }
+    }
     power_station = {
         'cost': {
             'iron': lambda n: 75 * pow(1.6, n - 1),

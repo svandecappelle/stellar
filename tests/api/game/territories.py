@@ -163,6 +163,16 @@ class TestTerritory:
         territory_id = response.json['territories'][0].get('id')
         assert territory_id is not None
         territory = Territory.get(id=territory_id)
+
+        # Certains batiments ne se posent pas partout : le craqueur demande un
+        # monde qui rende de l'hydrogene, et le monde de depart est tellurique.
+        # Ce refus-la est une regle de place, pas une duree — il est eprouve
+        # pour lui-meme dans `tests/api/game/colonisation.py`.
+        if not territory.accepts(building):
+            pytest.skip(
+                "%s ne se construit pas sur un monde %s"
+                % (building.name, territory.planet_archetype.name))
+
         # L'usine et le chantier naval sont derriere l'arbre : sans leurs
         # technologies la commande part en 400 avant qu'on ait pu mesurer quoi
         # que ce soit. Ce qui est eprouve ici est une duree, pas un verrou.
@@ -601,7 +611,10 @@ class TestTerritoryPaysItsBills:
 
             response = client.post(f'/api/territory/{territory.id}/mater_extractor')
             assert response.status_code == 400
-            assert "Prerequisites not reached" in response.json["message"]
+            # Le refus nomme desormais ce qui manque. « Prerequis non atteint »
+            # etait rendu aussi bien pour une caisse vide que pour une ferme sur
+            # une plateforme orbitale, et n'aidait dans aucun des deux cas.
+            assert "not enough resources" in response.json["message"]
 
 
 class TestRefinery:

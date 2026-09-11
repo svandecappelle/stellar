@@ -84,6 +84,31 @@ HABITABILITY_NEUTRAL = 50
 WATER_DRY_YIELD = 0.6
 WATER_SPAN = 1.0
 
+#: Les deux gestes par lesquels un corps entre dans un empire.
+#:
+#: `colony` — on y debarque des gens, le monde devient un territoire habite.
+#: `station` — on lui arrime une plateforme : elle le possede sans l'habiter.
+SETTLEMENT_COLONY = 'colony'
+SETTLEMENT_STATION = 'station'
+
+#: L'echelle de colonisation : a partir de quelle habitabilite un monde solide
+#: s'ouvre, et ce qu'il faut avoir cherche pour cela.
+#:
+#: Lue du plus accueillant au plus hostile, et le PREMIER seuil atteint gagne :
+#: un monde a 60 tombe dans la premiere ligne et ne demande rien. Les paliers
+#: s'appuient sur des technologies qui existent deja — la branche biosphere
+#: annoncait ces noms-la depuis toujours sans que rien ne les lise.
+COLONISATION_STEPS = [
+    # Ocean (80), tellurique (60) : le premier monde et ses semblables.
+    (50, None),
+    # Desertique (30), volcanique (25) : il faut respirer sous pression.
+    (25, {'habitats_pressurises': 2}),
+    # Glace (20) : il faut tenir le froid.
+    (20, {'adaptation': 3}),
+    # Irradiee (13) : il faut reprendre le monde a la racine.
+    (13, {'terraformation': 5}),
+]
+
 
 class PlanetArchetype(enum.Enum):
     """
@@ -100,6 +125,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.0,
         'water': 60,
         'habitability': 60,
+        'settlement': 'colony',
     }
     volcanic = {
         'label': 'Volcanique',
@@ -108,6 +134,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.25,
         'water': 5,
         'habitability': 25,
+        'settlement': 'colony',
     }
     oceanic = {
         'label': 'Océanique',
@@ -116,6 +143,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.0,
         'water': 100,
         'habitability': 80,
+        'settlement': 'colony',
     }
     desert = {
         'label': 'Désertique',
@@ -124,6 +152,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.1,
         'water': 2,
         'habitability': 30,
+        'settlement': 'colony',
     }
     ice = {
         'label': 'Glacée',
@@ -132,6 +161,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 0.9,
         'water': 85,
         'habitability': 20,
+        'settlement': 'colony',
     }
     gas_giant = {
         'label': 'Géante gazeuse',
@@ -140,6 +170,9 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.0,
         'water': 30,
         'habitability': 8,
+        # Aucune surface : ne se colonise a aucun palier de l'arbre.
+        'settlement': 'station',
+        'station_requires': {'forage': 3},
     }
     asteroid = {
         'label': 'Astéroïde',
@@ -148,6 +181,8 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 0.8,
         'water': 3,
         'habitability': 5,
+        'settlement': 'station',
+        'station_requires': {'metaux_rares': 4},
     }
     irradiated = {
         'label': 'Irradiée',
@@ -156,6 +191,7 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.1,
         'water': 10,
         'habitability': 13,
+        'settlement': 'colony',
     }
     anomaly = {
         'label': 'Anomalie',
@@ -164,6 +200,11 @@ class PlanetArchetype(enum.Enum):
         'energy_factor': 1.0,
         'water': 25,
         'habitability': 25,
+        # Vingt-cinq, c'est vivable. Mais une anomalie est le seul endroit
+        # du jeu qui rende du neutronium : en faire une colonie ordinaire
+        # la banaliserait. On la surveille, on ne s'y installe pas.
+        'settlement': 'station',
+        'station_requires': {'capteurs_gravimetriques': 3},
     }
 
     def __str__(self):
@@ -172,6 +213,58 @@ class PlanetArchetype(enum.Enum):
     @property
     def label(self):
         return self.value['label']
+
+    # ── Comment on prend ce monde ───────────────────────────────────────────
+
+    @property
+    def settlement(self):
+        """
+        Le geste que ce corps accepte : `colony` ou `station`.
+
+        Le partage ne se fait PAS sur l'habitabilite seule. Une regle fondee sur
+        elle finirait par rendre les geantes gazeuses colonisables en haut de
+        l'arbre — Terraformation descend le seuil jusqu'a 13, et une geante est
+        a 8. Un corps sans surface ne se colonise a aucun palier, quelle que
+        soit la technologie ; l'habitabilite decide seulement QUAND un monde
+        solide s'ouvre.
+        """
+        return self.value.get('settlement', SETTLEMENT_COLONY)
+
+    @property
+    def is_colonisable(self):
+        """Ce corps peut-il porter une colonie, un jour ?"""
+        return self.settlement == SETTLEMENT_COLONY
+
+    @property
+    def station_requires(self):
+        """
+        Technologies exigees pour y arrimer une plateforme.
+        ---
+        Vide pour un corps colonisable : il n'accepte pas de station.
+        """
+        return dict(self.value.get('station_requires') or {})
+
+    def colonisation_requires(self):
+        """
+        Ce qu'il faut avoir cherche pour s'installer ici.
+        ---
+        Rend `{}` pour un monde accueillant — au-dessus du premier seuil, il
+        n'y a rien a chercher. Rend `None` pour un corps qui ne se colonise
+        jamais : l'appelant doit distinguer « pas encore » de « jamais », parce
+        que les deux refus n'envoient pas le joueur au meme endroit.
+        """
+        if not self.is_colonisable:
+            return None
+
+        habitability = self.habitability
+        for threshold, required in COLONISATION_STEPS:
+            if habitability >= threshold:
+                return dict(required or {})
+
+        # Un archetype colonisable sous le dernier seuil : la table des paliers
+        # et celle des archetypes ont diverge. On refuse plutot que d'ouvrir un
+        # monde que personne n'a pese.
+        return None
 
     @property
     def yields(self):
@@ -298,6 +391,13 @@ class PlanetArchetype(enum.Enum):
                 'habitability_factor': a.habitability_factor,
                 'water': a.water,
                 'water_factor': a.water_factor,
+                # Le geste que ce corps accepte, et ce qu'il exige. Les clients
+                # dessinent leur bouton a partir de la plutot que de recopier la
+                # regle : une liste d'archetypes colonisables ecrite cote client
+                # divergerait au premier equilibrage.
+                'settlement': a.settlement,
+                'colonisation_requires': a.colonisation_requires(),
+                'station_requires': a.station_requires,
             }
             for a in cls
         ]

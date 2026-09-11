@@ -38,7 +38,11 @@
   --bw:1px;
   --acc:#39E3D0;
   --fg-hi:#E6F5FB; --fg:#BBD6E4; --fg-dim:#7EA3B6; --fg-off:#48606E;
-  --good:#5CE39B; --bad:#FF6B79; --bad-fg:#FFC3C9;
+  /* Trois etats et non deux : `--warn` est ce qui se rattrape encore — un
+     monde coupe du reseau perd de la stabilite, mais il remonte des qu'on le
+     raccorde. `--bad` est ce qui compte ses heures. Les peindre de la meme
+     couleur effacerait la seule distinction qui change ce qu'on doit faire. */
+  --good:#5CE39B; --warn:#F2BB5C; --bad:#FF6B79; --bad-fg:#FFC3C9;
   --rule:linear-gradient(90deg,rgba(57,227,208,.55),rgba(57,227,208,0));
   --glow:0 0 12px rgba(57,227,208,.32);
   --btn-bg:rgba(14,48,68,.85); --btn-bg-h:rgba(24,86,110,.92);
@@ -69,7 +73,7 @@
   --bw:1px;
   --acc:#E3A340;
   --fg-hi:#F2EDE3; --fg:#C9C4BA; --fg-dim:#928D84; --fg-off:#5B5952;
-  --good:#8FBF6E; --bad:#C4564F; --bad-fg:#E9B4B0;
+  --good:#8FBF6E; --warn:#D07B35; --bad:#C4564F; --bad-fg:#E9B4B0;
   --rule:linear-gradient(90deg,#4A4437,#2A303C 60%,transparent);
   --glow:none;
   --btn-bg:#262C38; --btn-bg-h:#303845;
@@ -98,7 +102,7 @@
   --bw:2px;
   --acc:#FF6B1A;
   --fg-hi:#F5F7F8; --fg:#B9C0C6; --fg-dim:#7C858D; --fg-off:#4A5158;
-  --good:#7ED957; --bad:#E23D2E; --bad-fg:#FFB9B1;
+  --good:#7ED957; --warn:#FFB020; --bad:#E23D2E; --bad-fg:#FFB9B1;
   --rule:repeating-linear-gradient(90deg,#343A40 0 6px,transparent 6px 10px);
   --glow:none;
   --btn-bg:#1E2226; --btn-bg-h:#2A2F35;

@@ -275,6 +275,11 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
+               reponse a l'isolement : il doit etre atteignable des trois vues,
+               y compris depuis la carte ou l'on decouvre qu'un monde est
+               loin. -->
+          <button class="menu-item" role="menuitem" data-act="trade">Réseau de commerce</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
@@ -299,6 +304,13 @@
         <span class="loading" id="terr-updated"></span>
       </div>
       <div class="rule"></div>
+
+      <!-- Un monde coupe du reseau perd de la stabilite a chaque heure,
+           s'eteint a zero, et fait secession trois jours plus tard en
+           emportant tout ce qu'on y avait entasse. Le bandeau passe avant les
+           onglets : ce qu'un monde produit n'a plus d'interet s'il est sur le
+           point de partir. Muet le reste du temps. -->
+      <div class="holding hidden" id="terr-holding"></div>
 
       <div class="tabs" id="tabs">
         <button class="tab on" data-tab="buildings">Buildings</button>
@@ -354,6 +366,11 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
+               reponse a l'isolement : il doit etre atteignable des trois vues,
+               y compris depuis la carte ou l'on decouvre qu'un monde est
+               loin. -->
+          <button class="menu-item" role="menuitem" data-act="trade">Réseau de commerce</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
@@ -436,6 +453,11 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
+               reponse a l'isolement : il doit etre atteignable des trois vues,
+               y compris depuis la carte ou l'on decouvre qu'un monde est
+               loin. -->
+          <button class="menu-item" role="menuitem" data-act="trade">Réseau de commerce</button>
           <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
@@ -538,6 +560,54 @@
      peut la retirer — un ordinateur revendu, un poste partage, une machine
      qu'il ne reverra pas. Sans cette page, la cle ne se fermerait jamais
      autrement qu'en attendant son echeance. -->
+<!-- ==================== PRENDRE UN MONDE ====================
+     Trois gestes derriere un seul bouton : s'installer pour la premiere fois,
+     coloniser un monde solide, arrimer une plateforme au-dessus d'un corps
+     sans surface. C'est le SERVEUR qui decide lequel se joue, d'apres ce que
+     le joueur tient deja et d'apres l'archetype du corps.
+
+     La console ne recopie donc aucune regle : elle affiche le bloc `claim` du
+     territoire — le geste, la coque a amener, ce qui manque — et appelle la
+     meme route dans les trois cas. -->
+<div class="modal hidden" id="modal-claim" role="dialog" aria-modal="true"
+     aria-labelledby="claim-title">
+  <div class="modal-card panel panel--hazard">
+    <div class="panel-head">
+      <div>
+        <span class="ov" id="claim-kind">Monde</span>
+        <span class="t" id="claim-title">—</span>
+      </div>
+      <button class="btn btn--sm btn--ghost" data-act="claim-close">Fermer</button>
+    </div>
+    <div class="rule"></div>
+    <div id="claim-body"></div>
+  </div>
+</div>
+
+<!-- ==================== RESEAU DE COMMERCE ====================
+     Un monde coupe du reseau imperial perd de la stabilite a chaque heure,
+     s'eteint a zero, et fait secession trois jours plus tard en emportant tout
+     son stock. Une ligne de commerce est la seule reponse.
+
+     Ce que la vue montre EN PREMIER n'est donc pas la liste des lignes : ce
+     sont les mondes coupes, avec leur compte a rebours. C'est la question
+     qu'on vient poser ici, et une liste de routes n'y repond pas. -->
+<div class="modal hidden" id="modal-trade" role="dialog" aria-modal="true"
+     aria-labelledby="trade-title">
+  <div class="modal-card modal-card--wide panel panel--hazard">
+    <div class="panel-head">
+      <div>
+        <span class="ov">Empire</span>
+        <span class="t" id="trade-title">Réseau de commerce</span>
+      </div>
+      <span class="loading" id="trade-headline"></span>
+      <button class="btn btn--sm btn--ghost" data-act="trade-close">Fermer</button>
+    </div>
+    <div class="rule"></div>
+    <div id="trade-body"><p class="empty">Chargement…</p></div>
+  </div>
+</div>
+
 <div class="modal hidden" id="modal-devices" role="dialog" aria-modal="true"
      aria-labelledby="devices-title">
   <div class="modal-card panel panel--hazard">

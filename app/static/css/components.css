@@ -920,3 +920,141 @@ button{font:inherit;color:inherit}
 
 .audit-pager{display:flex;gap:var(--sp-3);align-items:center;margin-top:var(--sp-3)}
 .audit-pager .grow{flex:1}
+
+/* ============================================================
+   EXPANSION — prendre un monde, et le garder relié
+
+   Trois ajouts, dans l'ordre où la question se pose au joueur : ce qu'il ne
+   peut PAS bâtir ici, ce qui menace un monde qu'il tient, et le réseau qui
+   l'en préserve.
+   ============================================================ */
+
+/* ---------- une ligne barrée ----------
+   `.off` dit un manque du moment : il se corrige en produisant. `.barred` dit
+   qu'un bâtiment n'a pas sa place ici — une ferme sur une plateforme orbitale,
+   un craqueur sur un monde sans hydrogène — et rien n'y changera, ni
+   d'attendre ni de chercher.
+
+   Éteinte plutôt qu'effacée : ne pas montrer la ferme laisserait la chercher.
+   Sans ses coûts non plus, et c'est le même raisonnement : envoyer chercher du
+   fer pour une ferme qu'aucune plateforme ne portera jamais est exactement ce
+   que le serveur a cessé de faire. */
+.row.barred{
+  border-left-color:var(--bad);
+  background:var(--ico-bg);
+  opacity:.55;
+}
+.row.barred:hover{background:var(--ico-bg);border-color:var(--bc-soft)}
+.row.barred .ico svg{stroke:var(--fg-off)}
+/* La raison reste nette : c'est le seul texte de la ligne qui compte encore. */
+.desc--barred{color:var(--bad-fg)}
+
+/* ---------- le bandeau de tenue ----------
+   Un monde coupé du réseau perd de la stabilité à chaque heure, s'éteint à
+   zéro, et fait sécession trois jours plus tard en emportant tout son stock.
+   Le bandeau passe avant les onglets — ce qu'un monde produit n'a plus
+   d'intérêt s'il est sur le point de partir — et se tait le reste du temps. */
+.holding{
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px;
+  padding:11px;margin-bottom:var(--sp-3);
+  background:var(--ico-bg);
+  border:var(--bw) solid var(--warn);
+  border-left:var(--row-edge) solid var(--warn);
+  border-radius:var(--r);
+}
+.holding .ov{color:var(--warn)}
+.holding p{margin:0;font-size:12px;line-height:1.5;color:var(--fg);max-width:80ch}
+/* Éteint : la stabilité est à zéro et le compte à rebours court. */
+.holding--dead{border-color:var(--bad);border-left-color:var(--bad)}
+.holding--dead .ov{color:var(--bad)}
+
+/* ---------- prendre un monde ---------- */
+.claim-needs{margin:0 0 var(--sp-3);padding-left:18px;color:var(--fg);font-size:12.5px;line-height:1.7}
+.claim-needs b{color:var(--fg-hi)}
+.claim-refusal{
+  margin:0 0 var(--sp-3);padding:9px 11px;
+  background:var(--ico-bg);border-left:var(--row-edge) solid var(--bad);
+  color:var(--bad-fg);font-size:12px;line-height:1.5;
+}
+
+/* ============================================================
+   RÉSEAU DE COMMERCE
+
+   La vue est ordonnée par urgence, pas par hiérarchie de données : d'abord
+   qui est en train de mourir, puis comment ouvrir une route, puis ce qui
+   circule déjà.
+   ============================================================ */
+
+.modal-card--wide{max-width:720px;max-height:86vh;overflow:auto}
+
+/* ---------- l'alarme ----------
+   Muette quand tout va bien : une alarme qui se déclenche à chaque ouverture
+   est une alarme qu'on apprend à ignorer. */
+.trade-alarm{
+  padding:11px;margin-bottom:var(--sp-3);
+  background:var(--ico-bg);
+  border:var(--bw) solid var(--bad);
+  border-left:var(--row-edge) solid var(--bad);
+  border-radius:var(--r);
+}
+.trade-alarm .ov{color:var(--bad);display:block;margin-bottom:6px}
+.trade-alarm__row{
+  display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);
+  padding:3px 0;
+}
+.trade-alarm__row b{color:var(--fg-hi);font-family:var(--f-disp);font-size:12.5px}
+.trade-alarm__row span{color:var(--bad-fg);font-size:11.5px;font-family:var(--f-num)}
+
+/* ---------- ouvrir une ligne ---------- */
+.trade-open{
+  padding:12px;margin-bottom:var(--sp-3);
+  background:var(--row-bg);
+  border:var(--bw) solid var(--bc-soft);border-radius:var(--r);
+}
+.trade-open .ov{display:block}
+.trade-open__acts{display:flex;justify-content:flex-end;margin:var(--sp-3) 0}
+
+/* ---------- une ligne ---------- */
+.trade-line{
+  padding:12px;margin-bottom:var(--sp-2);
+  background:var(--row-bg);
+  border:var(--bw) solid var(--bc-soft);
+  border-left:var(--row-edge) solid var(--acc);
+  border-radius:var(--r);
+}
+.trade-line__head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.trade-line__head b{
+  flex:1;min-width:0;
+  font-family:var(--f-disp);font-size:13px;color:var(--fg-hi);letter-spacing:var(--val-track);
+}
+.trade-line__rate{font-family:var(--f-num);font-size:11px;color:var(--acc);font-variant-numeric:tabular-nums}
+.trade-line__acts{display:flex;justify-content:flex-end;gap:var(--sp-2);margin-top:10px}
+
+.trade-chip{
+  font-family:var(--f-disp);font-size:9px;font-weight:700;letter-spacing:var(--ov-track);
+  padding:2px 7px;border:1px solid var(--bc-soft);border-radius:var(--r);color:var(--fg-dim);
+}
+.trade-chip--bad{color:var(--bad);border-color:var(--bad)}
+
+/* ---------- les flux ----------
+   Le sens est un bouton et non une case à cocher : ce qu'on lit sur la ligne
+   est une flèche, pas une question. Une ligne est parcourue dans les deux
+   sens — départ et arrivée ne disent que qui a envoyé le cargo. */
+.trade-flows{margin-top:10px}
+.trade-flow{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.trade-flow__name{width:104px;flex:none;font-size:12px;color:var(--fg)}
+.trade-flow__unit{flex:1;font-family:var(--f-num);font-size:11px;color:var(--fg-off)}
+.trade-adder{display:flex;align-items:center;gap:8px;margin-top:8px}
+.trade-adder select{
+  height:28px;padding:0 8px;min-width:160px;
+  background:var(--ico-bg);color:var(--fg-hi);
+  border:var(--bw) solid var(--bc-soft);border-radius:var(--r);
+  font-family:var(--f-body);font-size:12px;
+}
+
+/* ---------- la charge ----------
+   Déclarer plus que le débit n'est pas refusé : le serveur sert les flux dans
+   l'ordre déclaré jusqu'à épuisement. Mais les derniers ne partent pas, et
+   rien d'autre ne le dirait. */
+.trade-load{margin:6px 0 0;font-family:var(--f-num);font-size:11px;color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.trade-load--over{color:var(--warn)}

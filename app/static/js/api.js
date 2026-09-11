@@ -158,6 +158,14 @@ export const api = {
      c'est le seul appel qui garantit un état à jour. */
   territory: (id) => request(`/api/territory/${id}/update`, { method: 'POST' }),
   territoryEvents: (id) => request(`/api/territory/${id}/events`),
+  /* Prendre un monde : installation, colonisation, ou arrimage d'une
+     plateforme orbitale. Une seule route pour les trois gestes — c'est le
+     serveur qui decide lequel se joue, d'apres ce que le joueur tient deja
+     dans la galaxie et d'apres l'archetype du corps.
+
+     La console n'a donc aucune regle a recopier : elle lit le bloc `claim` du
+     territoire pour savoir quoi proposer, et appelle ici. */
+  claimTerritory: (id) => request(`/api/territory/${id}`, { method: 'POST' }),
   territoryDefenses: (id) => request(`/api/territory/${id}/defenses`),
 
   /* ---- systèmes ---- */
@@ -199,6 +207,29 @@ export const api = {
       method: 'POST',
       body: { to: targetId, items: [{ type, quantity }] },
     }),
+
+  /* ---- lignes de commerce ----
+     Ce qui relie les mondes d'un empire, et la seule reponse a l'isolement :
+     un monde sans chemin jusqu'a la capitale perd de la stabilite a chaque
+     heure, s'eteint a zero, et fait secession trois jours plus tard.
+
+     Aucune de ces routes ne deplace de ressource. C'est le tour de jeu du
+     monde de DEPART qui fait couler la ligne — une route qui transporterait a
+     la demande transformerait chaque clic en convoi. */
+  tradeLines: () => request('/api/trade'),
+  /* Le cargo doit etre en orbite du monde d'ARRIVEE : c'est lui qui vient de
+     faire le voyage, et c'est ce voyage qui etablit la route. Il est consomme
+     — il devient l'infrastructure de la ligne. */
+  openTradeLine: (originId, destinationId) =>
+    request('/api/trade', {
+      method: 'POST',
+      body: { origin_id: originId, destination_id: destinationId },
+    }),
+  /* La declaration REMPLACE la precedente : une liste vide arrete tout sans
+     fermer la ligne. */
+  setTradeFlows: (lineId, flows) =>
+    request(`/api/trade/${lineId}`, { method: 'POST', body: { flows } }),
+  closeTradeLine: (lineId) => request(`/api/trade/${lineId}`, { method: 'DELETE' }),
 
   /* ---- recherche ----
      Deux lectures, et la separation compte : `technologyTree` publie la FORME

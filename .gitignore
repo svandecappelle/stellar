@@ -5,3 +5,10 @@ venv
 *.log
 *.log.*
 .DS_Store
+
+# La sonde : un serveur jetable pour regarder la console dans un navigateur.
+# Sa configuration doit vivre dans ./config — c'est la que le chargeur va les
+# chercher — mais elle n'a rien a faire dans le depot : base SQLite locale,
+# cle de session sans valeur.
+config/_probe.ini
+.probe.sqlite

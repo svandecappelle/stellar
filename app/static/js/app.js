@@ -57,6 +57,14 @@ const BUILDING_DESC = {
   farm: "Ferme planetaire. Seule source de nourriture, et la nourriture est ce qui fait "
     + "croitre la population : reserve vide, la croissance s'arrete et la stabilite "
     + "descend. Son rendement depend de la fertilite du monde.",
+  depot: "Entrepots, grues et mat d'amarrage. Une ligne de commerce en demande un "
+    + "AUX DEUX BOUTS, et coule au rythme du plus faible des deux. Rien d'autre ne "
+    + "deplace de ressources d'un monde a l'autre — et un monde coupe du reseau perd "
+    + "de la stabilite a chaque heure.",
+  gas_cracker: "Tours de craquage : elles cassent l'hydrogene en tritium. Le seul "
+    + "batiment nourri par une ressource au lieu du sol, et la raison d'arrimer une "
+    + "plateforme au-dessus d'une geante gazeuse — le tritium verrouille l'academie, "
+    + "l'usine et le chantier naval.",
 };
 
 /* ---------- état ---------- */
@@ -1299,10 +1307,64 @@ function renderCommand() {
   $('#terr-updated').textContent = updated ? `MAJ ${updated.toLocaleTimeString('fr-FR')}` : '';
 
   renderDeposits();
+  renderHolding();
   renderResources();
   renderRail();
   renderTabs();
   renderTabBody();
+}
+
+/* Le bandeau de tenue : isolement, extinction, secession.
+
+   **Muet tant que tout va bien.** Un bandeau qui annoncerait « raccorde » a
+   chaque ouverture n'apprendrait rien et rendrait invisible celui qui annonce
+   le contraire — c'est ainsi qu'on apprend a ignorer une alarme.
+
+   Muet aussi quand le serveur ne dit rien : le bloc est absent sur un monde
+   qui n'est pas a nous, et sur un serveur qui ne le connait pas encore. Se
+   taire est le bon sens du repli. */
+function renderHolding() {
+  const host = $('#terr-holding');
+  const h = (state.territory && state.territory.holding) || null;
+
+  if (!h || !h.owned || (h.connected && !h.deactivated)) {
+    host.classList.add('hidden');
+    host.innerHTML = '';
+    return;
+  }
+
+  host.classList.remove('hidden');
+  host.classList.toggle('holding--dead', !!h.deactivated);
+
+  const title = h.deactivated ? 'MONDE ÉTEINT' : 'COUPÉ DU RÉSEAU';
+  const detail = h.deactivated
+    ? `La stabilité est tombée à zéro : la production est arrêtée et tous les `
+      + `chantiers sont gelés. ${secessionIn(h)} Nourrissez-le ou raccordez-le `
+      + `et il remonte — il est encore à vous jusqu'à son départ.`
+    : `Aucune route jusqu'à la capitale. La stabilité descend à chaque heure `
+      + `passée ainsi, et un monde à zéro fait sécession trois jours plus tard `
+      + `— avec tout ce qui y est entassé. Un dépôt aux deux bouts et un cargo `
+      + `ouvrent la ligne.`;
+
+  host.innerHTML = `<span class="ov">${esc(title)}</span>
+    <p>${esc(detail)}</p>
+    <button class="btn btn--sm" data-act="trade">Réseau de commerce</button>`;
+}
+
+/* Le compte a rebours, en clair. Le seul chiffre qui compte quand tout va mal. */
+function secessionIn(holding) {
+  const leaves = parseUtc(holding.secedes_at);
+  if (!leaves) return 'La sécession peut tomber à tout moment.';
+
+  const left = leaves.getTime() - Date.now();
+  if (left <= 0) return 'La sécession peut tomber à tout moment.';
+
+  const hours = Math.floor(left / 3600000);
+  if (hours >= 24) {
+    return `Sécession dans ${Math.floor(hours / 24)} j ${hours % 24} h.`;
+  }
+  if (hours >= 1) return `Sécession dans ${hours} h.`;
+  return `Sécession dans ${Math.max(1, Math.round(left / 60000))} min.`;
 }
 
 /* ---------- bandeau de ressources ---------- */
@@ -1619,6 +1681,24 @@ function gainMarkup(gains) {
     .join('');
 }
 
+/* Pourquoi ce monde ne portera pas ce batiment, null s'il le porte.
+
+   La regle vient du serveur, dans le bloc `construction` de la fiche : une
+   plateforme orbitale n'a pas de sol pour une ferme, un monde sans hydrogene
+   n'a rien a craquer. Recopiee ici, elle divergerait au premier equilibrage.
+
+   Permissif quand le serveur ne dit rien : un serveur qui ne connait pas
+   encore ce bloc ne doit pas faire disparaitre tous les batiments. Il
+   refusera l'ordre lui-meme, comme avant. */
+function placeRefusal(name) {
+  const rules = (state.territory && state.territory.construction) || null;
+  if (!rules || !Array.isArray(rules.accepts) || !rules.accepts.length) return null;
+  if (rules.accepts.includes(name)) return null;
+
+  const found = (rules.refusals || []).find((r) => r && r.name === name);
+  return (found && found.reason) || 'Ce monde ne peut pas le porter.';
+}
+
 function renderBuildings() {
   const t = state.territory;
   const buildings = t.buildings || {};
@@ -1633,7 +1713,13 @@ function renderBuildings() {
       const gains = normalizeResourceMap(b.gain);
       const affordable = Object.entries(costs).every(([k, v]) => (resources[k] || 0) >= v);
       const ev = eventFor('building', name);
-      const cls = ev ? 'row busy' : affordable ? 'row' : 'row off';
+      /* Un refus de PLACE n'est pas un manque du moment : rien ne le corrigera,
+         ni d'attendre ni de chercher. La ligne est donc eteinte plutot
+         qu'effacee — ne pas montrer la ferme laisserait la chercher — et sans
+         ses couts : envoyer chercher du fer pour une ferme qu'aucune plateforme
+         ne portera jamais est exactement ce que le serveur a cesse de faire. */
+      const barred = placeRefusal(name);
+      const cls = barred ? 'row barred' : ev ? 'row busy' : affordable ? 'row' : 'row off';
 
       return `<div class="${cls}">
       <div class="ico">${icon(name)}</div>
@@ -1641,18 +1727,25 @@ function renderBuildings() {
         <div class="row-head">
           <span class="row-name">${esc(humanize(name))}</span>
           <span class="lvl">LVL ${esc(b.level)}</span>
-          <button class="btn btn--sm${affordable && !ev ? ' btn--pri' : ''}"
-            data-build-building="${esc(name)}" ${ev || !affordable ? 'disabled' : ''}>
-            ${ev ? 'En cours' : 'Upgrade'}
+          <button class="btn btn--sm${affordable && !ev && !barred ? ' btn--pri' : ''}"
+            data-build-building="${esc(name)}" ${ev || !affordable || barred ? 'disabled' : ''}
+            ${barred ? `title="${esc(barred)}"` : ''}>
+            ${barred ? 'Impossible ici' : ev ? 'En cours' : 'Upgrade'}
           </button>
         </div>
-        <div class="costs">
+        ${
+          barred
+            ? ''
+            : `<div class="costs">
           ${costMarkup(costs, resources)}
           ${gainMarkup(gains)}
           <span class="cost">Durée <b>${esc(fmtDuration(b.duration))}</b></span>
-        </div>
-        <p class="desc">${esc(BUILDING_DESC[name] || 'Structure planétaire.')}</p>
-        ${progressMarkup(ev, `Niveau ${Number(b.level) + 1} en construction`)}
+        </div>`
+        }
+        <p class="desc${barred ? ' desc--barred' : ''}">${esc(
+          barred || BUILDING_DESC[name] || 'Structure planétaire.'
+        )}</p>
+        ${barred ? '' : progressMarkup(ev, `Niveau ${Number(b.level) + 1} en construction`)}
       </div>
     </div>`;
     })
@@ -3169,11 +3262,15 @@ function initEvents() {
   $('#orbit-rail').addEventListener('click', (ev) => {
     const orb = ev.target.closest('.orb');
     if (!orb) return;
+    const id = Number(orb.dataset.orbit);
+
+    /* Un monde qu'on ne tient pas n'est plus une impasse : c'est la seule
+       facon d'etendre un empire, et la console ne savait que la refuser. Le
+       serveur dit, monde par monde, ce qu'il faudrait pour le prendre. */
     if (orb.dataset.owned !== '1') {
-      toast("Ce territoire n'est pas sous votre contrôle.", 'err', 'Orbite');
+      openClaim(id);
       return;
     }
-    const id = Number(orb.dataset.orbit);
     if (id !== state.territoryId) selectTerritory(id);
   });
 
@@ -3324,6 +3421,499 @@ function settingsOpen() {
    fermer, rien d'autre.
    ============================================================ */
 
+/* ============================================================
+   prendre un monde
+
+   Trois gestes derriere une seule route : s'installer pour la premiere fois,
+   coloniser un monde solide, arrimer une plateforme au-dessus d'un corps sans
+   surface. C'est le serveur qui decide lequel se joue, et c'est lui qui dit ce
+   qui manque — la console n'a aucune regle d'archetypes a recopier, et ne doit
+   pas en inventer une : celle-ci a deja change deux fois.
+   ============================================================ */
+
+/* Le libelle du geste. Le serveur nomme `colony` ou `station` ; ce qu'un joueur
+   lit doit dire ce qu'il va FAIRE. */
+const CLAIM_KIND = {
+  colony: 'Coloniser',
+  station: 'Arrimer une plateforme',
+};
+
+function openClaim(id) {
+  const t = (state.systemTerritories || []).find((x) => x.id === id);
+  if (!t) {
+    toast('Ce monde est inconnu de la vue courante.', 'err', 'Orbite');
+    return;
+  }
+
+  $('#modal-claim').classList.remove('hidden');
+  renderClaim(t);
+}
+
+function closeClaim() {
+  $('#modal-claim').classList.add('hidden');
+}
+
+function claimOpen() {
+  return !$('#modal-claim').classList.contains('hidden');
+}
+
+function renderClaim(t) {
+  const offer = t.claim || null;
+  $('#claim-title').textContent = `${territoryLabel(t)} · ${territorySubtitle(t)}`;
+  $('#claim-kind').textContent =
+    (offer && CLAIM_KIND[offer.kind]) || 'Monde';
+
+  const host = $('#claim-body');
+
+  if (!offer) {
+    /* Serveur trop ancien pour le dire : on ne devine pas a sa place. */
+    host.innerHTML = `<p class="empty">Ce serveur ne dit pas ce qu'il faudrait
+      pour prendre ce monde.</p>`;
+    return;
+  }
+
+  if (offer.taken) {
+    host.innerHTML = `<p class="empty">Ce monde appartient déjà à quelqu'un.</p>`;
+    return;
+  }
+
+  /* Ce qu'il faut avoir : une coque en orbite, et parfois des technologies.
+     La premiere prise d'une galaxie ne demande rien — on ne peut pas exiger un
+     vaisseau de quelqu'un qui n'a encore aucun chantier. */
+  const needs = [];
+  if (offer.hull) {
+    needs.push(`<li><b>${esc(humanize(offer.hull))}</b> en orbite de ce monde.
+      La coque est consommée : elle devient l'installation.</li>`);
+  }
+  (offer.requires_list || []).forEach((r) => {
+    needs.push(`<li>Technologie <b>${esc(humanize(r.name))} ${esc(r.level)}</b>.</li>`);
+  });
+
+  const hint =
+    offer.kind === 'station'
+      ? `Ce corps n'a pas de sol : on ne s'y pose pas, on s'y amarre. La
+         plateforme n'abrite personne — pas de population, donc pas de famine —
+         et ne porte que des modules : extraction, énergie, dépôt, craquage.`
+      : `Un monde solide se colonise : le vaisseau y débarque ses colons et
+         devient la colonie.`;
+
+  host.innerHTML = `
+    <p class="mod-intro">${hint}</p>
+    ${offer.first ? `<p class="mod-intro">Première prise dans cette galaxie :
+       elle ne coûte rien, et fera votre capitale — le point fixe depuis lequel
+       se mesure le raccordement de tous vos autres mondes.</p>` : ''}
+    ${needs.length ? `<ul class="claim-needs">${needs.join('')}</ul>` : ''}
+    ${
+      offer.available
+        ? ''
+        : `<p class="claim-refusal">${esc(offer.refusal || 'Impossible pour le moment.')}</p>`
+    }
+    <div class="rule"></div>
+    <button class="btn btn--sm${offer.available ? ' btn--pri' : ''}"
+      id="claim-go" ${offer.available ? '' : 'disabled'}>
+      ${esc((CLAIM_KIND[offer.kind] || 'Prendre ce monde'))}
+    </button>`;
+
+  const go = $('#claim-go');
+  if (go && offer.available) {
+    go.addEventListener('click', () => claimWorld(t.id));
+  }
+}
+
+async function claimWorld(id) {
+  const button = $('#claim-go');
+  if (button) button.disabled = true;
+
+  try {
+    await api.claimTerritory(id);
+    toast('Monde pris.', 'info', 'Expansion');
+    closeClaim();
+    /* Les mondes du joueur ont change : la liste sert au rail, a la carte et
+       au reseau de commerce. */
+    state.myTerritories = await api.myTerritories(state.galaxy).catch(() => state.myTerritories);
+    await selectTerritory(id);
+  } catch (e) {
+    if (button) button.disabled = false;
+    /* Le refus vient du serveur, mot pour mot : il nomme la coque manquante ou
+       la technologie qui n'est pas atteinte. */
+    handleApiError(e, 'Prise refusée');
+  }
+}
+
+/* ============================================================
+   reseau de commerce
+
+   Un monde coupe du reseau imperial perd de la stabilite a chaque heure,
+   s'eteint a zero, et fait secession trois jours plus tard en emportant tout ce
+   qu'on y avait entasse. Une ligne de commerce est la SEULE reponse a cela.
+
+   Ce que la vue montre en premier n'est donc pas la liste des lignes : ce sont
+   les mondes coupes, avec leur compte a rebours. C'est la question qu'on vient
+   poser ici, et une liste de routes n'y repond pas.
+
+   La console ne decide de rien : ce qui circule vient du serveur, les refus
+   aussi, mot pour mot.
+   ============================================================ */
+
+/* Les flux en cours d'edition, par ligne. Gardes a part de la reponse serveur :
+   le joueur en declare plusieurs avant d'envoyer, et une relecture tombant
+   entre-temps effacerait sa saisie. */
+let tradeDrafts = new Map();
+
+let tradeState = { lines: [], tradeable: [] };
+
+const BLOCKADE_HINT =
+  "Une flotte étrangère tient un bout. Rien n'est détruit : la ligne coule de "
+  + "nouveau dès qu'elle s'en va — mais en attendant, le monde au bout compte "
+  + 'comme isolé.';
+
+async function openTrade() {
+  closeMenus();
+  $('#modal-trade').classList.remove('hidden');
+  $('#trade-body').innerHTML = '<p class="empty">Chargement…</p>';
+  await loadTrade();
+}
+
+function closeTrade() {
+  $('#modal-trade').classList.add('hidden');
+}
+
+function tradeOpen() {
+  return !$('#modal-trade').classList.contains('hidden');
+}
+
+async function loadTrade() {
+  /* Les mondes ET les lignes, dans cet ordre : la vue croise l'un avec
+     l'autre — qui est coupe, qui est deja relie. Une moitie fraiche et l'autre
+     perimee donnerait des avertissements faux. */
+  try {
+    const [mine, payload] = await Promise.all([
+      api.myTerritories(state.galaxy).catch(() => state.myTerritories),
+      api.tradeLines(),
+    ]);
+
+    if (Array.isArray(mine)) state.myTerritories = mine;
+    tradeState = {
+      lines: (payload && payload.lines) || [],
+      tradeable: (payload && payload.tradeable) || [],
+    };
+    tradeDrafts = new Map();
+    renderTrade();
+  } catch (e) {
+    handleApiError(e, 'Réseau indisponible');
+    $('#trade-body').innerHTML = '<p class="empty">Réseau indisponible.</p>';
+  }
+}
+
+function renderTrade() {
+  const open = tradeState.lines.filter((l) => l.open);
+  const blockaded = open.filter((l) => l.blockaded).length;
+
+  $('#trade-headline').textContent =
+    `${open.length} ligne${open.length > 1 ? 's' : ''} ouverte${open.length > 1 ? 's' : ''}`
+    + (blockaded ? ` · ${blockaded} sous blocus` : '');
+
+  $('#trade-body').innerHTML =
+    renderTradeAlarm() + renderTradeOpener() + renderTradeLines(open);
+
+  bindTrade();
+}
+
+/* Les mondes coupes, en tete et avant tout le reste. Muet quand tout va bien :
+   une alarme qui se declenche a chaque ouverture est une alarme qu'on apprend
+   a ignorer. */
+function renderTradeAlarm() {
+  const cut = (state.myTerritories || []).filter(
+    (t) => t.holding && t.holding.owned && (t.holding.deactivated || !t.holding.connected)
+  );
+  if (!cut.length) return '';
+
+  const rows = cut
+    .map(
+      (t) => `<div class="trade-alarm__row">
+        <b>${esc(territoryLabel(t))}</b>
+        <span>${esc(tradeFate(t.holding))}</span>
+      </div>`
+    )
+    .join('');
+
+  return `<div class="trade-alarm">
+    <span class="ov">Coupés du réseau</span>${rows}
+  </div>`;
+}
+
+function tradeFate(h) {
+  if (!h.deactivated) return `aucune route — stabilité ${h.stability}`;
+  return `éteint — ${secessionIn(h).toLowerCase().replace(/\.$/, '')}`;
+}
+
+/* Ouvrir une route. L'arrivee ne propose que des mondes de la MEME galaxie que
+   le depart, et ecarte ce qui est deja relie : laisser le choix pour le
+   reprendre par un refus serait offrir une impasse. */
+function renderTradeOpener() {
+  const worlds = state.myTerritories || [];
+  if (worlds.length < 2) {
+    return '<p class="mod-intro">Il faut tenir deux mondes pour ouvrir une ligne.</p>';
+  }
+
+  const options = worlds
+    .map((t) => `<option value="${esc(t.id)}">${esc(territoryLabel(t))}</option>`)
+    .join('');
+
+  return `<div class="trade-open">
+    <span class="ov">Ouvrir une ligne</span>
+    <div class="field">
+      <label for="trade-from">De</label>
+      <select id="trade-from">${options}</select>
+    </div>
+    <div class="field">
+      <label for="trade-to">Vers</label>
+      <select id="trade-to"></select>
+    </div>
+    <div class="trade-open__acts">
+      <button class="btn btn--sm btn--pri" id="trade-go">Ouvrir la ligne</button>
+    </div>
+    <p class="mod-intro">Un cargo doit être en orbite du monde d'<b>arrivée</b> :
+      c'est le convoi qui vient de faire le voyage, et il est consommé en
+      établissant la route. Les deux bouts ont besoin d'un dépôt, et c'est le
+      plus faible des deux qui fixe le débit.</p>
+  </div>`;
+}
+
+/* Les arrivees possibles pour un depart donne. */
+function tradeDestinations(originId, open) {
+  const worlds = state.myTerritories || [];
+  const origin = worlds.find((t) => t.id === originId);
+  if (!origin) return [];
+
+  return worlds.filter((t) => {
+    if (t.id === origin.id) return false;
+    if (galaxyOf(t) !== galaxyOf(origin)) return false;
+    return !open.some(
+      (l) =>
+        (l.origin_id === origin.id && l.destination_id === t.id)
+        || (l.origin_id === t.id && l.destination_id === origin.id)
+    );
+  });
+}
+
+function renderTradeLines(open) {
+  if (!open.length) {
+    return `<p class="empty">Aucune ligne ouverte. Deux mondes d'un même système
+      se nourrissent sans rien construire ; ailleurs, il faut une route.</p>`;
+  }
+  return open.map(renderTradeLine).join('');
+}
+
+function renderTradeLine(line) {
+  const draft = draftFor(line);
+  const declared = draft.reduce((sum, f) => sum + (Number(f.rate) || 0), 0);
+  const over = line.throughput > 0 && declared > line.throughput;
+
+  const flows = draft
+    .map(
+      (f, i) => `<div class="trade-flow">
+      <span class="trade-flow__name">${esc(resourceLabel(f.resource))}</span>
+      <button class="btn btn--sm" data-flow-way="${esc(line.id)}" data-index="${i}"
+        title="${esc(flowWay(line, f))}">${f.to_origin ? '←' : '→'}</button>
+      <input class="qty" type="number" min="0" step="1" value="${esc(Math.round(f.rate))}"
+        data-flow-rate="${esc(line.id)}" data-index="${i}"
+        aria-label="Débit ${esc(resourceLabel(f.resource))}">
+      <span class="trade-flow__unit">/h</span>
+      <button class="btn btn--sm btn--ghost" data-flow-drop="${esc(line.id)}"
+        data-index="${i}" title="Ne plus envoyer">✕</button>
+    </div>`
+    )
+    .join('');
+
+  const left = tradeState.tradeable.filter((k) => !draft.some((f) => f.resource === k));
+
+  return `<div class="trade-line">
+    <div class="trade-line__head">
+      <b>${esc(tradeEnd(line, false))} → ${esc(tradeEnd(line, true))}</b>
+      ${
+        line.blockaded
+          ? `<span class="trade-chip trade-chip--bad" title="${esc(BLOCKADE_HINT)}">SOUS BLOCUS</span>`
+          : ''
+      }
+      <span class="trade-line__rate">${esc(fmtNumber(Math.round(line.throughput)))}/h</span>
+    </div>
+    <div class="trade-flows">${flows}</div>
+    ${
+      left.length
+        ? `<div class="trade-adder">
+      <select data-flow-add="${esc(line.id)}">
+        ${left.map((k) => `<option value="${esc(k)}">${esc(resourceLabel(k))}</option>`).join('')}
+      </select>
+      <button class="btn btn--sm" data-flow-add-go="${esc(line.id)}">Ajouter</button>
+    </div>`
+        : ''
+    }
+    <div class="bar"><i style="width:${Math.min(
+      100,
+      line.throughput > 0 ? (declared / line.throughput) * 100 : 0
+    )}%"></i></div>
+    <p class="trade-load${over ? ' trade-load--over' : ''}">
+      ${esc(fmtNumber(Math.round(declared)))} déclarés sur ${esc(
+        fmtNumber(Math.round(line.throughput))
+      )}/h${over ? ' — les derniers ne partiront pas' : ''}
+    </p>
+    <div class="trade-line__acts">
+      <button class="btn btn--sm btn--pri" data-flow-apply="${esc(line.id)}">Appliquer</button>
+      <button class="btn btn--sm btn--dgr" data-line-close="${esc(line.id)}"
+        title="Le cargo qui l'a ouverte ne revient pas : il s'était consommé sur la route.">Démonter</button>
+    </div>
+  </div>`;
+}
+
+/* Le nom d'un bout de ligne, quoi qu'il arrive.
+
+   Le serveur recopie le nom du monde, et ce nom vient du client de jeu qui a
+   bâti le système : un monde jamais nommé en a un vide, et la ligne
+   s'afficherait comme une flèche entre deux riens. */
+function tradeEnd(line, destination) {
+  const given = destination ? line.destination : line.origin;
+  if (given) return given;
+
+  const id = destination ? line.destination_id : line.origin_id;
+  const known = (state.myTerritories || []).find((t) => t.id === id);
+  return known ? territoryLabel(known) : `Monde ${id}`;
+}
+
+function flowWay(line, flow) {
+  return flow.to_origin
+    ? `${tradeEnd(line, true)} → ${tradeEnd(line, false)}`
+    : `${tradeEnd(line, false)} → ${tradeEnd(line, true)}`;
+}
+
+function resourceLabel(key) {
+  const meta = RESOURCE_BY_KEY[key];
+  return (meta && meta.label) || humanize(key);
+}
+
+function draftFor(line) {
+  if (!tradeDrafts.has(line.id)) {
+    /* Recopie : éditer la réponse du serveur en place ferait d'une saisie
+       abandonnée un état qu'on croit enregistré. */
+    tradeDrafts.set(
+      line.id,
+      (line.flows || []).map((f) => ({
+        resource: f.resource,
+        rate: Number(f.rate) || 0,
+        to_origin: !!f.to_origin,
+      }))
+    );
+  }
+  return tradeDrafts.get(line.id);
+}
+
+function bindTrade() {
+  const open = tradeState.lines.filter((l) => l.open);
+  const from = $('#trade-from');
+  const to = $('#trade-to');
+
+  if (from && to) {
+    const fill = () => {
+      const list = tradeDestinations(Number(from.value), open);
+      to.innerHTML = list
+        .map((t) => `<option value="${esc(t.id)}">${esc(territoryLabel(t))}</option>`)
+        .join('');
+      const go = $('#trade-go');
+      if (go) go.disabled = !list.length;
+    };
+    from.addEventListener('change', fill);
+    fill();
+
+    const go = $('#trade-go');
+    if (go) {
+      go.addEventListener('click', () => openTradeLine(Number(from.value), Number(to.value)));
+    }
+  }
+
+  const body = $('#trade-body');
+
+  body.querySelectorAll('[data-flow-way]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const flow = draftById(Number(el.dataset.flowWay))[Number(el.dataset.index)];
+      if (!flow) return;
+      flow.to_origin = !flow.to_origin;
+      renderTrade();
+    });
+  });
+
+  body.querySelectorAll('[data-flow-rate]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const flow = draftById(Number(el.dataset.flowRate))[Number(el.dataset.index)];
+      if (!flow) return;
+      flow.rate = Math.max(0, Number(el.value) || 0);
+      renderTrade();
+    });
+  });
+
+  body.querySelectorAll('[data-flow-drop]').forEach((el) => {
+    el.addEventListener('click', () => {
+      draftById(Number(el.dataset.flowDrop)).splice(Number(el.dataset.index), 1);
+      renderTrade();
+    });
+  });
+
+  body.querySelectorAll('[data-flow-add-go]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = Number(el.dataset.flowAddGo);
+      const picker = body.querySelector(`[data-flow-add="${CSS.escape(String(id))}"]`);
+      if (!picker || !picker.value) return;
+      draftById(id).push({ resource: picker.value, rate: 0, to_origin: false });
+      renderTrade();
+    });
+  });
+
+  body.querySelectorAll('[data-flow-apply]').forEach((el) => {
+    el.addEventListener('click', () => applyFlows(Number(el.dataset.flowApply)));
+  });
+
+  body.querySelectorAll('[data-line-close]').forEach((el) => {
+    el.addEventListener('click', () => demountTradeLine(Number(el.dataset.lineClose)));
+  });
+}
+
+function draftById(id) {
+  const line = tradeState.lines.find((l) => l.id === id);
+  return line ? draftFor(line) : [];
+}
+
+async function openTradeLine(originId, destinationId) {
+  try {
+    await api.openTradeLine(originId, destinationId);
+    toast('Ligne ouverte.', 'info', 'Commerce');
+    await loadTrade();
+  } catch (e) {
+    /* Le refus vient du serveur : dépôt manquant, cargo absent, deux galaxies
+       différentes. La console ne saurait pas le formuler, et surtout elle ne
+       saurait pas rester d'accord avec lui. */
+    handleApiError(e, 'Ligne refusée');
+  }
+}
+
+async function applyFlows(id) {
+  try {
+    await api.setTradeFlows(id, draftById(id));
+    toast('Flux déclarés.', 'info', 'Commerce');
+    await loadTrade();
+  } catch (e) {
+    handleApiError(e, 'Flux refusés');
+  }
+}
+
+async function demountTradeLine(id) {
+  try {
+    await api.closeTradeLine(id);
+    toast('Ligne démontée.', 'info', 'Commerce');
+    await loadTrade();
+  } catch (e) {
+    handleApiError(e, 'Démontage refusé');
+  }
+}
+
 async function openDevices() {
   $('#modal-devices').classList.remove('hidden');
   $('#devices-list').innerHTML = '<p class="empty">Lecture…</p>';
@@ -3458,6 +4048,15 @@ function runChromeAction(name) {
       break;
     case 'devices-close':
       closeDevices();
+      break;
+    case 'claim-close':
+      closeClaim();
+      break;
+    case 'trade':
+      openTrade();
+      break;
+    case 'trade-close':
+      closeTrade();
       break;
     case 'logout':
       logout();

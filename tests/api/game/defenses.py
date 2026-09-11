@@ -259,4 +259,6 @@ class TestDefenseTechnologyLock:
         territory = Territory.get(id=response.json['territories'][0]['id'])
 
         assert territory.missing_technologies(DefenseType.FlackCannon) == {}
-        assert territory.missing_technologies(DefenseType.LaserArtillery) == {'laser': 5}
+        # Le deblocage tombe au premier niveau : ce qui manque, c'est la
+        # technologie, pas un palier dedans.
+        assert territory.missing_technologies(DefenseType.LaserArtillery) == {'laser': 1}

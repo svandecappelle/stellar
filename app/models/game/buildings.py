@@ -74,7 +74,7 @@ class BuildingType(enum.Enum):
         'time': lambda x: 5 * pow(3, x),
         'requirements': {
             'technologies': {
-                'chantiers': 2
+                'chantiers': 1
             }
         }
     }
@@ -130,7 +130,7 @@ class BuildingType(enum.Enum):
         'time': lambda x: 5 * pow(3, x),
         'requirements': {
             'technologies': {
-                'raffinage': 2
+                'raffinage': 1
             }
         }
     }
@@ -176,7 +176,7 @@ class BuildingType(enum.Enum):
         'time': lambda x: 5 * pow(3, x),
         'requirements': {
             'technologies': {
-                'alliages': 3
+                'alliages': 1
             }
         }
     }

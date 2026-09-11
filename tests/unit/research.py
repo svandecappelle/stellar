@@ -348,13 +348,26 @@ class TestTechnologyCatalogue:
                     assert dearer[resource] == pytest.approx(amount * node.cost_factor), (
                         node.name, resource)
 
-    def test_a_price_covers_only_what_the_line_actually_needs(self):
+    def test_a_price_asks_for_data_and_nothing_else(self):
         """
-        Chaque branche a son materiau signature : la monter seule asseche un
-        gisement precis, et c'est ce qui pousse a echanger.
+        Chercher se paie en Donnees et en attente.
+
+        L'arbre facturait aussi des materiaux et des credits, chaque branche
+        ayant son materiau signature. C'en faisait un second chantier : on
+        montait un noeud parce qu'on avait du titane, pas parce qu'on voulait ce
+        qu'il ouvre — et un joueur riche en minerai avancait plus vite qu'un
+        joueur qui avait bati des academies.
         """
-        assert 'neutronium' in TechnologyType.coque_neutronium.price(level=1)
-        assert 'neutronium' not in TechnologyType.extraction.price(level=1)
+        for node in TechnologyType:
+            assert set(node.price(level=1)) == {'research'}, node.name
+
+    def test_the_price_is_never_zero(self):
+        """
+        Une seule ressource au prix : si elle tombait a zero quelque part, le
+        noeud deviendrait gratuit sans que rien ne le signale.
+        """
+        for node in TechnologyType:
+            assert node.price(level=1)['research'] > 0, node.name
 
     def test_research_takes_longer_at_each_level(self):
         for node in TechnologyType:
@@ -590,21 +603,48 @@ class TestUnlocks:
     def test_the_laser_line_opens_the_artillery_that_asked_for_it(self):
         """
         `DefenseType.LaserArtillery` reclamait `laser: 5` sur une technologie
-        qui n'existait pas. Elle existe.
+        qui n'existait pas. Elle existe — et le deblocage tombe au niveau 1.
         """
-        assert TechnologyType.laser.unlocks['defenses']['LaserArtillery'] == 5
+        assert TechnologyType.laser.unlocks['defenses']['LaserArtillery'] == 1
+
+    def test_everything_opens_at_the_first_level(self):
+        """
+        L'invariant de l'arbre : ce qu'un noeud ouvre, il l'ouvre des qu'on l'a.
+
+        Les niveaux declares valaient jusqu'a huit. Une coque tenue derriere
+        `artillerie_lourde 6` restait invisible pendant cinq niveaux — le joueur
+        payait sans rien voir arriver, et la fiche du noeud annoncait un
+        deblocage qu'elle ne tenait pas avant des heures. Les niveaux suivants
+        n'ajoutent que de la puissance.
+
+        Teste sur les tables d'unites, qui sont la source : l'arbre ne fait que
+        les retourner.
+        """
+        from app.models.game.buildings import BuildingType
+        from app.models.game.defense import DefenseType
+        from app.models.game.ship import ShipType
+
+        for catalogue in (BuildingType, ShipType, DefenseType):
+            for unit in catalogue:
+                required = (unit.value.get('requirements') or {}).get('technologies') or {}
+                for name, level in required.items():
+                    assert level == 1, (unit.name, name, level)
 
     def test_a_node_that_opens_nothing_says_so(self):
         assert TechnologyType.extraction.unlocks == {}
 
-    def test_an_unlock_appears_only_once_its_level_is_reached(self):
-        below = TechnologyType.laser.modifiers_at(level=4)
-        reached = TechnologyType.laser.modifiers_at(level=5)
+    def test_an_unlock_appears_with_the_first_level(self):
+        """
+        Rien au niveau 0 — un noeud non acquis n'ouvre rien — et tout au
+        niveau 1.
+        """
+        none = TechnologyType.laser.modifiers_at(level=0)
+        first = TechnologyType.laser.modifiers_at(level=1)
 
-        assert not any(m.type == ModifierType.Unlock for m in below)
+        assert not any(m.type == ModifierType.Unlock for m in none)
         assert any(
             m.type == ModifierType.Unlock and m.target == 'LaserArtillery'
-            for m in reached)
+            for m in first)
 
     def test_the_unlocks_are_spread_across_the_tree(self):
         """

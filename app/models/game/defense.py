@@ -38,7 +38,7 @@ class DefenseType(enum.Enum):
         "integrity": 2000,
         "requirements": {
             "technologies": {
-                "ogives": 2
+                "ogives": 1
             }
         }
     }
@@ -55,7 +55,7 @@ class DefenseType(enum.Enum):
         "integrity": 8000,
         "requirements": {
             "technologies": {
-                "laser": 5
+                "laser": 1
             }
         }
     }
@@ -72,7 +72,7 @@ class DefenseType(enum.Enum):
         "integrity": 12000,
         "requirements": {
             "technologies": {
-                "atomique": 8
+                "atomique": 1
             }
         }
     }
@@ -89,8 +89,8 @@ class DefenseType(enum.Enum):
         "integrity": 20000,
         "requirements": {
             "technologies": {
-                "ogives": 6,
-                "atomique": 4
+                "ogives": 1,
+                "atomique": 1
             }
         }
     }
@@ -108,7 +108,7 @@ class DefenseType(enum.Enum):
     	"integrity": 200000,
         "requirements": {
             "technologies": {
-                "boucliers": 6
+                "boucliers": 1
             }
         }
     }

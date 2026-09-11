@@ -11,8 +11,7 @@ recopier une ligne.
 Ce qui remplace les sept membres plats d'avant, et pourquoi :
 
   · **cinq branches** qui recouvrent chacune un systeme deja en jeu, et non une
-    categorie abstraite. Une branche a son materiau signature : la monter seule
-    asseche un gisement precis ;
+    categorie abstraite ;
   · **quatre paliers** par branche, ouverts par les niveaux deja depenses dans
     cette branche (`TIER_REQUIREMENTS`). C'est ce qui fait un arbre plutot
     qu'une liste : on ne peut pas ouvrir un noeud profond en le payant, il faut
@@ -23,6 +22,19 @@ Ce qui remplace les sept membres plats d'avant, et pourquoi :
   · **des effets typés**, exprimes dans le vocabulaire de `modifiers.py`. Un
     effet de technologie et un avantage de faction sont la meme chose et
     s'empilent dans le meme ensemble.
+
+Deux regles commandent tout le reste :
+
+  · **Chercher se paie en Donnees et en attente**, et en rien d'autre. Ni
+    materiaux ni credits : l'arbre etait devenu un second chantier, ou l'on
+    montait un noeud parce qu'on avait du titane plutot que parce qu'on voulait
+    ce qu'il ouvre. Ce qu'une recherche coute, c'est l'academie qui le produit.
+
+  · **Ce qu'un noeud ouvre, il l'ouvre au PREMIER niveau.** Les niveaux suivants
+    n'ajoutent que de la puissance. Une coque tenue derriere un niveau 6 etait
+    invisible pendant cinq niveaux : le joueur payait sans rien voir arriver, et
+    la fiche du noeud annoncait un deblocage qu'elle ne tenait pas avant des
+    heures. Voir `TechnologyType.unlocks`.
 
 Les courbes ont change avec la table. `5 x 3^x` donnait trois jours et demi au
 niveau 10 et deux ans au niveau 15 : aucun noeud profond n'etait jouable, donc
@@ -42,43 +54,41 @@ class Branch(enum.Enum):
     Les cinq axes de recherche. La couleur voyage avec le reste : les deux
     clients doivent teinter un meme noeud de la meme facon, et cette
     correspondance est une donnee de jeu, pas une preference d'interface.
+
+    Une branche portait aussi un materiau — celui qu'elle faisait consommer. Il
+    est parti avec les couts en materiaux : un champ qui ne veut plus rien dire
+    finit par etre relu comme s'il voulait encore dire quelque chose.
     """
 
     industrie = {
         "label": "Industrie & Matière",
         "summary": "Extraction, raffinage, cadence des chantiers.",
-        "material": "titanium",
         "accent": "#D9A441",
     }
     energie = {
         "label": "Énergie",
         "summary": "Fission, fusion, antimatière, distorsion.",
-        "material": "uranium",
         "accent": "#4FD6C4",
     }
     information = {
         "label": "Information",
         "summary": "Calcul, détection, guerre électronique.",
-        "material": "silicium",
         "accent": "#7FC9F5",
     }
     biosphere = {
         "label": "Biosphère",
         "summary": "Nourriture, population, habitabilité, terraformation.",
-        "material": "carbon",
         "accent": "#8FD36A",
     }
     armement = {
         "label": "Armement",
         "summary": "Coques, lasers, ogives, boucliers.",
-        "material": "neutronium",
         "accent": "#FF7B86",
     }
 
     def __init__(self, value):
         self.label = value["label"]
         self.summary = value["summary"]
-        self.material = value["material"]
         self.accent = value["accent"]
 
     def __str__(self):
@@ -94,7 +104,6 @@ class Branch(enum.Enum):
             'name': self.name,
             'label': self.label,
             'summary': self.summary,
-            'material': self.material,
             'accent': self.accent,
         }
 
@@ -138,26 +147,33 @@ TIER_REQUIREMENTS = {
 #: Le bareme : ce que coute et ce que dure un niveau, par palier.
 #:
 #: Un seul endroit, plutot que recopie sur chaque noeud. Un noeud ne declare que
-#: ce qui lui est propre — ses materiaux, ses effets — et la courbe se regle
-#: ici, ou elle se lit d'un coup d'oeil. Recopiee quatre-vingt-dix fois, elle
-#: aurait derive au premier ajustement.
+#: ce qui lui est propre — ses effets — et la courbe se regle ici, ou elle se lit
+#: d'un coup d'oeil. Recopiee quatre-vingt-dix fois, elle aurait derive au
+#: premier ajustement.
 #:
 #: `time_factor` descend a mesure qu'on avance : le dernier niveau d'un rang
 #: doit rester sous les deux semaines, et un facteur 1,6 applique a une base de
 #: palier 8 le poserait a plusieurs mois. Le cout, lui, garde son facteur : c'est
-#: par lui que la fin de partie devient couteuse, et une ressource s'accumule
+#: par lui que la fin de partie devient couteuse, et les Donnees s'accumulent
 #: pendant qu'on attend — pas le temps.
+#:
+#: **Deux colonnes, et deux seulement.** Une recherche se paie en Donnees et en
+#: attente, rien d'autre. Les materiaux et les credits en sont sortis : ils
+#: faisaient de l'arbre un second chantier, ou l'on choisissait un noeud parce
+#: qu'on avait du titane plutot que parce qu'on voulait ce qu'il ouvre. Ce que
+#: coute une recherche, c'est l'academie qui le produit — et le temps qu'on
+#: accepte de ne pas chercher autre chose.
 TIER_SCALE = {
-    1:  {"research": 40,    "credits": 300,    "time": 90,    "time_factor": 1.60},
-    2:  {"research": 110,   "credits": 900,    "time": 260,   "time_factor": 1.60},
-    3:  {"research": 280,   "credits": 2400,   "time": 700,   "time_factor": 1.60},
-    4:  {"research": 600,   "credits": 6000,   "time": 1600,  "time_factor": 1.52},
-    5:  {"research": 1200,  "credits": 14000,  "time": 3200,  "time_factor": 1.52},
-    6:  {"research": 2200,  "credits": 30000,  "time": 5600,  "time_factor": 1.52},
-    7:  {"research": 3800,  "credits": 60000,  "time": 9000,  "time_factor": 1.45},
-    8:  {"research": 6500,  "credits": 110000, "time": 14000, "time_factor": 1.45},
-    9:  {"research": 11000, "credits": 190000, "time": 22000, "time_factor": 1.45},
-    10: {"research": 18000, "credits": 300000, "time": 34000, "time_factor": 1.45},
+    1:  {"research": 40,    "time": 90,    "time_factor": 1.60},
+    2:  {"research": 110,   "time": 260,   "time_factor": 1.60},
+    3:  {"research": 280,   "time": 700,   "time_factor": 1.60},
+    4:  {"research": 600,   "time": 1600,  "time_factor": 1.52},
+    5:  {"research": 1200,  "time": 3200,  "time_factor": 1.52},
+    6:  {"research": 2200,  "time": 5600,  "time_factor": 1.52},
+    7:  {"research": 3800,  "time": 9000,  "time_factor": 1.45},
+    8:  {"research": 6500,  "time": 14000, "time_factor": 1.45},
+    9:  {"research": 11000, "time": 22000, "time_factor": 1.45},
+    10: {"research": 18000, "time": 34000, "time_factor": 1.45},
 }
 
 #: Une percee n'a qu'un niveau : tout son prix est dans sa base. Elle vaut donc
@@ -220,7 +236,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.industrie, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Extraction assistée",
         "summary": "Des foreuses qui suivent la veine au lieu de creuser droit.",
-        "materials": {"iron": 800},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target=MATERIALS, label="+3 % de matériaux extraits par niveau")],
@@ -229,7 +244,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.industrie, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Métallurgie appliquée",
         "summary": "Moins de métal pour la même charpente.",
-        "materials": {"titanium": 200},
         "effects": [
             effect(ModifierType.Cost, ModifierScope.Buildings, per_level=-2.0,
                    target="iron", label="−2 % de fer sur le coût des bâtiments, par niveau"),
@@ -242,7 +256,6 @@ class TechnologyType(enum.Enum):
         "label": "Chantiers modulaires",
         "summary": "On assemble des sections finies au lieu de bâtir sur place.",
         "requires": {"extraction": 4},
-        "materials": {"iron": 3200, "titanium": 900},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Buildings, per_level=-3.0,
             label="−3 % de durée de construction des bâtiments, par niveau")],
@@ -252,7 +265,6 @@ class TechnologyType(enum.Enum):
         "label": "Raffinage cryogénique",
         "summary": "Le tritium se sépare mieux près du zéro absolu.",
         "requires": {"metallurgie": 4},
-        "materials": {"titanium": 1400, "uranium": 400},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="tritium", label="+4 % de tritium raffiné par niveau")],
@@ -262,7 +274,6 @@ class TechnologyType(enum.Enum):
         "label": "Forage profond",
         "summary": "Sous la croûte exploitée, il reste toujours une seconde couche.",
         "requires": {"extraction": 8},
-        "materials": {"iron": 9000, "titanium": 2600},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=12.0,
             target=MATERIALS, label="+12 % de matériaux extraits")],
@@ -272,7 +283,6 @@ class TechnologyType(enum.Enum):
         "label": "Convoyeurs à sustentation",
         "summary": "Ce qui sort du puits n'attend plus le convoi suivant.",
         "requires": {"chantiers": 4},
-        "materials": {"iron": 5200, "silicium": 1800},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target=MATERIALS, label="+3 % de matériaux extraits par niveau")],
@@ -282,7 +292,6 @@ class TechnologyType(enum.Enum):
         "label": "Automatisation",
         "summary": "Les chaînes tournent sans équipe postée.",
         "requires": {"convoyeurs": 5, "calcul": 4},
-        "materials": {"silicium": 8000, "titanium": 5200},
         "effects": [
             effect(ModifierType.Cost, ModifierScope.Buildings, per_level=-1.5,
                    target="population", label="−1,5 % de population employée, par niveau"),
@@ -295,7 +304,6 @@ class TechnologyType(enum.Enum):
         "label": "Métallurgie des terres rares",
         "summary": "Les veines qu'on jetait deviennent celles qu'on cherche.",
         "requires": {"raffinage": 5, "forage": 1},
-        "materials": {"cristal": 4000, "titanium": 6000},
         "effects": [
             effect(ModifierType.Production, ModifierScope.Resource, per_level=5.0,
                    target="cristal", label="+5 % de cristal par niveau"),
@@ -308,7 +316,6 @@ class TechnologyType(enum.Enum):
         "label": "Fonderie orbitale",
         "summary": "Couler une coque sans gravité, c'est la couler d'une pièce.",
         "requires": {"metaux_rares": 4},
-        "materials": {"titanium": 34000, "cristal": 12000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Ships, percentage=-10.0,
             label="−10 % sur le coût des vaisseaux")],
@@ -318,7 +325,6 @@ class TechnologyType(enum.Enum):
         "label": "Doctrine industrielle",
         "summary": "Deux façons de sortir une coque de chantier. Le choix est définitif.",
         "requires": {"automatisation": 6},
-        "materials": {"titanium": 40000, "iron": 90000},
         "options": [
             {
                 "key": "masse",
@@ -349,7 +355,6 @@ class TechnologyType(enum.Enum):
         "label": "Nanofabrication",
         "summary": "On dépose la matière là où elle sert, et nulle part ailleurs.",
         "requires": {"fonderie_orbitale": 1, "calcul": 10},
-        "materials": {"silicium": 26000, "cristal": 14000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Buildings, per_level=-3.0,
             label="−3 % sur le coût des bâtiments, par niveau")],
@@ -359,7 +364,6 @@ class TechnologyType(enum.Enum):
         "label": "Mineurs autonomes",
         "summary": "Des essaims qui creusent sans qu'on leur dise où.",
         "requires": {"automatisation": 8},
-        "materials": {"titanium": 30000, "silicium": 18000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target=MATERIALS, label="+4 % de matériaux extraits par niveau")],
@@ -369,7 +373,6 @@ class TechnologyType(enum.Enum):
         "label": "Assemblage parallèle",
         "summary": "Trois coques sur la même cale, et aucune n'attend l'autre.",
         "requires": {"nanofabrication": 6},
-        "materials": {"titanium": 60000, "iron": 140000},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Ships, per_level=-4.0,
             label="−4 % de durée d'assemblage, par niveau")],
@@ -379,7 +382,6 @@ class TechnologyType(enum.Enum):
         "label": "Transmutation",
         "summary": "Le neutronium cesse de se trouver : il se fabrique.",
         "requires": {"mineurs_autonomes": 6, "atomique": 6},
-        "materials": {"uranium": 90000, "neutronium": 900},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=25.0,
             target="neutronium", label="+25 % de neutronium")],
@@ -389,7 +391,6 @@ class TechnologyType(enum.Enum):
         "label": "Chaîne fermée",
         "summary": "Plus rien ne sort du cycle : ce qu'on jetait rentre au fourneau.",
         "requires": {"assemblage_parallele": 5},
-        "materials": {"titanium": 120000, "cristal": 60000},
         "effects": [
             effect(ModifierType.Cost, ModifierScope.Ships, per_level=-4.0,
                    label="−4 % sur le coût des vaisseaux, par niveau"),
@@ -402,7 +403,6 @@ class TechnologyType(enum.Enum):
         "label": "Exploitation stellaire",
         "summary": "On cesse de gratter les mondes : on écrème l'étoile.",
         "requires": {"transmutation": 1},
-        "materials": {"neutronium": 1400, "titanium": 150000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target=MATERIALS, label="+5 % de matériaux extraits par niveau")],
@@ -412,7 +412,6 @@ class TechnologyType(enum.Enum):
         "label": "Usines auto-réplicantes",
         "summary": "La première usine construit la seconde, et ainsi de suite.",
         "requires": {"doctrine_industrielle": 1, "chaine_fermee": 6, "exploitation_stellaire": 6},
-        "materials": {"neutronium": 3000, "titanium": 260000},
         "effects": [
             effect(ModifierType.TimeReduce, ModifierScope.Buildings, percentage=-20.0,
                    label="−20 % de durée de construction des bâtiments"),
@@ -425,7 +424,6 @@ class TechnologyType(enum.Enum):
         "label": "Forge stellaire",
         "summary": "L'étoile elle-même devient un haut fourneau.",
         "requires": {"usines_autoreplicantes": 1, "desassemblage_planetaire": 1},
-        "materials": {"neutronium": 5000, "titanium": 400000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=2.0,
             target=MATERIALS, label="+2 % de production de matériaux par niveau")],
@@ -437,7 +435,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.energie, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Réacteurs à fission",
         "summary": "Le premier réacteur qui tient plus qu'une saison.",
-        "materials": {"uranium": 300},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="energy", label="+4 % d'énergie produite par niveau")],
@@ -446,7 +443,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.energie, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Supraconducteurs",
         "summary": "Ce qui ne chauffe pas dans les câbles reste disponible.",
-        "materials": {"cristal": 260},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Buildings, per_level=-3.0,
             target="energy", label="−3 % de consommation d'énergie, par niveau")],
@@ -456,7 +452,6 @@ class TechnologyType(enum.Enum):
         "label": "Stockage capacitif",
         "summary": "De quoi passer la nuit d'un monde sans étoile proche.",
         "requires": {"fission": 4},
-        "materials": {"cristal": 2200},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Resource, per_level=5.0,
             target="energy", label="+5 % de réserve d'énergie par niveau")],
@@ -466,7 +461,6 @@ class TechnologyType(enum.Enum):
         "label": "Récupération thermique",
         "summary": "La chaleur perdue d'un réacteur en alimente un autre.",
         "requires": {"supraconducteurs": 4},
-        "materials": {"iron": 3000, "uranium": 900},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target="energy", label="+3 % d'énergie produite par niveau")],
@@ -476,7 +470,6 @@ class TechnologyType(enum.Enum):
         "label": "Confinement par fusion",
         "summary": "Une bouteille magnétique qui tient le plasma.",
         "requires": {"fission": 8},
-        "materials": {"uranium": 9000, "cristal": 3000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=20.0,
             target="energy", label="+20 % d'énergie produite")],
@@ -486,7 +479,6 @@ class TechnologyType(enum.Enum):
         "label": "Injecteurs à plasma",
         "summary": "Brûler plus chaud, c'est brûler moins longtemps.",
         "requires": {"thermique": 4},
-        "materials": {"uranium": 4200, "hydrogen": 1200},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="energy", label="+4 % d'énergie produite par niveau")],
@@ -496,7 +488,6 @@ class TechnologyType(enum.Enum):
         "label": "Volants d'inertie",
         "summary": "Une réserve qui ne se décharge pas en attendant.",
         "requires": {"stockage": 5},
-        "materials": {"titanium": 7000, "cristal": 4000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Resource, per_level=6.0,
             target="energy", label="+6 % de réserve d'énergie par niveau")],
@@ -506,7 +497,6 @@ class TechnologyType(enum.Enum):
         "label": "Propulsion ionique",
         "summary": "Peu de poussée, mais elle ne s'arrête jamais.",
         "requires": {"fusion": 1},
-        "materials": {"uranium": 8000, "silicium": 5000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=3.0,
             label="+3 % de vitesse de déplacement des flottes, par niveau")],
@@ -516,7 +506,6 @@ class TechnologyType(enum.Enum):
         "label": "Antimatière",
         "summary": "Le seul carburant assez dense pour une plateforme lourde.",
         "requires": {"plasma": 6, "volants_inertie": 4},
-        "materials": {"uranium": 60000, "neutronium": 500},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=15.0,
             target="energy", label="+15 % d'énergie produite")],
@@ -526,7 +515,6 @@ class TechnologyType(enum.Enum):
         "label": "Champ de distorsion",
         "summary": "L'espace se replie devant la coque au lieu de la freiner.",
         "requires": {"propulsion_ionique": 6, "calcul": 8},
-        "materials": {"neutronium": 300, "cristal": 16000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=5.0,
             label="+5 % de vitesse de déplacement des flottes, par niveau")],
@@ -536,7 +524,6 @@ class TechnologyType(enum.Enum):
         "label": "Réacteur annulaire",
         "summary": "Le plasma tourne en boucle et ne touche plus rien.",
         "requires": {"antimatiere": 1},
-        "materials": {"uranium": 40000, "neutronium": 700},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target="energy", label="+5 % d'énergie produite par niveau")],
@@ -546,7 +533,6 @@ class TechnologyType(enum.Enum):
         "label": "Condensateurs quantiques",
         "summary": "On stocke la charge dans un état, pas dans une matière.",
         "requires": {"volants_inertie": 6, "calcul": 10},
-        "materials": {"cristal": 34000, "silicium": 20000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Resource, per_level=8.0,
             target="energy", label="+8 % de réserve d'énergie par niveau")],
@@ -556,7 +542,6 @@ class TechnologyType(enum.Enum):
         "label": "Moteur à saut",
         "summary": "On ne traverse plus la distance : on la retire.",
         "requires": {"distorsion": 8},
-        "materials": {"neutronium": 1600, "cristal": 80000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, percentage=25.0,
             label="+25 % de vitesse de déplacement des flottes")],
@@ -566,7 +551,6 @@ class TechnologyType(enum.Enum):
         "label": "Collecteurs stellaires",
         "summary": "Des voiles de mille kilomètres, en orbite basse autour de l'étoile.",
         "requires": {"reacteur_annulaire": 6},
-        "materials": {"titanium": 100000, "silicium": 60000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=6.0,
             target="energy", label="+6 % d'énergie produite par niveau")],
@@ -576,7 +560,6 @@ class TechnologyType(enum.Enum):
         "label": "Singularité contenue",
         "summary": "Un trou noir de laboratoire, nourri au gramme près.",
         "requires": {"collecteurs_stellaires": 5},
-        "materials": {"neutronium": 2600, "uranium": 190000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=7.0,
             target="energy", label="+7 % d'énergie produite par niveau")],
@@ -586,7 +569,6 @@ class TechnologyType(enum.Enum):
         "label": "Pliage de l'espace",
         "summary": "Deux points éloignés, mis face à face.",
         "requires": {"moteur_a_saut": 1},
-        "materials": {"neutronium": 2200, "cristal": 140000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=4.0,
             label="+4 % de vitesse de déplacement des flottes, par niveau")],
@@ -596,7 +578,6 @@ class TechnologyType(enum.Enum):
         "label": "Réacteur à vide",
         "summary": "Le vide n'est pas vide, et cela finit par se voir sur la facture.",
         "requires": {"doctrine_energetique": 1, "singularite_contenue": 6, "pliage": 5},
-        "materials": {"neutronium": 4200, "uranium": 300000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=30.0,
             target="energy", label="+30 % d'énergie produite")],
@@ -606,7 +587,6 @@ class TechnologyType(enum.Enum):
         "label": "Énergie du point zéro",
         "summary": "Puiser dans le vide, qui n'en est pas un.",
         "requires": {"reacteur_a_vide": 1, "corridor_stable": 1},
-        "materials": {"neutronium": 6000, "uranium": 420000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target="energy", label="+3 % d'énergie par niveau")],
@@ -618,7 +598,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.information, "tier": 1, "kind": NodeKind.rank, "max_level": 20,
         "label": "Architecture de calcul",
         "summary": "Chercher plus vite est la seule recherche qui se rembourse.",
-        "materials": {"silicium": 700},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Technologies, per_level=-2.0,
             label="−2 % sur la durée de toutes les recherches, par niveau")],
@@ -627,7 +606,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.information, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Optique longue portée",
         "summary": "Voir arriver une flotte est déjà la moitié de la défense.",
-        "materials": {"cristal": 500},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=8.0,
             target="detection", label="+8 % de portée de détection par niveau")],
@@ -637,7 +615,6 @@ class TechnologyType(enum.Enum):
         "label": "Algorithmes prédictifs",
         "summary": "On cesse d'essayer : on sait où chercher.",
         "requires": {"calcul": 4},
-        "materials": {"silicium": 2600},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Technologies, per_level=-1.5,
             label="−1,5 % sur la durée des recherches, par niveau")],
@@ -647,7 +624,6 @@ class TechnologyType(enum.Enum):
         "label": "Cartographie des couloirs",
         "summary": "Une liaison connue se parcourt plus vite qu'une liaison devinée.",
         "requires": {"optique": 4},
-        "materials": {"silicium": 2200, "cristal": 900},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=2.0,
             label="+2 % de vitesse sur les liaisons connues, par niveau")],
@@ -657,7 +633,6 @@ class TechnologyType(enum.Enum):
         "label": "Réseau quantique",
         "summary": "Deux laboratoires distants cessent d'en être deux.",
         "requires": {"algorithmes": 5},
-        "materials": {"cristal": 7000, "silicium": 9000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Research, flat=1.0,
             target="slots", label="+1 emplacement de file de recherche")],
@@ -667,7 +642,6 @@ class TechnologyType(enum.Enum):
         "label": "Capteurs gravimétriques",
         "summary": "Une coque a beau être froide, elle pèse.",
         "requires": {"cartographie": 4},
-        "materials": {"cristal": 5200, "titanium": 2400},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=6.0,
             target="detection", label="+6 % de portée de détection par niveau")],
@@ -677,7 +651,6 @@ class TechnologyType(enum.Enum):
         "label": "Guerre électronique",
         "summary": "Une batterie qui ne voit rien ne tire sur rien.",
         "requires": {"capteurs_gravimetriques": 4},
-        "materials": {"silicium": 9200, "cristal": 3400},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=-2.0,
             target="enemy", label="−2 % d'efficacité des défenses adverses, par niveau")],
@@ -687,7 +660,6 @@ class TechnologyType(enum.Enum):
         "label": "Chiffrement quantique",
         "summary": "Ce que l'adversaire ne lit pas, il ne peut pas le devancer.",
         "requires": {"reseau_quantique": 1},
-        "materials": {"silicium": 10000, "cristal": 5000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target="credits", label="+3 % de crédits par niveau")],
@@ -697,7 +669,6 @@ class TechnologyType(enum.Enum):
         "label": "Intelligence artificielle",
         "summary": "Où l'on décide à quoi sert une machine qui pense. Définitif.",
         "requires": {"guerre_electronique": 5, "calcul": 12},
-        "materials": {"silicium": 42000, "cristal": 18000},
         "options": [
             {
                 "key": "distribuee",
@@ -725,7 +696,6 @@ class TechnologyType(enum.Enum):
         "label": "Simulation prédictive",
         "summary": "L'expérience se fait dans la machine, et échoue gratuitement.",
         "requires": {"chiffrement": 4},
-        "materials": {"silicium": 30000, "cristal": 12000},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Technologies, per_level=-2.0,
             label="−2 % sur la durée des recherches, par niveau")],
@@ -735,7 +705,6 @@ class TechnologyType(enum.Enum):
         "label": "Essaim de sondes",
         "summary": "Mille yeux jetables valent mieux qu'un bon télescope.",
         "requires": {"capteurs_gravimetriques": 8},
-        "materials": {"silicium": 44000, "titanium": 30000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, percentage=30.0,
             target="detection", label="+30 % de portée de détection")],
@@ -745,7 +714,6 @@ class TechnologyType(enum.Enum):
         "label": "Traitement massif",
         "summary": "Les données brutes cessent de dormir dans les archives.",
         "requires": {"simulation": 5},
-        "materials": {"silicium": 36000, "cristal": 16000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target="research", label="+3 % de Données produites par niveau")],
@@ -755,7 +723,6 @@ class TechnologyType(enum.Enum):
         "label": "Contre-mesures actives",
         "summary": "Le missile atteint l'écho, pas la coque.",
         "requires": {"essaim_de_sondes": 1, "guerre_electronique": 8},
-        "materials": {"silicium": 70000, "cristal": 40000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=4.0,
             label="+4 % d'évasion par niveau")],
@@ -765,7 +732,6 @@ class TechnologyType(enum.Enum):
         "label": "Réseau neural stellaire",
         "summary": "Un cerveau réparti sur une dizaine de systèmes.",
         "requires": {"traitement_massif": 6},
-        "materials": {"silicium": 90000, "cristal": 50000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target="research", label="+5 % de Données produites par niveau")],
@@ -775,7 +741,6 @@ class TechnologyType(enum.Enum):
         "label": "Calcul quantique",
         "summary": "Toutes les réponses à la fois, et la bonne qui surnage.",
         "requires": {"reseau_neural": 5},
-        "materials": {"cristal": 120000, "neutronium": 1800},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Technologies, percentage=-20.0,
             label="−20 % sur la durée de toutes les recherches")],
@@ -785,7 +750,6 @@ class TechnologyType(enum.Enum):
         "label": "Conscience distribuée",
         "summary": "Elle ne réside nulle part, donc rien ne l'arrête.",
         "requires": {"contre_mesures": 6},
-        "materials": {"silicium": 170000, "neutronium": 1500},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=6.0,
             target="research", label="+6 % de Données produites par niveau")],
@@ -795,7 +759,6 @@ class TechnologyType(enum.Enum):
         "label": "Omniscience tactique",
         "summary": "Plus rien ne bouge dans la galaxie sans que vous le sachiez.",
         "requires": {"intelligence_artificielle": 1, "calcul_quantique": 1, "conscience_distribuee": 6},
-        "materials": {"neutronium": 3400, "silicium": 300000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Research, flat=2.0,
             target="slots", label="+2 emplacements de file de recherche")],
@@ -805,7 +768,6 @@ class TechnologyType(enum.Enum):
         "label": "Singularité",
         "summary": "La machine dépasse ce qu'on lui avait demandé de comprendre.",
         "requires": {"omniscience": 1, "precognition": 1},
-        "materials": {"neutronium": 5400, "silicium": 460000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=2.0,
             target="research", label="+2 % de Données produites par niveau")],
@@ -817,7 +779,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.biosphere, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Agronomie",
         "summary": "Des cultures qui acceptent un sol qu'elles n'ont pas choisi.",
-        "materials": {"carbon": 700},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="food", label="+4 % de nourriture produite par niveau")],
@@ -826,7 +787,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.biosphere, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Médecine",
         "summary": "Une colonie qui ne perd plus ses nouveau-nés.",
-        "materials": {"carbon": 620},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Territory, per_level=3.0,
             target="population_growth", label="+3 % de croissance de population par niveau")],
@@ -836,7 +796,6 @@ class TechnologyType(enum.Enum):
         "label": "Hydroponie",
         "summary": "Cultiver sans sol, c'est cultiver partout.",
         "requires": {"agronomie": 4},
-        "materials": {"carbon": 2400, "silicium": 800},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="food", label="+4 % de nourriture produite par niveau")],
@@ -846,7 +805,6 @@ class TechnologyType(enum.Enum):
         "label": "Bureaucratie impériale",
         "summary": "Un impôt qui rentre coûte moins cher qu'un impôt qui se lève.",
         "requires": {"medecine": 4},
-        "materials": {"carbon": 2400},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=3.0,
             target="credits", label="+3 % de crédits par niveau")],
@@ -856,7 +814,6 @@ class TechnologyType(enum.Enum):
         "label": "Adaptation extrême",
         "summary": "On cesse de corriger le monde, on corrige ses habitants.",
         "requires": {"medecine": 6},
-        "materials": {"carbon": 6000, "silicium": 2600},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=6.0,
             target="population", label="+6 % d'habitants portés par vos mondes, par niveau")],
@@ -866,7 +823,6 @@ class TechnologyType(enum.Enum):
         "label": "Santé publique",
         "summary": "Une épidémie évitée ne se voit dans aucun rapport.",
         "requires": {"hydroponie": 4},
-        "materials": {"carbon": 5400},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Territory, per_level=3.0,
             target="population_growth", label="+3 % de croissance de population par niveau")],
@@ -876,7 +832,6 @@ class TechnologyType(enum.Enum):
         "label": "Routes commerciales",
         "summary": "Un surplus qui dort ne vaut rien ; un surplus qui circule vaut des crédits.",
         "requires": {"bureaucratie": 6},
-        "materials": {"carbon": 22000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=15.0,
             target="credits", label="+15 % de crédits")],
@@ -886,7 +841,6 @@ class TechnologyType(enum.Enum):
         "label": "Cultures modifiées",
         "summary": "On réécrit la graine plutôt que le champ.",
         "requires": {"sante_publique": 4},
-        "materials": {"carbon": 9000, "silicium": 4000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target="food", label="+5 % de nourriture produite par niveau")],
@@ -896,7 +850,6 @@ class TechnologyType(enum.Enum):
         "label": "Arcologies",
         "summary": "Une ville qui monte au lieu de s'étaler.",
         "requires": {"adaptation": 4},
-        "materials": {"titanium": 20000, "carbon": 26000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=5.0,
             target="population", label="+5 % d'habitants portés par vos mondes, par niveau")],
@@ -906,7 +859,6 @@ class TechnologyType(enum.Enum):
         "label": "Terraformation",
         "summary": "Un monde stérile devient un monde pauvre. C'est déjà un monde.",
         "requires": {"adaptation": 6, "automatisation": 4},
-        "materials": {"carbon": 40000, "uranium": 14000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=15.0,
             target="population", label="+15 % d'habitants portés par vos mondes, par niveau")],
@@ -916,7 +868,6 @@ class TechnologyType(enum.Enum):
         "label": "Banque centrale",
         "summary": "Le crédit devient une ressource qu'on fabrique.",
         "requires": {"commerce": 1},
-        "materials": {"carbon": 40000, "cristal": 14000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="credits", label="+4 % de crédits par niveau")],
@@ -926,7 +877,6 @@ class TechnologyType(enum.Enum):
         "label": "Symbiotes adaptatifs",
         "summary": "L'habitant emporte sa biosphère avec lui.",
         "requires": {"cultures_modifiees": 6, "arcologies": 4},
-        "materials": {"carbon": 44000, "silicium": 22000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=6.0,
             target="population", label="+6 % d'habitants portés par vos mondes, par niveau")],
@@ -936,7 +886,6 @@ class TechnologyType(enum.Enum):
         "label": "Mondes-jardins",
         "summary": "Une planète entière réglée comme une serre.",
         "requires": {"terraformation": 3},
-        "materials": {"carbon": 120000, "uranium": 50000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=25.0,
             target="food", label="+25 % de nourriture produite")],
@@ -946,7 +895,6 @@ class TechnologyType(enum.Enum):
         "label": "Longévité",
         "summary": "Une génération qui ne se remplace plus tous les quarante ans.",
         "requires": {"symbiotes": 5},
-        "materials": {"carbon": 90000, "cristal": 40000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Territory, per_level=4.0,
             target="population_growth", label="+4 % de croissance de population par niveau")],
@@ -956,7 +904,6 @@ class TechnologyType(enum.Enum):
         "label": "Économie planifiée",
         "summary": "Plus rien ne se produit qui ne soit déjà vendu.",
         "requires": {"banque_centrale": 6},
-        "materials": {"carbon": 160000, "cristal": 70000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target="credits", label="+5 % de crédits par niveau")],
@@ -966,7 +913,6 @@ class TechnologyType(enum.Enum):
         "label": "Biosphère close",
         "summary": "Le monde n'échange plus rien avec l'extérieur, et s'en porte mieux.",
         "requires": {"mondes_jardins": 1},
-        "materials": {"carbon": 180000, "neutronium": 1400},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=7.0,
             target="population", label="+7 % d'habitants portés par vos mondes, par niveau")],
@@ -976,7 +922,6 @@ class TechnologyType(enum.Enum):
         "label": "Genèse dirigée",
         "summary": "On ne s'adapte plus au monde ni le monde à soi : on écrit les deux.",
         "requires": {"doctrine_sociale": 1, "biosphere_close": 5, "economie_planifiee": 5},
-        "materials": {"carbon": 300000, "neutronium": 3000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, percentage=30.0,
             target="population", label="+30 % d'habitants portés par vos mondes")],
@@ -986,7 +931,6 @@ class TechnologyType(enum.Enum):
         "label": "Ascension synthétique",
         "summary": "L'espèce cesse de dépendre du monde qui l'a portée.",
         "requires": {"genese": 1, "essaimage": 1},
-        "materials": {"carbon": 460000, "neutronium": 5000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=1.0,
             label="+1 % sur toutes les productions par niveau")],
@@ -998,7 +942,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.armement, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Alliages de coque",
         "summary": "Le blindage le plus rentable est celui qu'on n'a pas à refaire.",
-        "materials": {"titanium": 400, "iron": 1200},
         "effects": [
             effect(ModifierType.Resistance, ModifierScope.Ships, per_level=4.0,
                    label="+4 % d'intégrité de vaisseau par niveau"),
@@ -1010,7 +953,6 @@ class TechnologyType(enum.Enum):
         "branch": Branch.armement, "tier": 1, "kind": NodeKind.rank, "max_level": 15,
         "label": "Batteries laser",
         "summary": "Une arme qui n'emporte pas ses munitions.",
-        "materials": {"cristal": 420, "titanium": 300},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=5.0,
             label="+5 % de puissance des armes à énergie, par niveau")],
@@ -1020,7 +962,6 @@ class TechnologyType(enum.Enum):
         "label": "Ogives dirigées",
         "summary": "Une charge qui souffle dans une seule direction souffle deux fois plus fort.",
         "requires": {"alliages": 4},
-        "materials": {"carbon": 2800, "titanium": 2000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=4.0,
             target="missile", label="+4 % de puissance des missiles par niveau")],
@@ -1030,7 +971,6 @@ class TechnologyType(enum.Enum):
         "label": "Systèmes de ciblage",
         "summary": "Tirer moins souvent, mais ne plus manquer.",
         "requires": {"laser": 4},
-        "materials": {"silicium": 2600, "cristal": 1200},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=3.0,
             label="+3 % de puissance des défenses par niveau")],
@@ -1040,7 +980,6 @@ class TechnologyType(enum.Enum):
         "label": "Boucliers déflecteurs",
         "summary": "Ce qui n'atteint pas la coque n'a pas à être réparé.",
         "requires": {"ciblage": 4, "fusion": 1},
-        "materials": {"cristal": 6800, "uranium": 3000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=6.0,
             label="+6 % d'absorption avant impact, par niveau")],
@@ -1050,7 +989,6 @@ class TechnologyType(enum.Enum):
         "label": "Coques renforcées",
         "summary": "Des nervures là où les rapports de combat disent qu'elles manquent.",
         "requires": {"ogives": 4},
-        "materials": {"titanium": 7000, "iron": 14000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=5.0,
             label="+5 % d'intégrité de coque par niveau")],
@@ -1060,7 +998,6 @@ class TechnologyType(enum.Enum):
         "label": "Physique atomique",
         "summary": "On cesse de lancer de la matière, on lance ce qui la tient.",
         "requires": {"boucliers": 4, "fission": 8},
-        "materials": {"uranium": 11000, "titanium": 7000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=5.0,
             target="kinetic", label="+5 % de puissance cinétique et ionique, par niveau")],
@@ -1070,7 +1007,6 @@ class TechnologyType(enum.Enum):
         "label": "Blindage composite",
         "summary": "Trois matériaux qui échouent différemment, donc jamais ensemble.",
         "requires": {"coques_renforcees": 5},
-        "materials": {"titanium": 13000, "carbon": 8000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=5.0,
             label="+5 % d'intégrité de coque par niveau")],
@@ -1080,7 +1016,6 @@ class TechnologyType(enum.Enum):
         "label": "Artillerie lourde",
         "summary": "Des pièces qu'aucune coque légère ne peut porter.",
         "requires": {"atomique": 5},
-        "materials": {"titanium": 30000, "uranium": 20000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=6.0,
             label="+6 % de puissance des défenses par niveau")],
@@ -1090,7 +1025,6 @@ class TechnologyType(enum.Enum):
         "label": "Doctrine de flotte",
         "summary": "Beaucoup de petites coques, ou peu de grandes. Définitif.",
         "requires": {"blindage_composite": 6, "alliages": 10},
-        "materials": {"titanium": 40000, "neutronium": 400},
         "options": [
             {
                 "key": "essaim",
@@ -1121,7 +1055,6 @@ class TechnologyType(enum.Enum):
         "label": "Champs déflecteurs modulés",
         "summary": "Le bouclier se raidit à l'endroit exact où l'on frappe.",
         "requires": {"boucliers": 8, "guerre_electronique": 4},
-        "materials": {"cristal": 40000, "neutronium": 600},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=6.0,
             label="+6 % d'absorption avant impact, par niveau")],
@@ -1131,7 +1064,6 @@ class TechnologyType(enum.Enum):
         "label": "Munitions à noyau dense",
         "summary": "Même vitesse, deux fois la masse.",
         "requires": {"artillerie_lourde": 5},
-        "materials": {"neutronium": 800, "titanium": 46000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=5.0,
             target="kinetic", label="+5 % de puissance cinétique par niveau")],
@@ -1141,7 +1073,6 @@ class TechnologyType(enum.Enum):
         "label": "Coque ablative",
         "summary": "Elle part en morceaux, et c'est le but.",
         "requires": {"dispersion_thermique": 5, "champs_modules": 5},
-        "materials": {"carbon": 90000, "titanium": 80000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=6.0,
             label="+6 % d'intégrité de coque par niveau")],
@@ -1151,7 +1082,6 @@ class TechnologyType(enum.Enum):
         "label": "Canons gravitiques",
         "summary": "Le projectile n'est pas tiré : la cible est attirée.",
         "requires": {"munitions_denses": 5, "distorsion": 6},
-        "materials": {"neutronium": 1800, "cristal": 90000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, percentage=25.0,
             label="+25 % de puissance des défenses")],
@@ -1161,7 +1091,6 @@ class TechnologyType(enum.Enum):
         "label": "Bouclier planétaire",
         "summary": "Un dôme sur le monde entier, alimenté par lui.",
         "requires": {"coque_ablative": 5},
-        "materials": {"neutronium": 2600, "cristal": 150000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Defenses, per_level=8.0,
             label="+8 % d'absorption des défenses orbitales, par niveau")],
@@ -1171,7 +1100,6 @@ class TechnologyType(enum.Enum):
         "label": "Armement exotique",
         "summary": "Des armes dont on ne publie pas le principe.",
         "requires": {"canons_gravitiques": 1},
-        "materials": {"neutronium": 2800, "uranium": 200000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=6.0,
             label="+6 % de puissance des défenses par niveau")],
@@ -1181,7 +1109,6 @@ class TechnologyType(enum.Enum):
         "label": "Coques de titan",
         "summary": "Des charpentes qu'on ne peut plus assembler au sol.",
         "requires": {"doctrine_de_flotte": 1, "bouclier_planetaire": 6, "armement_exotique": 5},
-        "materials": {"neutronium": 4200, "titanium": 320000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, percentage=30.0,
             label="+30 % d'intégrité de coque")],
@@ -1191,7 +1118,6 @@ class TechnologyType(enum.Enum):
         "label": "Coque en neutronium",
         "summary": "De la matière d'étoile morte, pour ce qui ne doit pas mourir.",
         "requires": {"titan": 1, "annihilation": 1},
-        "materials": {"neutronium": 6400, "titanium": 480000},
         "effects": [
             effect(ModifierType.Resistance, ModifierScope.Ships, per_level=2.0,
                    label="+2 % d'intégrité par niveau"),
@@ -1213,7 +1139,6 @@ class TechnologyType(enum.Enum):
         "label": "Outillage de précision",
         "summary": "Un atelier qui produit ses propres machines-outils.",
         "requires": {"metallurgie": 3},
-        "materials": {"iron": 2600, "silicium": 900},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Buildings, per_level=-2.0,
             label="−2 % sur le coût des bâtiments, par niveau")],
@@ -1223,7 +1148,6 @@ class TechnologyType(enum.Enum):
         "label": "Moulage sous vide",
         "summary": "Sans air, la coulée ne piège aucune bulle — donc aucune fissure.",
         "requires": {"outillage": 4},
-        "materials": {"titanium": 4200, "iron": 6000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Ships, per_level=-3.0,
             label="−3 % sur le coût des vaisseaux, par niveau")],
@@ -1233,7 +1157,6 @@ class TechnologyType(enum.Enum):
         "label": "Robotique lourde",
         "summary": "Les pièces de dix tonnes cessent d'attendre une grue et son équipe.",
         "requires": {"moulage_sous_vide": 4},
-        "materials": {"silicium": 7000, "titanium": 6000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Defenses, per_level=-3.0,
             label="−3 % sur le coût des défenses, par niveau")],
@@ -1243,7 +1166,6 @@ class TechnologyType(enum.Enum):
         "label": "Chaînes logistiques",
         "summary": "Le matériau arrive le jour où le chantier en a besoin, pas avant.",
         "requires": {"robotique_lourde": 4, "chantiers": 6},
-        "materials": {"iron": 40000, "silicium": 18000},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Buildings, per_level=-3.0,
             label="−3 % de durée de construction des bâtiments, par niveau")],
@@ -1253,7 +1175,6 @@ class TechnologyType(enum.Enum):
         "label": "Dépôts orbitaux",
         "summary": "Ce qui monte en orbite n'a plus à en redescendre.",
         "requires": {"chaines_logistiques": 5},
-        "materials": {"titanium": 34000, "iron": 70000},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Ships, per_level=-4.0,
             label="−4 % de durée d'assemblage, par niveau")],
@@ -1263,7 +1184,6 @@ class TechnologyType(enum.Enum):
         "label": "Impression moléculaire",
         "summary": "La pièce sort finie, sans usinage ni rebut.",
         "requires": {"traitement_massif": 4, "depots_orbitaux": 5, "nanofabrication": 4},
-        "materials": {"silicium": 80000, "cristal": 44000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Buildings, per_level=-4.0,
             label="−4 % sur le coût des bâtiments, par niveau")],
@@ -1273,7 +1193,6 @@ class TechnologyType(enum.Enum):
         "label": "Logistique quantique",
         "summary": "Le stock n'est plus quelque part : il est là où on le demande.",
         "requires": {"calcul_quantique": 1, "impression_moleculaire": 5},
-        "materials": {"cristal": 90000, "neutronium": 1200},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Buildings, per_level=-5.0,
             label="−5 % de durée de construction des bâtiments, par niveau")],
@@ -1283,7 +1202,6 @@ class TechnologyType(enum.Enum):
         "label": "Désassemblage planétaire",
         "summary": "On cesse d'exploiter le monde : on le démonte.",
         "requires": {"logistique_quantique": 5, "exploitation_stellaire": 5},
-        "materials": {"neutronium": 3200, "iron": 400000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, percentage=30.0,
             target=MATERIALS, label="+30 % de matériaux extraits")],
@@ -1300,7 +1218,6 @@ class TechnologyType(enum.Enum):
         "label": "Poussée chimique",
         "summary": "Rustique, bruyant, et disponible tout de suite.",
         "requires": {"fission": 3},
-        "materials": {"hydrogen": 1200, "iron": 2400},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=2.0,
             label="+2 % de vitesse de déplacement des flottes, par niveau")],
@@ -1310,7 +1227,6 @@ class TechnologyType(enum.Enum):
         "label": "Dissipateurs thermiques",
         "summary": "Une réserve qui ne s'évapore plus entre deux usages.",
         "requires": {"supraconducteurs": 4},
-        "materials": {"titanium": 4600, "cristal": 2400},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Resource, per_level=4.0,
             target="energy", label="+4 % de réserve d'énergie par niveau")],
@@ -1320,7 +1236,6 @@ class TechnologyType(enum.Enum):
         "label": "Refroidissement cryogénique",
         "summary": "Un réacteur froid rend davantage que le même réacteur chaud.",
         "requires": {"dissipateurs": 4, "thermique": 5},
-        "materials": {"hydrogen": 6000, "uranium": 7000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="energy", label="+4 % d'énergie produite par niveau")],
@@ -1330,7 +1245,6 @@ class TechnologyType(enum.Enum):
         "label": "Doctrine énergétique",
         "summary": "Alimenter les mondes ou lancer les flottes. Le choix est définitif.",
         "requires": {"refroidissement": 5, "fusion": 1},
-        "materials": {"uranium": 44000, "cristal": 20000},
         "options": [
             {
                 "key": "reseau",
@@ -1361,7 +1275,6 @@ class TechnologyType(enum.Enum):
         "label": "Champs inertiels",
         "summary": "L'équipage cesse de sentir ce que la coque encaisse.",
         "requires": {"poussee_chimique": 6, "distorsion": 4},
-        "materials": {"neutronium": 500, "titanium": 34000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, per_level=4.0,
             label="+4 % de vitesse de déplacement des flottes, par niveau")],
@@ -1371,7 +1284,6 @@ class TechnologyType(enum.Enum):
         "label": "Accumulateurs massiques",
         "summary": "On stocke dans la masse, qui ne fuit pas.",
         "requires": {"condensateurs_quantiques": 5},
-        "materials": {"neutronium": 1200, "titanium": 90000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Resource, per_level=7.0,
             target="energy", label="+7 % de réserve d'énergie par niveau")],
@@ -1381,7 +1293,6 @@ class TechnologyType(enum.Enum):
         "label": "Conversion directe",
         "summary": "Plus d'étape intermédiaire, donc plus de perte à chaque étape.",
         "requires": {"nanofabrication": 5, "accumulateurs_massiques": 5},
-        "materials": {"neutronium": 2000, "cristal": 130000},
         "effects": [effect(
             ModifierType.Cost, ModifierScope.Buildings, per_level=-5.0,
             target="energy", label="−5 % de consommation d'énergie, par niveau")],
@@ -1391,7 +1302,6 @@ class TechnologyType(enum.Enum):
         "label": "Corridor stable",
         "summary": "Un pli de l'espace qui ne se referme plus derrière la flotte.",
         "requires": {"conversion_directe": 4, "champs_inertiels": 6, "pliage": 5},
-        "materials": {"neutronium": 3800, "cristal": 260000},
         "effects": [effect(
             ModifierType.Speed, ModifierScope.Fleet, percentage=30.0,
             label="+30 % de vitesse de déplacement des flottes")],
@@ -1408,7 +1318,6 @@ class TechnologyType(enum.Enum):
         "label": "Brouillage",
         "summary": "Le bruit coûte moins cher à produire que le signal à lire.",
         "requires": {"optique": 3},
-        "materials": {"silicium": 2000, "cristal": 800},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=-1.5,
             target="enemy", label="−1,5 % d'efficacité des défenses adverses, par niveau")],
@@ -1418,7 +1327,6 @@ class TechnologyType(enum.Enum):
         "label": "Leurres actifs",
         "summary": "Une coque qui se dédouble à l'écran d'en face.",
         "requires": {"brouillage": 4},
-        "materials": {"silicium": 4600, "titanium": 2200},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=3.0,
             label="+3 % d'évasion par niveau")],
@@ -1428,7 +1336,6 @@ class TechnologyType(enum.Enum):
         "label": "Sondes passives",
         "summary": "Elles écoutent sans émettre, donc sans se faire voir.",
         "requires": {"capteurs_gravimetriques": 4},
-        "materials": {"cristal": 8000, "silicium": 6000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=5.0,
             target="detection", label="+5 % de portée de détection par niveau")],
@@ -1438,7 +1345,6 @@ class TechnologyType(enum.Enum):
         "label": "Piratage embarqué",
         "summary": "La batterie adverse tire, mais plus sur ce qu'elle croit viser.",
         "requires": {"leurres": 5, "chiffrement": 4},
-        "materials": {"silicium": 32000, "cristal": 14000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=-3.0,
             target="enemy", label="−3 % d'efficacité des défenses adverses, par niveau")],
@@ -1448,7 +1354,6 @@ class TechnologyType(enum.Enum):
         "label": "Veille permanente",
         "summary": "Personne ne dort, parce que plus personne n'est de quart.",
         "requires": {"depots_orbitaux": 4, "sondes_passives": 5},
-        "materials": {"silicium": 38000, "cristal": 18000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=4.0,
             label="+4 % d'évasion par niveau")],
@@ -1458,7 +1363,6 @@ class TechnologyType(enum.Enum):
         "label": "Cartographie profonde",
         "summary": "On relève ce qui se trouve derrière l'étoile, pas seulement devant.",
         "requires": {"veille_permanente": 5, "essaim_de_sondes": 1},
-        "materials": {"cristal": 76000, "silicium": 56000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=7.0,
             target="detection", label="+7 % de portée de détection par niveau")],
@@ -1468,7 +1372,6 @@ class TechnologyType(enum.Enum):
         "label": "Dominance spectrale",
         "summary": "Toutes les fréquences sont à vous, y compris les leurs.",
         "requires": {"condensateurs_quantiques": 5, "piratage": 6, "contre_mesures": 5},
-        "materials": {"silicium": 160000, "neutronium": 1300},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=-4.0,
             target="enemy", label="−4 % d'efficacité des défenses adverses, par niveau")],
@@ -1478,7 +1381,6 @@ class TechnologyType(enum.Enum):
         "label": "Précognition tactique",
         "summary": "La simulation devance le réel d'assez peu pour être utile.",
         "requires": {"dominance_spectrale": 5, "cartographie_profonde": 5},
-        "materials": {"neutronium": 3200, "cristal": 290000},
         "effects": [effect(
             ModifierType.TimeReduce, ModifierScope.Technologies, percentage=-25.0,
             label="−25 % sur la durée de toutes les recherches")],
@@ -1495,7 +1397,6 @@ class TechnologyType(enum.Enum):
         "label": "Habitats pressurisés",
         "summary": "On cesse d'attendre une atmosphère : on l'emporte.",
         "requires": {"medecine": 3},
-        "materials": {"titanium": 2000, "carbon": 2200},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=4.0,
             target="population", label="+4 % d'habitants portés par vos mondes, par niveau")],
@@ -1505,7 +1406,6 @@ class TechnologyType(enum.Enum):
         "label": "Marchés locaux",
         "summary": "Ce qui s'échange sur place ne paie aucun transport.",
         "requires": {"bureaucratie": 4},
-        "materials": {"carbon": 5000, "silicium": 2000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=2.0,
             target="credits", label="+2 % de crédits par niveau")],
@@ -1515,7 +1415,6 @@ class TechnologyType(enum.Enum):
         "label": "Urbanisme dirigé",
         "summary": "La ville est dessinée avant d'être habitée, et cela se voit.",
         "requires": {"outillage": 5, "habitats_pressurises": 5},
-        "materials": {"titanium": 9000, "carbon": 8000},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, per_level=4.0,
             target="population", label="+4 % d'habitants portés par vos mondes, par niveau")],
@@ -1525,7 +1424,6 @@ class TechnologyType(enum.Enum):
         "label": "Doctrine sociale",
         "summary": "Le nombre ou la richesse. On ne bâtit pas les deux. Définitif.",
         "requires": {"urbanisme": 5, "marches_locaux": 5},
-        "materials": {"carbon": 46000, "titanium": 22000},
         "options": [
             {
                 "key": "collectif",
@@ -1556,7 +1454,6 @@ class TechnologyType(enum.Enum):
         "label": "Agriculture orbitale",
         "summary": "Des champs qui suivent le soleil au lieu de l'attendre.",
         "requires": {"automatisation": 5, "cultures_modifiees": 5},
-        "materials": {"carbon": 38000, "titanium": 18000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=5.0,
             target="food", label="+5 % de nourriture produite par niveau")],
@@ -1566,7 +1463,6 @@ class TechnologyType(enum.Enum):
         "label": "Guildes marchandes",
         "summary": "Le commerce cesse d'être une politique : il devient une institution.",
         "requires": {"marches_locaux": 6, "commerce": 1},
-        "materials": {"carbon": 84000, "cristal": 36000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Resource, per_level=4.0,
             target="credits", label="+4 % de crédits par niveau")],
@@ -1576,7 +1472,6 @@ class TechnologyType(enum.Enum):
         "label": "Médecine régénérative",
         "summary": "Une blessure cesse d'être une fin de carrière.",
         "requires": {"agriculture_orbitale": 5, "longevite": 4},
-        "materials": {"carbon": 150000, "silicium": 70000},
         "effects": [effect(
             ModifierType.Production, ModifierScope.Territory, per_level=5.0,
             target="population_growth", label="+5 % de croissance de population par niveau")],
@@ -1586,7 +1481,6 @@ class TechnologyType(enum.Enum):
         "label": "Essaimage",
         "summary": "Une colonie qui en fonde une autre sans rien demander.",
         "requires": {"guildes_marchandes": 5, "medecine_regenerative": 5},
-        "materials": {"carbon": 280000, "neutronium": 2800},
         "effects": [effect(
             ModifierType.Capacity, ModifierScope.Territory, percentage=25.0,
             target="population", label="+25 % d'habitants portés par vos mondes")],
@@ -1602,7 +1496,6 @@ class TechnologyType(enum.Enum):
         "label": "Soudure structurelle",
         "summary": "La coque cesse d'être un assemblage pour devenir une pièce.",
         "requires": {"alliages": 3},
-        "materials": {"titanium": 2400, "iron": 5000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=3.0,
             label="+3 % d'intégrité de coque par niveau")],
@@ -1612,7 +1505,6 @@ class TechnologyType(enum.Enum):
         "label": "Focalisation optique",
         "summary": "Le même faisceau, sur un dixième de la surface.",
         "requires": {"laser": 4},
-        "materials": {"cristal": 5600, "silicium": 3000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=4.0,
             label="+4 % de puissance des armes à énergie, par niveau")],
@@ -1622,7 +1514,6 @@ class TechnologyType(enum.Enum):
         "label": "Canons électromagnétiques",
         "summary": "Aucune poudre, aucun recul chimique, et une portée doublée.",
         "requires": {"metaux_rares": 4, "ogives": 5, "soudure_structurelle": 4},
-        "materials": {"titanium": 12000, "cristal": 5000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=4.0,
             target="kinetic", label="+4 % de puissance cinétique par niveau")],
@@ -1632,7 +1523,6 @@ class TechnologyType(enum.Enum):
         "label": "Dispersion thermique",
         "summary": "L'impact se répartit sur toute la coque au lieu de la percer.",
         "requires": {"focalisation": 5, "boucliers": 4},
-        "materials": {"titanium": 28000, "carbon": 18000},
         "effects": [effect(
             ModifierType.Resistance, ModifierScope.Ships, per_level=5.0,
             label="+5 % d'absorption avant impact, par niveau")],
@@ -1642,7 +1532,6 @@ class TechnologyType(enum.Enum):
         "label": "Lances à particules",
         "summary": "On n'envoie plus de la lumière : on envoie de la matière chargée.",
         "requires": {"focalisation": 8, "atomique": 4},
-        "materials": {"cristal": 42000, "uranium": 26000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=5.0,
             label="+5 % de puissance des armes à énergie, par niveau")],
@@ -1652,7 +1541,6 @@ class TechnologyType(enum.Enum):
         "label": "Surcharge capacitive",
         "summary": "Trois tirs de suite, puis dix secondes de silence. Cela suffit.",
         "requires": {"accumulateurs_massiques": 4, "lances_a_particules": 5},
-        "materials": {"cristal": 84000, "neutronium": 1400},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=5.0,
             label="+5 % de puissance des défenses par niveau")],
@@ -1662,7 +1550,6 @@ class TechnologyType(enum.Enum):
         "label": "Torpilles relativistes",
         "summary": "À cette vitesse, la charge est superflue.",
         "requires": {"pliage": 4, "railguns": 6, "munitions_denses": 5},
-        "materials": {"neutronium": 2400, "titanium": 160000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, per_level=6.0,
             target="kinetic", label="+6 % de puissance cinétique par niveau")],
@@ -1672,7 +1559,6 @@ class TechnologyType(enum.Enum):
         "label": "Ogives à annihilation",
         "summary": "Rien ne reste, et c'est le seul rapport que l'on obtient.",
         "requires": {"surcharge_capacitive": 5, "torpilles_relativistes": 5},
-        "materials": {"neutronium": 4000, "uranium": 340000},
         "effects": [effect(
             ModifierType.Power, ModifierScope.Defenses, percentage=30.0,
             label="+30 % de puissance des défenses")],
@@ -1692,10 +1578,14 @@ class TechnologyType(enum.Enum):
         self.effects = value.get("effects", [])
         self.options = value.get("options", [])
 
-        # Cout et duree se DEDUISENT du palier et de la nature du noeud. Un
-        # noeud ne declare que ses materiaux — ce qui lui est propre — et la
-        # courbe se regle dans `TIER_SCALE`, en un seul endroit. Recopiee sur
-        # quatre-vingt-dix entrees, elle aurait derive au premier ajustement.
+        # Cout et duree se DEDUISENT entierement du palier et de la nature du
+        # noeud : la courbe se regle dans `TIER_SCALE`, en un seul endroit.
+        # Recopiee sur quatre-vingt-dix entrees, elle aurait derive au premier
+        # ajustement.
+        #
+        # Un noeud ne declare donc plus rien de son prix. Il declarait ses
+        # materiaux ; ils sont sortis de l'arbre avec les credits — chercher se
+        # paie en Donnees et en attente, et rien d'autre.
         #
         # `base_cost`, `base_time` et les facteurs restent surchargeables par un
         # noeud qui aurait une raison de sortir du bareme ; aucun ne le fait
@@ -1709,9 +1599,6 @@ class TechnologyType(enum.Enum):
             cost_weight = time_weight = 1.0
 
         cost = {"research": round(scale["research"] * cost_weight)}
-        for resource, amount in value.get("materials", {}).items():
-            cost[resource] = round(amount * cost_weight)
-        cost.setdefault("credits", round(scale["credits"] * cost_weight))
 
         self.base_cost = value.get("base_cost", cost)
         self.cost_factor = value.get(
@@ -1735,7 +1622,6 @@ class TechnologyType(enum.Enum):
             'name': self.name,
             'label': self.label,
             'summary': self.summary,
-            'material': self.material,
             'accent': self.accent,
         }
 
@@ -1757,13 +1643,22 @@ class TechnologyType(enum.Enum):
     @property
     def unlocks(self):
         """
-        Ce que ce noeud ouvre, et a quel niveau.
+        Ce que ce noeud ouvre.
         ---
         Lu dans `BuildingType`, `ShipType` et `DefenseType`, jamais recopie ici :
-        ces tables
-        declarent deja leurs `requirements.technologies`, et deux declarations
-        de la meme regle finissent toujours par diverger. C'est la table
-        d'unites qui commande, la fiche du noeud ne fait que la retourner.
+        ces tables declarent deja leurs `requirements.technologies`, et deux
+        declarations de la meme regle finissent toujours par diverger. C'est la
+        table d'unites qui commande, la fiche du noeud ne fait que la retourner.
+
+        **Au PREMIER niveau, toujours.** Les niveaux declares valaient jusqu'a
+        huit : une coque tenue derriere `artillerie_lourde 6` restait invisible
+        pendant cinq niveaux, le joueur payait sans rien voir arriver, et la
+        fiche du noeud annoncait un deblocage qu'elle ne tenait pas avant des
+        heures. Ce qu'un noeud ouvre, il l'ouvre des qu'on l'a ; les niveaux
+        suivants n'ajoutent que de la puissance.
+
+        Le niveau reste dans la structure rendue — les deux clients le lisent —
+        mais il vaut 1 partout, et un test de la suite le garde ainsi.
 
         :return: {'buildings'|'ships'|'defenses': {nom: niveau}}
         """

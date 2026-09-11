@@ -1696,10 +1696,14 @@ class Territory(Base):
         # Les prerequis technologiques, verifies pour de bon.
         #
         # `DefenseType` les declare depuis toujours — l'Artillerie laser demande
-        # `laser: 5`, la Coilgun `atomique: 8` — mais rien ne les lisait : la
-        # console les affichait, le serveur les ignorait, et n'importe qui
-        # pouvait assembler une batterie ionique sans avoir rien cherche. C'est
-        # ce qui donne son poids a toute la branche Armement.
+        # `laser`, la Coilgun `atomique` — mais rien ne les lisait : la console
+        # les affichait, le serveur les ignorait, et n'importe qui pouvait
+        # assembler une batterie ionique sans avoir rien cherche. C'est ce qui
+        # donne son poids a toute la branche Armement.
+        #
+        # Ce qui est demande est la TECHNOLOGIE, pas un palier dedans : un
+        # deblocage tombe au premier niveau, et les suivants n'ajoutent que de
+        # la puissance.
         missing = self.missing_technologies(element)
         if missing:
             raise ValueError(

@@ -2796,11 +2796,15 @@ function renderNodeCard() {
 
   parts.push(`<div class="node-actions">${nodeActionMarkup(node, card, pool)}</div>`);
 
+  /* Ce que le nœud ouvre. Sans niveau : il l'ouvre au PREMIER, et les suivants
+     n'ajoutent que de la puissance. La fiche annonçait « (niv. 6) » sur une
+     coque qui restait invisible pendant cinq niveaux. */
   if (node.unlocks && Object.keys(node.unlocks).length) {
     const opened = Object.values(node.unlocks)
-      .flatMap((targets) => Object.entries(targets))
-      .map(([name, level]) => `${humanize(name)} (niv. ${level})`);
-    parts.push(`<p class="node-req node-req--opens">Ouvre : ${esc(opened.join(', '))}.</p>`);
+      .flatMap((targets) => Object.keys(targets))
+      .map((name) => humanize(name));
+    parts.push(`<p class="node-req node-req--opens">Ouvre dès le premier niveau :
+      ${esc(opened.join(', '))}.</p>`);
   }
 
   /* Puis la référence : le chemin d'accès, qui remplace l'ancienne ligne
@@ -2812,18 +2816,14 @@ function renderNodeCard() {
   body.innerHTML = parts.join('');
 }
 
-/* Ce que l'empire détient, tous mondes confondus, plus la réserve de Données.
-   C'est sur cette somme que le serveur facture : afficher le stock du monde
-   ouvert à l'écran ferait mentir les coûts. */
+/* Ce sur quoi une recherche se facture : la réserve de Données de l'empire, et
+   rien d'autre. Les Données n'appartiennent à aucune planète — c'est l'empire
+   qui cherche et c'est lui qui paie.
+
+   La somme des stocks de tous les mondes se faisait ici, parce qu'une
+   recherche coûtait aussi des matériaux. Elle n'en coûte plus. */
 function poolOfEmpire() {
-  const pool = {};
-  state.myTerritories.forEach((t) => {
-    Object.entries((t && t.resources) || {}).forEach(([key, value]) => {
-      if (typeof value === 'number') pool[key] = (pool[key] || 0) + value;
-    });
-  });
-  pool.research = (state.research.state && state.research.state.research) || 0;
-  return pool;
+  return { research: (state.research.state && state.research.state.research) || 0 };
 }
 
 function levelLabel(node, card) {

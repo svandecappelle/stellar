@@ -7,12 +7,16 @@ Un generateur, pas un test : il ne verifie rien que la suite ne verifie deja.
 Il ne s'execute que si on lui dit ou ecrire, sinon un `pytest` ordinaire irait
 deposer des fichiers hors du depot.
 
-    FIXTURE_OUT=.../Stellar-Unity/Tests/DevelopmentFixtures \
+    FIXTURE_OUT=.../Stellar-Unity/Tests \
         python -m pytest tests/api/game/_dump_fixtures.py -s
 
-Les echantillons servent a `DevelopmentWiringCheck` cote Unity : `JsonUtility`
+`FIXTURE_OUT` designe le dossier `Tests` du projet Unity ; chaque famille
+d'echantillons va dans son sous-dossier, celui que son controle lit.
+
+Les echantillons servent aux controles en mode batch du client : `JsonUtility`
 apparie par nom de champ et en silence, une cle renommee ici laisse le client
-a zero sans rien dire.
+a zero sans rien dire. Un echantillon perime est donc pire qu'absent — il fait
+passer un controle sur un contrat qui n'existe plus.
 """
 
 from datetime import datetime, timedelta
@@ -33,10 +37,11 @@ from tests.api.game.colonisation import grant, me, orbit, world
 OUT = os.environ.get('FIXTURE_OUT')
 
 
-def write(name, payload):
-    if not os.path.isdir(OUT):
-        os.makedirs(OUT)
-    path = os.path.join(OUT, name)
+def write(name, payload, family='DevelopmentFixtures'):
+    folder = os.path.join(OUT, family)
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    path = os.path.join(folder, name)
     with io.open(path, 'w', encoding='utf-8') as out:
         out.write(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
     print('wrote %s' % path)
@@ -116,3 +121,34 @@ def test_dump(client, session, base_universe):
     assert answer.status_code == 200
     assert answer.json['lines'][0]['throughput'] > 0
     write('trade-lines.json', answer.json)
+
+
+@pytest.mark.skipif(not OUT, reason="FIXTURE_OUT absent : rien a ecrire")
+@pytest.mark.usefixtures("authenticate_as_user")
+def test_dump_research(client, session, base_universe):
+    """
+    L'arbre technologique et l'etat du joueur dedans, pour
+    `ResearchWiringCheck`.
+
+    Ils dataient d'avant le retrait des couts en materiaux : le controle
+    passait, mais sur un contrat que le serveur n'ecrivait plus.
+    """
+    tree = client.get('/api/technologies/tree')
+    assert tree.status_code == 200
+    assert tree.json['nodes'], "l'arbre est vide"
+    write('api-tree.json', tree.json, family='ResearchFixtures')
+
+    # Une recherche EN COURS : c'est la moitie interessante de l'etat — la
+    # fiche d'un noeud en chantier porte un anneau, un compte a rebours et un
+    # bouton d'annulation que rien d'autre n'exerce.
+    user = me(session, base_universe)
+    user.add_research(500000)
+    session.commit()
+
+    started = client.post('/api/technology/extraction')
+    assert started.status_code == 200, started.json
+
+    state = client.get('/api/technologies')
+    assert state.status_code == 200
+    assert state.json['pending'], "aucune recherche en cours"
+    write('api-state.json', state.json, family='ResearchFixtures')

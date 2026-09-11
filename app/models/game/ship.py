@@ -21,7 +21,7 @@ class ShipType(enum.Enum):
         "integrity": 2000,
         "requirements": {
             "technologies": {
-                "ciblage": 3
+                "ciblage": 1
             }
         }
     }
@@ -50,7 +50,7 @@ class ShipType(enum.Enum):
         "integrity": 12000,
         "requirements": {
             "technologies": {
-                "coques_renforcees": 4
+                "coques_renforcees": 1
             }
         }
     }
@@ -67,7 +67,7 @@ class ShipType(enum.Enum):
         "integrity": 27000,
         "requirements": {
             "technologies": {
-                "blindage_composite": 5
+                "blindage_composite": 1
             }
         }
     }
@@ -85,7 +85,7 @@ class ShipType(enum.Enum):
         "integrity": 60000,
         "requirements": {
             "technologies": {
-                "artillerie_lourde": 6
+                "artillerie_lourde": 1
             }
         }
     }
@@ -127,7 +127,7 @@ class ShipType(enum.Enum):
         "requirements": {
             "technologies": {
                 "antimatiere": 1,
-                "bouclier_planetaire": 6
+                "bouclier_planetaire": 1
             }
         }
     }
@@ -149,7 +149,7 @@ class ShipType(enum.Enum):
         "integrity": 4000,
         "requirements": {
             "technologies": {
-                "poussee_chimique": 2
+                "poussee_chimique": 1
             }
         }
     }
@@ -170,7 +170,7 @@ class ShipType(enum.Enum):
         "integrity": 5000,
         "requirements": {
             "technologies": {
-                "convoyeurs": 3
+                "convoyeurs": 1
             }
         }
     }
@@ -191,7 +191,7 @@ class ShipType(enum.Enum):
         "integrity": 8000,
         "requirements": {
             "technologies": {
-                "moulage_sous_vide": 3
+                "moulage_sous_vide": 1
             }
         }
     }

@@ -162,7 +162,7 @@ button{font:inherit;color:inherit}
   text-transform:uppercase;color:var(--fg-dim);width:96px;flex:none;
 }
 .field select,
-.field input[type=text],.field input[type=password]{
+.field input[type=text],.field input[type=password],.field input[type=email]{
   flex:1;height:38px;padding:0 12px;min-width:0;
   background:var(--ico-bg);color:var(--fg-hi);
   border:var(--bw) solid var(--bc);border-radius:var(--r);
@@ -814,3 +814,22 @@ button{font:inherit;color:inherit}
 .tree-node--unknown{opacity:.32}
 .tree-node--unknown .tree-node__box{stroke:var(--bad);stroke-dasharray:3 4}
 .tree-node--unknown .tree-node__name{fill:var(--bad-fg)}
+
+/* ══ APPAREILS ENREGISTRÉS ═══════════════════════════════════════════════
+   Une ligne par machine qui peut ouvrir une session sans mot de passe. Le
+   libellé et sa date à gauche, le geste qui la ferme à droite : c'est une
+   liste dont on ne lit qu'une ligne à la fois, celle qu'on cherche à
+   reconnaître. */
+.device-row{
+  display:flex;align-items:center;gap:var(--sp-3);
+  padding:10px 0;border-bottom:1px solid var(--rule)
+}
+.device-row:last-child{border-bottom:none}
+.device-row__id{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.device-row__name{
+  font-family:var(--f-disp);font-size:13px;color:var(--fg-hi);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+/* La date du dernier usage : ce qui permet de reconnaître une machine, bien
+   plus que son nom. */
+.device-row__when{font-family:var(--f-num);font-size:10.5px;color:var(--fg-off);letter-spacing:.06em}

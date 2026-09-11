@@ -587,28 +587,119 @@ function initModeration() {
    login
    ============================================================ */
 
+/* Connexion ou inscription. Un seul formulaire, deux modes : les deux gestes ne
+   different que par le courriel et la confirmation.
+
+   La verification faite ici ne remplace pas celle du serveur — elle evite
+   l'aller-retour qui dirait la meme chose une demi-seconde plus tard. Les
+   bornes sont donc celles du serveur, et quand elles divergeront c'est lui qui
+   aura raison : son refus s'affiche tel qu'il l'a ecrit. */
+const LOGIN_MIN_USER = 3;
+const LOGIN_MAX_USER = 32;
+const LOGIN_MIN_PASS = 8;
+
+let registering = false;
+
+function setLoginMode(creating) {
+  registering = creating;
+
+  $('#login-overline').textContent = creating ? 'Nouveau compte' : 'Accès opérateur';
+  $('#login-submit').textContent = creating ? 'Créer le compte' : 'Se connecter';
+  $('#login-switch').textContent = creating ? "J'ai déjà un compte" : 'Créer un compte';
+
+  $('#login-email-field').classList.toggle('hidden', !creating);
+  $('#login-confirm-field').classList.toggle('hidden', !creating);
+  $('#login-hint').classList.toggle('hidden', !creating);
+  $('#login-error').classList.add('hidden');
+
+  /* Désactivés, et pas seulement masqués. Un champ caché reste candidat à la
+     validation du navigateur : un courriel mal saisi puis abandonné en
+     repassant en connexion bloquerait la soumission — sans message visible,
+     puisque le champ qu'il faudrait montrer n'est plus à l'écran. */
+  $('#login-email').disabled = !creating;
+  $('#login-confirm').disabled = !creating;
+
+  /* Le navigateur propose le mot de passe enregistre sur `current-password`, et
+     en propose un nouveau sur `new-password`. Laisser l'attribut inchange lui
+     ferait remplir un formulaire d'inscription avec un ancien mot de passe. */
+  $('#login-pass').setAttribute(
+    'autocomplete',
+    creating ? 'new-password' : 'current-password'
+  );
+}
+
+/* Ce qui ne va pas dans la saisie, null si elle peut partir. */
+function checkLogin(username, password) {
+  if (username.length < LOGIN_MIN_USER || username.length > LOGIN_MAX_USER) {
+    return `Le nom doit faire entre ${LOGIN_MIN_USER} et ${LOGIN_MAX_USER} caractères.`;
+  }
+  if (!password) return 'Saisissez votre mot de passe.';
+
+  /* Un compte créé avant que la règle n'existe peut avoir un mot de passe plus
+     court : le mesurer à la connexion refuserait son propriétaire chez lui. La
+     longueur ne se vérifie qu'à l'inscription. */
+  if (!registering) return null;
+
+  if (password.length < LOGIN_MIN_PASS) {
+    return `Le mot de passe doit faire au moins ${LOGIN_MIN_PASS} caractères.`;
+  }
+  if (password !== $('#login-confirm').value) {
+    return 'Les deux mots de passe ne correspondent pas.';
+  }
+  const email = $('#login-email').value.trim();
+  if (email.length < 5 || !email.includes('@')) {
+    return 'Une adresse de courriel valide est requise.';
+  }
+  return null;
+}
+
 function initLogin() {
+  setLoginMode(false);
+
+  $('#login-switch').addEventListener('click', () => setLoginMode(!registering));
+
   $('#login-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const btn = $('#login-submit');
     const err = $('#login-error');
+    const username = $('#login-user').value.trim();
+    const password = $('#login-pass').value;
+
+    const wrong = checkLogin(username, password);
+    if (wrong) {
+      err.textContent = wrong;
+      err.classList.remove('hidden');
+      return;
+    }
+
+    const creating = registering;
     err.classList.add('hidden');
     btn.disabled = true;
-    btn.textContent = 'Connexion…';
+    btn.textContent = creating ? 'Création…' : 'Connexion…';
     try {
       const chosen = $('#login-galaxy').value;
       if (chosen) {
         state.galaxy = chosen;
       }
-      state.user = await api.login($('#login-user').value.trim(), $('#login-pass').value);
+
+      /* L'inscription ouvre la session dans la foulée : son résultat EST le
+         compte connecté, il n'y a pas de connexion à enchaîner. */
+      state.user = creating
+        ? await api.register(username, $('#login-email').value.trim(), password)
+        : await api.login(username, password);
+
       $('#login-pass').value = '';
+      $('#login-confirm').value = '';
+      if (creating) setLoginMode(false);
       await enterGame();
     } catch (e) {
       err.textContent = e instanceof ApiError ? e.message : 'Connexion impossible';
       err.classList.remove('hidden');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Se connecter';
+      /* Le mode courant, et non celui du départ : une inscription réussie
+         ramène au mode connexion, et le libellé doit suivre. */
+      btn.textContent = registering ? 'Créer le compte' : 'Se connecter';
     }
   });
 }
@@ -2807,6 +2898,105 @@ function settingsOpen() {
   return !$('#modal-settings').classList.contains('hidden');
 }
 
+/* ============================================================
+   appareils enregistrés
+
+   Le client de jeu range une clé d'appareil pour ne plus redemander de mot de
+   passe au démarrage. Cette console est le seul endroit d'où elle peut être
+   retirée : le jeu ne connaît que la machine sur laquelle il tourne, et une clé
+   laissée sur un poste qu'on ne reverra pas resterait valable jusqu'à son
+   échéance — trois mois.
+
+   Le serveur ne rend jamais la valeur d'une clé : il n'en garde que
+   l'empreinte. Ce qui s'affiche ici sert à reconnaître une machine et à la
+   fermer, rien d'autre.
+   ============================================================ */
+
+async function openDevices() {
+  $('#modal-devices').classList.remove('hidden');
+  $('#devices-list').innerHTML = '<p class="empty">Lecture…</p>';
+  await loadDevices();
+}
+
+function closeDevices() {
+  $('#modal-devices').classList.add('hidden');
+}
+
+function devicesOpen() {
+  return !$('#modal-devices').classList.contains('hidden');
+}
+
+async function loadDevices() {
+  try {
+    renderDevices(await api.devices());
+  } catch (e) {
+    $('#devices-list').innerHTML = `<p class="empty">${esc(
+      e instanceof ApiError ? e.message : 'Lecture impossible'
+    )}</p>`;
+  }
+}
+
+function renderDevices(devices) {
+  const list = $('#devices-list');
+
+  if (!devices.length) {
+    list.innerHTML = `<p class="empty">Aucun appareil enregistré. Cochez « rester
+      connecté » dans le client de jeu pour ne plus saisir votre mot de passe.</p>`;
+    $('#devices-revoke-all').classList.add('hidden');
+    return;
+  }
+
+  $('#devices-revoke-all').classList.remove('hidden');
+  list.innerHTML = devices
+    .map(
+      (d) => `<div class="device-row">
+        <span class="device-row__id">
+          <span class="device-row__name">${esc(d.label || 'Appareil sans nom')}</span>
+          <span class="device-row__when">${esc(describeDevice(d))}</span>
+        </span>
+        <button class="btn btn--sm btn--dgr" data-device="${d.id}">Déconnecter</button>
+      </div>`
+    )
+    .join('');
+}
+
+/* Ce qu'on dit d'un appareil : quand il a servi, et jusqu'à quand il ouvre
+   encore. Sa date de création n'apprend rien — c'est le dernier usage qui dit
+   si l'on reconnaît la machine. */
+function describeDevice(device) {
+  const used = parseUtc(device.last_used_at || device.created_at);
+  const until = parseUtc(device.expires_at);
+  const parts = [];
+  if (used) parts.push(`vu le ${used.toLocaleDateString('fr-FR')}`);
+  if (until) parts.push(`expire le ${until.toLocaleDateString('fr-FR')}`);
+  return parts.join(' · ');
+}
+
+async function revokeDevice(id) {
+  try {
+    await api.revokeDevice(id);
+    toast('Appareil déconnecté.', 'ok', 'Compte');
+    await loadDevices();
+  } catch (e) {
+    handleApiError(e, 'Compte');
+  }
+}
+
+async function revokeAllDevices() {
+  /* Y compris la clé de la machine d'où part la demande : c'est dit avant, pas
+     après. La session de cette console, elle, reste ouverte — elle ne tient pas
+     à une clé d'appareil. */
+  if (!window.confirm('Déconnecter tous les appareils, y compris celui-ci ?')) return;
+
+  try {
+    const done = await api.revokeDevices();
+    toast(`${(done && done.revoked) || 0} appareil(s) déconnecté(s).`, 'ok', 'Compte');
+    await loadDevices();
+  } catch (e) {
+    handleApiError(e, 'Compte');
+  }
+}
+
 /* Le choix d'un territoire est au-dessus d'un territoire : l'adresse remonte à
    la galaxie, sans quoi un rechargement rouvrirait le monde qu'on vient de
    quitter. Partagé par les deux scènes. */
@@ -2848,6 +3038,12 @@ function runChromeAction(name) {
     case 'settings-close':
       closeSettings();
       break;
+    case 'devices':
+      openDevices();
+      break;
+    case 'devices-close':
+      closeDevices();
+      break;
     case 'logout':
       logout();
       break;
@@ -2858,6 +3054,10 @@ function runChromeAction(name) {
 
 function initChrome() {
   paintChrome();
+
+  /* Nommé plutôt que `data-act` : il demande confirmation, et une action qui
+     ouvre une question n'a pas sa place dans la table des gestes immédiats. */
+  $('#devices-revoke-all').addEventListener('click', revokeAllDevices);
 
   document.addEventListener('click', (ev) => {
     const toggle = ev.target.closest('[data-menu-toggle]');
@@ -2874,9 +3074,23 @@ function initChrome() {
        d'un menu, et sans reponse il donne l'impression d'etre coince. */
     if (!ev.target.closest('[data-menu-pop]')) closeMenus();
 
+    /* Le bouton « Déconnecter » d'une ligne porte l'appareil visé : la liste se
+       redessine à chaque lecture, et un branchement par bouton se perdrait à la
+       première. */
+    const device = ev.target.closest('[data-device]');
+    if (device) {
+      revokeDevice(Number(device.dataset.device));
+      return;
+    }
+
     /* Le fond assombri de la fenetre sert de zone de fermeture. */
     if (ev.target.id === 'modal-settings') {
       closeSettings();
+      return;
+    }
+
+    if (ev.target.id === 'modal-devices') {
+      closeDevices();
       return;
     }
 
@@ -2893,6 +3107,11 @@ function initChrome() {
     'keydown',
     (ev) => {
       if (ev.key !== 'Escape') return;
+      if (devicesOpen()) {
+        closeDevices();
+        ev.stopImmediatePropagation();
+        return;
+      }
       if (settingsOpen()) {
         closeSettings();
         ev.stopImmediatePropagation();

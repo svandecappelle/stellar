@@ -25,8 +25,12 @@
           <div class="theme-pick" id="login-theme-pick" style="margin-top:18px"></div>
         </div>
 
+        <!-- Un seul formulaire pour deux gestes : connexion et inscription ne
+             different que par deux champs. Deux formulaires auraient double le
+             balisage, la validation et les branchements pour une difference qui
+             tient en une ligne. -->
         <form id="login-form" autocomplete="on">
-          <span class="ov">Accès opérateur</span>
+          <span class="ov" id="login-overline">Accès opérateur</span>
           <div class="field">
             <label for="login-galaxy">Galaxie</label>
             <select id="login-galaxy" name="galaxy"></select>
@@ -35,15 +39,32 @@
             <label for="login-user">Utilisateur</label>
             <input id="login-user" name="username" type="text" autocomplete="username" required>
           </div>
+          <div class="field hidden" id="login-email-field">
+            <label for="login-email">Courriel</label>
+            <input id="login-email" name="email" type="email" autocomplete="email">
+          </div>
           <div class="field">
             <label for="login-pass">Mot de passe</label>
             <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <div class="field hidden" id="login-confirm-field">
+            <label for="login-confirm">Confirmation</label>
+            <input id="login-confirm" name="confirm" type="password" autocomplete="new-password">
           </div>
           <div class="field">
             <label></label>
             <button class="btn btn--pri" type="submit" id="login-submit">Se connecter</button>
           </div>
+          <div class="field">
+            <label></label>
+            <button class="btn btn--sm btn--ghost" type="button" id="login-switch">Créer un compte</button>
+          </div>
           <p class="err-text hidden" id="login-error"></p>
+          <!-- Dit avant l'inscription ce que le serveur fait du courriel, plutôt
+               que de laisser croire à une vérification qui n'existe pas. -->
+          <p class="mod-intro hidden" id="login-hint">Le courriel sert à retrouver
+            votre compte ; aucun message ne vous sera envoyé. Le mot de passe fait
+            au moins 8 caractères.</p>
         </form>
       </div>
     </div>
@@ -153,6 +174,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
           <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
@@ -230,6 +252,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
           <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
@@ -310,6 +333,7 @@
                 aria-expanded="false" title="Menu" aria-label="Menu"></button>
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
           <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
           <div class="menu-sep"></div>
           <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
@@ -402,6 +426,33 @@
     <p class="mod-intro">Trois directions visuelles. Le choix est conservé sur cet
       appareil, il ne suit pas le compte.</p>
     <div class="theme-pick" id="settings-theme-pick"></div>
+  </div>
+</div>
+
+<!-- ==================== APPAREILS ====================
+     Le client de jeu range une cle d'appareil pour ne plus redemander de mot
+     de passe au demarrage. Cette console est le seul endroit d'ou le joueur
+     peut la retirer — un ordinateur revendu, un poste partage, une machine
+     qu'il ne reverra pas. Sans cette page, la cle ne se fermerait jamais
+     autrement qu'en attendant son echeance. -->
+<div class="modal hidden" id="modal-devices" role="dialog" aria-modal="true"
+     aria-labelledby="devices-title">
+  <div class="modal-card panel panel--hazard">
+    <div class="panel-head">
+      <div>
+        <span class="ov">Compte</span>
+        <span class="t" id="devices-title">Appareils connectés</span>
+      </div>
+      <button class="btn btn--sm btn--ghost" data-act="devices-close">Fermer</button>
+    </div>
+    <div class="rule"></div>
+    <p class="mod-intro">Chaque ligne est une machine qui peut ouvrir une session
+      sans mot de passe. La déconnecter la renvoie au formulaire à son prochain
+      démarrage. Le serveur ne conserve jamais la clé elle-même, seulement son
+      empreinte.</p>
+    <div id="devices-list"></div>
+    <div class="rule"></div>
+    <button class="btn btn--sm btn--dgr" id="devices-revoke-all">Tout déconnecter</button>
   </div>
 </div>
 

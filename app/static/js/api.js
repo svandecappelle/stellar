@@ -61,6 +61,26 @@ export const api = {
     }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
 
+  /* Crée un compte. Il naît sans monde : le joueur réclame son premier monde
+     tellurique depuis le client de jeu, et c'est cette attribution-là qui pose
+     son arbre technologique. La session s'ouvre dans la foulée — redemander
+     les identifiants juste après une inscription n'apporte rien. */
+  register: (username, email, password) =>
+    request('/api/users', {
+      method: 'POST',
+      body: { username, email, password },
+    }),
+
+  /* ---- appareils enregistrés ----
+     Le client de jeu range une clé d'appareil pour ne plus redemander de mot
+     de passe. Cette console est le seul endroit où le joueur peut la voir et
+     la retirer : le jeu, lui, ne montre que la machine sur laquelle il tourne.
+     Le serveur ne rend jamais la valeur d'une clé — il n'en garde que
+     l'empreinte — seulement de quoi reconnaître un appareil et le fermer. */
+  devices: () => request('/api/auth/tokens').then((r) => (r && r.devices) || []),
+  revokeDevice: (id) => request(`/api/auth/token/${id}`, { method: 'DELETE' }),
+  revokeDevices: () => request('/api/auth/tokens', { method: 'DELETE' }),
+
   /* ---- catalogue statique (coûts des vaisseaux / défenses) ---- */
   catalog: () => request('/api/catalog'),
 

@@ -1467,25 +1467,74 @@ class Territory(Base):
             user_id=self.user_id,
         ))
 
-    def accepts(self, building_type):
+    def place_refusal(self, building_type):
         """
-        Ce monde accepte-t-il ce batiment, quel que soit le reste ?
-        ---
-        Repond a la question de PLACE, pas de moyens : une plateforme n'a pas
-        de sol pour une ferme, et une geante gazeuse est le seul corps dont on
-        puisse craquer les gaz. Les ressources et les technologies se verifient
-        ailleurs — un refus de place ne se corrige pas en attendant.
+        Pourquoi ce batiment n'a pas sa place ici, `None` s'il l'a.
+
+        La question de PLACE seule, et c'est la seule dont la reponse soit
+        definitive : une plateforme n'a pas de sol pour une ferme, et une geante
+        gazeuse est le seul corps dont on puisse craquer les gaz. Ni attendre ni
+        chercher n'y changera rien, la ou un manque de fer ou de technologie se
+        rattrape.
+
+        Separee de `build_refusal` parce que le client en a besoin seule : il
+        efface ce qui n'aura jamais sa place, mais laisse a porte de clic ce
+        qu'il manque seulement d'avoir les moyens de batir.
         """
         if self.orbital and building_type not in ORBITAL_MODULES:
-            return False
+            return (
+                "Cannot build %s on an orbital platform. It has no ground: "
+                "only %s can be built there." % (
+                    building_type.name,
+                    ", ".join(sorted(m.name for m in ORBITAL_MODULES))))
 
         # Le craqueur casse de l'hydrogene : sur un monde qui n'en sort pas, il
         # n'aurait rien a casser.
         if building_type == BuildingType.gas_cracker:
             archetype = self.planet_archetype
-            return archetype is not None and archetype.produces(ResourceType.hydrogen.name)
+            if archetype is None or not archetype.produces(ResourceType.hydrogen.name):
+                return ("Cannot build %s here: this world yields no hydrogen to "
+                        "crack." % building_type.name)
 
-        return True
+        return None
+
+    def accepts(self, building_type):
+        """
+        Ce monde accepte-t-il ce batiment, quel que soit le reste ?
+        ---
+        Repond a la question de PLACE, pas de moyens : les ressources et les
+        technologies se verifient ailleurs.
+        """
+        return self.place_refusal(building_type) is None
+
+    def construction_offer(self):
+        """
+        Ce que ce monde peut porter, et pourquoi il refuse le reste.
+
+        Le client dressait sa liste de batiments depuis un registre code en dur :
+        il offrait donc une ferme et une academie sur une plateforme orbitale,
+        que le serveur refusait ensuite. Une regle recopiee dans deux clients
+        diverge au premier equilibrage — c'est le serveur qui la dit, comme pour
+        `claim_offer`.
+
+        Les refus portent leur phrase : un batiment simplement absent de la
+        liste laisserait le joueur chercher pourquoi.
+        """
+        accepted = []
+        refused = []
+
+        for building_type in BuildingType:
+            reason = self.place_refusal(building_type)
+            if reason is None:
+                accepted.append(building_type.name)
+            else:
+                refused.append({'name': building_type.name, 'reason': reason})
+
+        return {
+            'orbital': bool(self.orbital),
+            'accepts': accepted,
+            'refusals': refused,
+        }
 
     def build_refusal(self, building_type):
         """
@@ -1497,16 +1546,9 @@ class Territory(Base):
         atteint » pour les trois, ce qui envoyait chercher du fer pour une ferme
         qu'aucune plateforme ne portera jamais.
         """
-        if self.orbital and building_type not in ORBITAL_MODULES:
-            return (
-                "Cannot build %s on an orbital platform. It has no ground: "
-                "only %s can be built there." % (
-                    building_type.name,
-                    ", ".join(sorted(m.name for m in ORBITAL_MODULES))))
-
-        if not self.accepts(building_type):
-            return ("Cannot build %s here: this world yields no hydrogen to crack."
-                    % building_type.name)
+        refusal = self.place_refusal(building_type)
+        if refusal is not None:
+            return refusal
 
         missing = self.missing_technologies(building_type)
         if missing:
@@ -1745,6 +1787,10 @@ class Territory(Base):
             # dans deux clients divergerait au premier equilibrage, et le
             # bouton se dessine a partir d'ici.
             'claim': self.claim_offer(),
+            # Ce que ce monde peut porter. Le client s'en sert pour dresser sa
+            # liste de batiments : sans lui, il proposerait une ferme sur une
+            # plateforme orbitale, que le serveur refuse.
+            'construction': self.construction_offer(),
             # Colonie ou plateforme : le client n'affiche ni les memes chiffres
             # ni les memes boutons pour l'une et pour l'autre.
             'orbital': bool(self.orbital),

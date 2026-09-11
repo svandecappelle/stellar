@@ -595,3 +595,93 @@ class TestTheClaimOffer:
 
         offer = target.claim_offer(user=user)
         assert offer['requires_list'] == []
+
+
+# ── Ce qu'un monde accepte de porter ─────────────────────────────────────────
+
+
+class TestTheConstructionOffer:
+    """
+    Le panneau de developpement du client dressait sa liste depuis un registre
+    code en dur : il offrait une ferme et une academie sur une plateforme
+    orbitale, que le serveur refusait ensuite avec raison. La liste vient
+    maintenant d'ici, comme le bouton de prise vient de `claim_offer`.
+    """
+
+    def platform(self, client, session, base_universe):
+        user = me(session, base_universe)
+        grant(session, user, forage=3)
+        target = world(session, base_universe, PlanetArchetype.gas_giant)
+        orbit(session, target, user, ShipType.ExtractionPlatform)
+        client.post('/api/territory/%d' % target.id)
+        return Territory.get(id=target.id)
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_platform_offers_only_its_modules(self, client, session, base_universe):
+        taken = self.platform(client, session, base_universe)
+
+        offer = taken.construction_offer()
+        assert offer['orbital'] is True
+        assert sorted(offer['accepts']) == sorted(m.name for m in ORBITAL_MODULES)
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_what_it_refuses_says_why(self, client, session, base_universe):
+        """
+        Un batiment simplement absent de la liste laisserait le joueur chercher
+        pourquoi. Chaque refus porte sa phrase.
+        """
+        taken = self.platform(client, session, base_universe)
+
+        refusals = {r['name']: r['reason'] for r in taken.construction_offer()['refusals']}
+        assert 'farm' in refusals
+        assert "no ground" in refusals['farm']
+        assert set(refusals) & set(m.name for m in ORBITAL_MODULES) == set()
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_every_building_is_answered_once(self, client, session, base_universe):
+        """Ni trou ni doublon : le client parcourt cette liste, pas la sienne."""
+        taken = self.platform(client, session, base_universe)
+        offer = taken.construction_offer()
+
+        answered = list(offer['accepts']) + [r['name'] for r in offer['refusals']]
+        assert sorted(answered) == sorted(b.name for b in BuildingType)
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_colony_refuses_only_the_cracker(self, client, session, base_universe):
+        user = me(session, base_universe)
+        colony = user.territories[0]
+        colony.archetype = PlanetArchetype.telluric
+        session.commit()
+
+        offer = colony.construction_offer()
+        assert offer['orbital'] is False
+        assert [r['name'] for r in offer['refusals']] == [BuildingType.gas_cracker.name]
+        assert "hydrogen" in offer['refusals'][0]['reason']
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_offer_travels_with_the_territory(self, client, session, base_universe):
+        """C'est la fiche territoire que lit le panneau de developpement."""
+        taken = self.platform(client, session, base_universe)
+
+        answer = client.get('/api/territory/%d' % taken.id)
+        assert answer.status_code == 200
+
+        offer = answer.json['construction']
+        assert offer['orbital'] is True
+        assert 'gas_cracker' in offer['accepts']
+        assert 'farm' not in offer['accepts']
+
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_refusal_is_the_one_the_build_route_gives(
+            self, client, session, base_universe):
+        """
+        La liste et le refus viennent du meme endroit. S'ils divergeaient, le
+        client masquerait un batiment que la route accepte — ou l'inverse.
+        """
+        taken = self.platform(client, session, base_universe)
+
+        announced = {r['name']: r['reason'] for r in taken.construction_offer()['refusals']}
+        answer = client.post('/api/territory/%d/farm' % taken.id)
+
+        assert answer.status_code == 400
+        assert answer.json['message'] == announced['farm']

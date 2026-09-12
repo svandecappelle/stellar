@@ -1058,3 +1058,20 @@ button{font:inherit;color:inherit}
    rien d'autre ne le dirait. */
 .trade-load{margin:6px 0 0;font-family:var(--f-num);font-size:11px;color:var(--fg-dim);font-variant-numeric:tabular-nums}
 .trade-load--over{color:var(--warn)}
+
+/* ---------- prérequis cliquable ----------
+   Une construction nomme la recherche qui l'ouvre ; le nom est un lien vers le
+   nœud. Lire « il faut Chantiers modulaires » sans pouvoir y aller n'avance à
+   rien : l'arbre compte quatre-vingt-dix nœuds sur cinq branches, et la phrase
+   ne dit ni lequel ni où.
+
+   Il reprend la forme de `.path-name`, qui fait déjà ce geste dans la fiche
+   d'un nœud : deux liens vers la même chose doivent se ressembler. */
+.req-line{margin-top:4px}
+.req-link{
+  font:inherit;font-family:var(--f-disp);font-weight:600;color:var(--acc);
+  background:none;border:0;padding:0;cursor:pointer;
+  border-bottom:1px dotted var(--acc);
+}
+.req-link:hover{color:var(--fg-hi);border-bottom-color:var(--fg-hi)}
+.req-link:focus-visible{outline:2px solid var(--acc);outline-offset:2px}

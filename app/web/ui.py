@@ -16,7 +16,8 @@ from app.models.game.buildings import BuildingType
 from app.models.game.defense import DefenseType
 from app.models.game.planet import PlanetArchetype, scheme_map
 from app.models.game.ship import ShipType
-from app.models.game.technologies.technology_type import tree as technology_tree
+from app.models.game.technologies.technology_type import (
+    technology_requirements, tree as technology_tree)
 from app.models.game.territory import ResourceType
 
 STATIC_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static')
@@ -57,6 +58,9 @@ def _unit_entry(unit):
         'cost': unit.value.get('base_cost', {}),
         'integrity': unit.value.get('integrity', 0),
         'requirements': unit.value.get('requirements', {}),
+        # Indexes et libelles — la forme que les clients savent lire, et qui
+        # porte de quoi ouvrir le noeud dans la vue recherche.
+        'requires_list': technology_requirements(unit),
     }
 
 

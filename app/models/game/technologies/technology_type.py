@@ -1915,6 +1915,48 @@ LEGACY_NAMES = {
 }
 
 
+def technology_requirements(element):
+    """
+    Les technologies qu'un batiment, une coque ou une batterie reclame.
+
+    Rendue INDEXEE, et avec le libelle deja resolu. Trois raisons, et chacune a
+    coute quelque chose :
+
+      · `JsonUtility` — le seul lecteur JSON du client Unity — apparie par nom
+        de CHAMP : il ne sait pas lire `{"chantiers": 1}`. Meme lecon que
+        `claim_offer` et que `technology_type.describe()` avant lui.
+
+      · Le libelle vient d'ici parce que le nom de noeud (`chantiers`) n'est pas
+        ce qu'on montre a un joueur (« Chantiers modulaires »). Le resoudre cote
+        client demanderait d'avoir charge l'arbre — ce que le panneau de
+        developpement n'a aucune raison de faire.
+
+      · Le nom brut reste, parce que c'est LUI qui sert de cible : les deux
+        interfaces en font un lien vers le noeud dans la vue recherche.
+
+    Le niveau vaut toujours 1 — voir `TechnologyType.unlocks` — mais il voyage
+    quand meme : les clients l'affichaient deja, et une regle se relit mieux
+    dans les donnees que dans un commentaire.
+
+    :param element: membre de `BuildingType`, `ShipType` ou `DefenseType`
+    :return: [{'name': ..., 'label': ..., 'level': ...}], triee par libelle
+    """
+    required = (element.value.get('requirements') or {}).get('technologies') or {}
+
+    found = []
+    for name, level in required.items():
+        node = TechnologyType.get_by_name(name)
+        found.append({
+            'name': name,
+            # Un prerequis qui ne correspond a aucun noeud est un defaut de
+            # table, pas une raison de casser la fiche : on montre le nom brut.
+            'label': node.label if node is not None else name,
+            'level': level,
+        })
+
+    return sorted(found, key=lambda entry: entry['label'])
+
+
 def tree():
     """
     L'arbre entier, tel que `/api/technologies/tree` le publie.

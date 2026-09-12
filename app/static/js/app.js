@@ -1745,6 +1745,7 @@ function renderBuildings() {
         <p class="desc${barred ? ' desc--barred' : ''}">${esc(
           barred || BUILDING_DESC[name] || 'Structure planétaire.'
         )}</p>
+        ${barred ? '' : requirementsMarkup(b.requires_list)}
         ${barred ? '' : progressMarkup(ev, `Niveau ${Number(b.level) + 1} en construction`)}
       </div>
     </div>`;
@@ -1783,7 +1784,7 @@ function renderUnits(kind) {
       const ev = eventFor(kind, u.name);
       /* Purement informatif : `Territory.build` ne vérifie que le coût,
          pas les prérequis technologiques. On n'interdit donc rien ici. */
-      const locked = describeRequirements(u.requirements);
+      const requires = requirementsMarkup(u.requires_list);
       const cls = ev ? 'row busy' : affordable ? 'row' : 'row off';
       const unitSeconds = u.integrity ? (u.integrity / 2500) * (1 + shipyardLevel) * 60 : 0;
 
@@ -1810,8 +1811,9 @@ function renderUnits(kind) {
           ${unitSeconds ? `<span class="cost">Unité <b>${esc(fmtDuration(unitSeconds))}</b></span>` : ''}
         </div>
         <p class="desc">${esc(
-          locked || `Coût unitaire. La durée d'assemblage dépend du niveau du chantier (LVL ${shipyardLevel}).`
+          `Coût unitaire. La durée d'assemblage dépend du niveau du chantier (LVL ${shipyardLevel}).`
         )}</p>
+        ${requires}
         ${progressMarkup(ev, `${(ev && ev.extraArgs && ev.extraArgs.quantity) || ''} restant(s) en assemblage`)}
       </div>
     </div>`;
@@ -1819,10 +1821,26 @@ function renderUnits(kind) {
     .join('');
 }
 
-function describeRequirements(req) {
-  if (!req || !req.technologies) return null;
-  const parts = Object.entries(req.technologies).map(([k, v]) => `${humanize(k)} ${v}`);
-  return parts.length ? `Requiert : ${parts.join(', ')}.` : null;
+/* Les prérequis technologiques d'une construction, chacun cliquable.
+
+   Lire « il faut Chantiers modulaires » sans pouvoir y aller n'avance à rien :
+   l'arbre compte quatre-vingt-dix nœuds répartis sur cinq branches, et rien
+   dans la phrase ne dit lequel ni où. Le lien ouvre la vue recherche sur le
+   nœud, sa branche affichée et le cadre recentré dessus.
+
+   La cible est le nom BRUT du nœud (`chantiers`), que le serveur envoie à côté
+   du libellé : le libellé change avec la langue, la cible non. */
+function requirementsMarkup(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+
+  const links = list
+    .map(
+      (r) => `<button type="button" class="req-link" data-open-research="${esc(r.name)}"
+        title="Ouvrir « ${esc(r.label)} » dans la recherche">${esc(r.label)}</button>`
+    )
+    .join(', ');
+
+  return `<p class="desc req-line">Requiert : ${links}.</p>`;
 }
 
 /* ============================================================
@@ -3007,6 +3025,17 @@ function armDoctrine(key) {
   renderNodeCard();
 }
 
+/* Ouvre la vue recherche sur un nœud précis.
+
+   Appelée depuis les panneaux de construction, donc depuis une vue qui n'a pas
+   forcément chargé l'arbre : `openResearch` s'en charge, et ce n'est qu'après
+   que le nœud peut être désigné — le révéler avant ne trouverait rien. */
+async function openResearchAt(name) {
+  if (!name) return;
+  await openResearch();
+  revealResearchNode(name);
+}
+
 function selectResearchNode(name) {
   if (!state.research.nodes.has(name)) return;
   state.research.selected = name;
@@ -3275,6 +3304,14 @@ function initEvents() {
   });
 
   $('#tab-body').addEventListener('click', (ev) => {
+    /* Avant tout le reste : le lien est posé DANS une ligne de construction,
+       et le gestionnaire de la ligne prendrait le clic. */
+    const research = ev.target.closest('[data-open-research]');
+    if (research) {
+      openResearchAt(research.dataset.openResearch);
+      return;
+    }
+
     const building = ev.target.closest('[data-build-building]');
     if (building) {
       upgradeBuilding(building.dataset.buildBuilding);

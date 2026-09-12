@@ -1060,3 +1060,52 @@ class TestSerialization:
         import json
 
         assert json.dumps(tree())
+
+
+class TestRequirementLinks:
+    """
+    Les deux interfaces font des prerequis un LIEN vers le noeud. Il leur faut
+    donc trois choses que le serveur seul peut donner : une liste indexee —
+    `JsonUtility` ne lit pas un objet aux cles inconnues —, le libelle a
+    afficher, et le nom brut qui sert de cible.
+    """
+
+    def test_a_requirement_carries_its_label_and_its_target(self):
+        from app.models.game.buildings import BuildingType
+        from app.models.game.technologies.technology_type import (
+            technology_requirements)
+
+        found = technology_requirements(BuildingType.factory)
+
+        assert found == [{
+            'name': 'chantiers',
+            'label': TechnologyType.chantiers.label,
+            'level': 1,
+        }]
+
+    def test_a_unit_that_asks_for_nothing_gets_an_empty_list(self):
+        from app.models.game.buildings import BuildingType
+        from app.models.game.technologies.technology_type import (
+            technology_requirements)
+
+        assert technology_requirements(BuildingType.farm) == []
+
+    def test_every_requirement_target_is_a_node_of_the_tree(self):
+        """
+        Le nom brut est ce sur quoi l'interface ouvre la vue recherche. S'il ne
+        designait aucun noeud, le lien menerait nulle part — en silence, parce
+        qu'un client ne peut pas distinguer « noeud inconnu » de « pas encore
+        charge ».
+        """
+        from app.models.game.buildings import BuildingType
+        from app.models.game.defense import DefenseType
+        from app.models.game.ship import ShipType
+        from app.models.game.technologies.technology_type import (
+            technology_requirements)
+
+        names = {node.name for node in TechnologyType}
+        for catalogue in (BuildingType, ShipType, DefenseType):
+            for unit in catalogue:
+                for entry in technology_requirements(unit):
+                    assert entry['name'] in names, (unit.name, entry['name'])
+                    assert entry['label'], (unit.name, entry['name'])

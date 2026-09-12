@@ -680,3 +680,46 @@ class TestRefinery:
         # injouable, alors qu'un monde sec est seulement un mauvais endroit ou
         # raffiner.
         assert desert > 0
+
+
+class TestRequirementLinks:
+    """
+    Les deux interfaces font des prerequis technologiques un LIEN vers le noeud
+    qui les ouvre. Le nom brut est la cible ; sans lui, un joueur qui lit
+    « il faut Chantiers modulaires » doit aller le chercher a la main dans un
+    arbre de quatre-vingt-dix noeuds.
+    """
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_building_carries_what_opens_it(self, client, session):
+        answer = client.get('/api/territories')
+        territory_id = answer.json['territories'][0]['id']
+
+        shown = client.get('/api/territory/%d' % territory_id).json
+        factory = shown['buildings']['factory']
+
+        assert factory['requires_list'] == [
+            {'name': 'chantiers', 'label': 'Chantiers modulaires', 'level': 1}]
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_a_building_that_asks_for_nothing_carries_an_empty_list(
+            self, client, session):
+        answer = client.get('/api/territories')
+        territory_id = answer.json['territories'][0]['id']
+
+        shown = client.get('/api/territory/%d' % territory_id).json
+        assert shown['buildings']['farm']['requires_list'] == []
+
+    @pytest.mark.usefixtures("base_universe")
+    @pytest.mark.usefixtures("authenticate_as_user")
+    def test_the_catalogue_carries_it_for_hulls_and_batteries(
+            self, client, session):
+        """Les coques et les batteries ne sont pas dans la fiche territoire."""
+        catalogue = client.get('/api/catalog').json
+
+        artillery = next(
+            d for d in catalogue['defenses'] if d['name'] == 'LaserArtillery')
+        assert artillery['requires_list'] == [
+            {'name': 'laser', 'label': 'Batteries laser', 'level': 1}]

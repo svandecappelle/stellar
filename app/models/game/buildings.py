@@ -400,9 +400,16 @@ class Building(Base):
         ---
         :return:
         """
+        from app.models.game.technologies.technology_type import (
+            technology_requirements)
+
         return {
             'level': self.level,
             'requirements': self.type.value.get('requirements', {}),
+            # Les memes prerequis, indexes et avec leur libelle : c'est cette
+            # forme-la que les deux interfaces savent lire, et c'est le nom brut
+            # qui leur sert de cible pour ouvrir le noeud dans la vue recherche.
+            'requires_list': technology_requirements(self.type),
             'duration': self.next_level_duration,
             'gain': { str(k): v for k, v in self.get_hourly_gain.items() },
             'cost': { str(k): v for k, v in self.cost.items() },  # FIXME avoid json.dumps in model

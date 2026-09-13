@@ -142,6 +142,63 @@ Known leftovers, deliberately not folded into this change:
   * `GET /api/territories` — every territory the player holds, all galaxies
     mixed. Only for the question a galaxy cannot answer: where does this
     player own anything at all?
+  * `POST /api/galaxy/<name>/empire` — every world the player holds in that
+    galaxy, in one read, each one **caught up first**. `POST` for the same
+    reason as `/api/territory/<id>/update`: resources do not accrue in the
+    database on their own, they are credited when the world is looked at, so a
+    listing that skipped the catch-up would show the stocks of the last visit.
+    Each world carries what the territory list does not — the defenses posed,
+    the yards running (`events`), and what holds its orbit (`orbit`, ships by
+    type). Reading those per world would cost three round trips per planet.
+    The body may carry `player` to read **another player's** empire — only a
+    moderator of that galaxy may — and the answer says whose empire it is
+    (`player`), whether it is read as a referee (`moderating`), and whether one
+    may pick another (`can_moderate`).
+  * `GET /api/galaxy/<name>/players` — who holds something in this galaxy, with
+    a world count: the list a moderator picks from. `/api/admin/players` would
+    not do — it returns every account of the server, and it is closed to a
+    moderator, whose scope is one game.
+  * `POST /api/territory/<id>/grant` — place or take back an element on a world,
+    **instantly and for free**. Body: `kind` (`building` / `defense` / `ship`),
+    `name`, and a signed `amount` — negative takes back, never below zero.
+    Reserved to a moderator of the galaxy the world belongs to; every call
+    writes a `moderation.grant` line naming the referee, the target, the world,
+    the element and the amount. It answers with the whole world, in the shape of
+    the empire view, because the territory routes are closed to anyone but the
+    owner and the console could not re-read it otherwise.
+    * What is waived is what can be caught up: the price, the delay, the
+      technology prerequisites. What holds is what cannot: the **place**. A farm
+      on an orbital platform has no ground, and a level placed there would
+      produce nothing while claiming otherwise — the world would lie to its
+      owner, and the referee would have broken what he came to repair.
+    * `Territory.grant` is that one place in the model. Neither `increase` nor
+      `build` was bent to it with a flag: they charge, check and open a yard,
+      which is precisely what a referee needs to do without — and the rule of
+      the game and its exception must never share a method, or nobody can tell
+      which one applies.
+    * The world is caught up **before** the level moves. Placing first would
+      credit the elapsed period at the brand-new level, and the world would
+      receive retroactively what it never produced.
+  * `POST /api/galaxy/<name>/research` — a player's technology tree, read by a
+    referee. The same payload the player reads, built by the same function: a
+    referee reading anything else would be refereeing something else.
+  * `POST /api/galaxy/<name>/research/grant` — place or take back research
+    levels, instantly and for free. Body: `player`, `name`, a signed `amount`,
+    and `choice` for a doctrine. Nothing is charged, no slot is taken, no
+    prerequisite is required — a referee who had to climb a whole branch to
+    hand out its summit would never repair anything. What still holds is the
+    node's **ceiling**: a level beyond its maximum exists in no effect table.
+    Brought back to zero, a doctrine returns its way to the player.
+    * **The right is anchored in a galaxy.** A moderator's scope is one game;
+      a technology's scope is the player, across every galaxy he holds. A level
+      placed here therefore follows him everywhere else — so the route demands
+      that he hold something in the galaxy being moderated. Without that anchor,
+      moderating an empty game would have given a hold over every other one.
+  * Can a moderator referee **his own** empire? Yes, but never by accident:
+    reading without `player` is playing, naming *himself* is refereeing. The
+    gesture routes never looked at ownership anyway — only at the right to
+    moderate the galaxy — so refusing here what they accept there would have
+    made the rule depend on which door one came through.
 * Migration: a database that already holds territories needs the migration run
   (see **Database schema and migrations**), which adds the new columns and
   splits the old `mater` stock across iron/carbon/silicium.
@@ -302,6 +359,8 @@ Known leftovers, deliberately not folded into this change:
   not a filter:
   * `/galaxy/<name>` — the map, which is the landing view
   * `/galaxy/<name>/territory/<id>` — one world
+  * `/galaxy/<name>/research` — the technology tree
+  * `/galaxy/<name>/empire` — every world at once
   * Bookmarkable, shareable, reloadable, and the browser's back button walks
     back through views instead of leaving the site. `/api` belongs to the API,
     so nothing collides
@@ -348,8 +407,75 @@ Known leftovers, deliberately not folded into this change:
     stars rather than magnifying them, which is what one zooms a strategic map
     for. Below a threshold only your own worlds are named — three hundred
     overlapping labels read as nothing
-* **Top bar**: the three everyday commands are icon buttons (galaxy map, my
-  worlds, refresh); everything rare — galaxy settings, appearance, sign-out —
+* The **empire view** is the console's answer to a question no other screen
+  could take: what does everything I hold look like, right now? The world sheet
+  tells all of one planet and nothing of the rest — eight worlds meant opening
+  eight sheets to read the extractors, and eight more to order the upgrades —
+  while the map shows the stars and nothing of what was built on them.
+  * One card per world, side by side: buildings with their level, defenses with
+    their count, the yard, the running works with their progress bar, and the
+    resource bar of that world. Orders are given from the card: **Upgrade** and
+    **Construire** work exactly as they do in the world sheet, without entering
+    it
+  * One read feeds it, `POST /api/galaxy/<name>/empire`, and the server catches
+    every world up before answering: costs are compared against today's
+    reserves, not the ones from the last visit. A single order re-reads **only**
+    the world it touched, so the other cards keep their typed quantities
+  * The construction rows are the **same code** as the world sheet
+    (`renderBuildings`, `renderUnits`), compact variant. Two copies would have
+    drifted apart at the first balance pass — what an unaffordable cost shows is
+    decided in one place
+  * Seven buildings, six batteries and seven hulls per world make two hundred
+    rows over ten planets: the section filter (all / buildings / defenses /
+    yard) and *only what can be built now* are what make the page readable
+  * The top strip sums the reserves and the hourly yield across every world of
+    the galaxy — the one figure no sheet can give — and counts the levels built,
+    the pieces posed, the works running, and the worlds cut off from the network
+  * **Refereeing.** A moderator of the galaxy — and an administrator, whose
+    scope is `*` — picks any player of the game and opens *their* empire, at
+    `/galaxy/<name>/empire/<player>`: a view of moderation is shared and
+    reloaded like any other. There the usual button becomes two, **place** and
+    **take back**, instant and free, and every gesture writes an audit line
+    naming the referee and the target
+    * The console decides none of it: `can_moderate` says whether to offer the
+      player picker, `moderating` whether what is shown belongs to someone else.
+      Both come from the server's answer — hiding a button has never stopped
+      anyone from calling a URL, which is why the routes refuse on their own
+    * Refereeing must never be mistaken for playing one's own game: the banner
+      names the target and does not go away, the cards are bordered in the
+      warning tint, **Open** disappears from them (a world sheet is closed to
+      anyone but its owner), and so does *only what can be built now* — a filter
+      about paying, when nothing is paid. A player following such an address
+      without the right is told so, and falls back to his own empire
+    * A granted ship is not put on the planet any more than a built one: it
+      joins a fleet holding that world's orbit, by the same rule
+      (`Fleet.receive_construction`)
+    * Refereeing one's own empire is reachable the same way: pick your own name
+      in the picker. Leaving it on *mine — I play here* is the ordinary view,
+      with prices and yards
+  * **Refereeing research** has a view of its own, at
+    `/galaxy/<name>/arbitrage/<player>`, reached from the empire banner (*his
+    research*) or from the menu. Not a mode of the empire view, for two reasons:
+    research hangs on no world — sliding ninety nodes into every planet card
+    would have lied about what it is — and one does not come for the same
+    question. The empire answers *where do his worlds stand*, this one *where
+    does his research stand*, and reads branch by branch like the player's own
+    tree
+    * The player is **preselected**: one arrives from the empire being
+      refereed, and changing heads on the way would be the surest way to hand a
+      level to the wrong player. *His empire* goes back the other way, keeping
+      the same target
+    * Each node shows its level over its ceiling, its state, its effects, and —
+      in red — what still locks it **for the player**, with the note that a
+      level placed here goes past it. Buttons: take one back, place one, or
+      place every level left. A doctrine with no way settled shows its two ways
+      instead: placing the first level is choosing, and the choice is the
+      player's to live with
+    * What the view will not do is start or cancel a search. Those are the
+      *player's* gestures — they are paid for and they take time — and they live
+      in his own view
+* **Top bar**: the everyday commands are icon buttons (galaxy map, research,
+  empire view, my worlds, refresh); everything rare — galaxy settings, appearance, sign-out —
   sits under one menu on the right. The bar used to line up five buttons of
   equal weight, one of them red, for three daily gestures and three that are
   almost never made. Buttons are addressed by `data-act`, not by id: both scenes

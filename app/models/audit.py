@@ -174,6 +174,12 @@ class Action(object):
     GALAXY_CREATE = 'galaxy.create'
     GALAXY_SETTINGS = 'galaxy.settings'
 
+    #: Un arbitre a pose ou retire quelque chose chez un joueur, sans cout ni
+    #: delai. La ligne nomme la cible, le monde, l'element et la quantite : ce
+    #: sont des gestes qui changent une partie sans que personne d'autre les
+    #: voie passer, et c'est exactement ce qu'un journal est fait pour garder.
+    MODERATION_GRANT = 'moderation.grant'
+
     ADMIN_SETTINGS = 'admin.settings'
     ADMIN_PURGE = 'admin.purge'
 

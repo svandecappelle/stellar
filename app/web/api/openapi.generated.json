@@ -1248,6 +1248,70 @@
         ]
       }
     },
+    "/api/galaxy/{name}/empire": {
+      "post": {
+        "description": "One read for a whole empire in a galaxy. POST because each world is caught up before being serialized, exactly like /api/territory/<id>/update: resources are credited when a world is looked at, so a listing without the catch-up would report the stocks of the last visit. Each world carries its buildings, the defenses posed, the running yards (events) and what holds its orbit (orbit). The body may carry `player` to read the empire of ANOTHER player, which only a moderator of this galaxy may do; the answer says whose empire it is (player), whether it is read as a referee (moderating), and whether one may pick another (can_moderate).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "can_moderate": {},
+                    "galaxy_name": {},
+                    "moderating": {},
+                    "player": {},
+                    "worlds": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "player",
+                    "moderating",
+                    "can_moderate",
+                    "worlds"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Worlds of this galaxy"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Moderation of this galaxy is required"
+          },
+          "404": {
+            "description": "Galaxy or player does not exists"
+          }
+        },
+        "summary": "Every world a player holds in this galaxy, caught up",
+        "tags": [
+          "Territories"
+        ]
+      }
+    },
     "/api/galaxy/{name}/fleets": {
       "get": {
         "parameters": [
@@ -1350,6 +1414,143 @@
         "summary": "List the star lanes of a galaxy, the network fleets travel on",
         "tags": [
           "Galaxy"
+        ]
+      }
+    },
+    "/api/galaxy/{name}/players": {
+      "get": {
+        "description": "The list a moderator picks from to open a player's empire. Restricted to a moderator of this galaxy, and to administrators. A name and a world count, nothing more: enough to point at someone, not an account sheet.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "galaxy_name": {},
+                    "players": {}
+                  },
+                  "required": [
+                    "galaxy_name",
+                    "players"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Players of this galaxy"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Moderation of this galaxy is required"
+          },
+          "404": {
+            "description": "Galaxy does not exists"
+          }
+        },
+        "summary": "Who holds something in this galaxy (moderation)",
+        "tags": [
+          "Territories"
+        ]
+      }
+    },
+    "/api/galaxy/{name}/research": {
+      "post": {
+        "description": "A player's tree, read by a referee. Same payload as GET /api/technologies -- the same function builds it, and a referee reading anything else would be refereeing something else -- plus who it belongs to (player), whether it is read as a referee (moderating), and whether one may pick another (can_moderate). The body may carry `player`; without it, it is one's own tree and the route does no more than the ordinary read. POST so the player's name travels in the body rather than through a proxy's access log.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "The player's state in the tree"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Moderation of this galaxy is required"
+          },
+          "404": {
+            "description": "Galaxy or player does not exists"
+          }
+        },
+        "summary": "A player's technology tree, read by a referee",
+        "tags": [
+          "Technologies"
+        ]
+      }
+    },
+    "/api/galaxy/{name}/research/grant": {
+      "post": {
+        "description": "Place or take back research levels, instantly and for free. The counterpart of /api/territory/<id>/grant for what hangs on no world. Nothing is charged, no slot is taken, no prerequisite is required -- a referee who had to climb a whole branch to hand out its summit would never repair anything. What still holds is the node's CEILING: a level beyond its maximum exists in no effect table. Body: player, name (the node), a signed amount, and choice for a doctrine. Brought back to zero, a doctrine returns its way to the player. Restricted to a moderator of this galaxy, and the player must hold something in it -- research follows a player across every galaxy, so the right to touch it must be anchored where he actually plays. Writes a moderation.grant line.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "The player's whole tree, after the gesture"
+          },
+          "400": {
+            "description": "Zero or oversized amount, missing player, or a player who holds nothing here"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Moderation of this galaxy is required"
+          },
+          "404": {
+            "description": "Unknown technology"
+          }
+        },
+        "summary": "Place or take back research levels, instantly and for free",
+        "tags": [
+          "Technologies"
         ]
       }
     },
@@ -1933,33 +2134,6 @@
       "get": {
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "branches": {},
-                    "modifiers": {},
-                    "pending": {},
-                    "research": {},
-                    "research_gain": {},
-                    "slots": {},
-                    "technologies": {},
-                    "used_slots": {}
-                  },
-                  "required": [
-                    "research",
-                    "research_gain",
-                    "slots",
-                    "used_slots",
-                    "branches",
-                    "pending",
-                    "modifiers",
-                    "technologies"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
             "description": "Research state"
           },
           "401": {
@@ -2171,11 +2345,13 @@
                     "buildings": {},
                     "characteristics": {},
                     "claim": {},
+                    "construction": {},
                     "deposits": {},
                     "energy_factor": {},
                     "galaxy_name": {},
                     "habitability": {},
                     "habitability_factor": {},
+                    "holding": {},
                     "id": {},
                     "is_capital": {},
                     "name": {},
@@ -2209,6 +2385,8 @@
                     "resources",
                     "upkeep",
                     "claim",
+                    "construction",
+                    "holding",
                     "orbital",
                     "is_capital",
                     "stability",
@@ -2264,11 +2442,13 @@
                     "buildings": {},
                     "characteristics": {},
                     "claim": {},
+                    "construction": {},
                     "deposits": {},
                     "energy_factor": {},
                     "galaxy_name": {},
                     "habitability": {},
                     "habitability_factor": {},
+                    "holding": {},
                     "id": {},
                     "is_capital": {},
                     "name": {},
@@ -2302,6 +2482,8 @@
                     "resources",
                     "upkeep",
                     "claim",
+                    "construction",
+                    "holding",
                     "orbital",
                     "is_capital",
                     "stability",
@@ -2355,11 +2537,13 @@
                     "buildings": {},
                     "characteristics": {},
                     "claim": {},
+                    "construction": {},
                     "deposits": {},
                     "energy_factor": {},
                     "galaxy_name": {},
                     "habitability": {},
                     "habitability_factor": {},
+                    "holding": {},
                     "id": {},
                     "is_capital": {},
                     "name": {},
@@ -2393,6 +2577,8 @@
                     "resources",
                     "upkeep",
                     "claim",
+                    "construction",
+                    "holding",
                     "orbital",
                     "is_capital",
                     "stability",
@@ -2505,6 +2691,52 @@
         ]
       }
     },
+    "/api/territory/{territory_id}/grant": {
+      "post": {
+        "description": "A referee's gesture: repair a game, give back what an anomaly ate, try out a balance pass. No cost, no yard, no technology prerequisite -- only the rule of PLACE still holds, since a world that cannot carry something would produce nothing from it. Body: kind (building, defense or ship), name (the enum member), and a signed amount -- negative takes back, never below zero. Restricted to a moderator of the galaxy the world belongs to. Every call writes a moderation.grant line naming the target, the world, the element and the amount. Answers with the whole world, in the shape of the empire view.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "territory_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "The world, after the gesture"
+          },
+          "400": {
+            "description": "Unknown element, zero or oversized amount, or a world that cannot carry it"
+          },
+          "401": {
+            "description": "Not authorized"
+          },
+          "403": {
+            "description": "Moderation of this galaxy is required"
+          },
+          "404": {
+            "description": "Territory does not exists"
+          }
+        },
+        "summary": "Place or take back an element, instantly and for free",
+        "tags": [
+          "Territories"
+        ]
+      }
+    },
     "/api/territory/{territory_id}/ship": {
       "post": {
         "parameters": [
@@ -2577,11 +2809,13 @@
                     "buildings": {},
                     "characteristics": {},
                     "claim": {},
+                    "construction": {},
                     "deposits": {},
                     "energy_factor": {},
                     "galaxy_name": {},
                     "habitability": {},
                     "habitability_factor": {},
+                    "holding": {},
                     "id": {},
                     "is_capital": {},
                     "name": {},
@@ -2615,6 +2849,8 @@
                     "resources",
                     "upkeep",
                     "claim",
+                    "construction",
+                    "holding",
                     "orbital",
                     "is_capital",
                     "stability",
@@ -2715,10 +2951,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "lines": {}
+                    "lines": {},
+                    "tradeable": {}
                   },
                   "required": [
-                    "lines"
+                    "lines",
+                    "tradeable"
                   ],
                   "type": "object"
                 }

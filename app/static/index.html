@@ -96,6 +96,10 @@
           </div>
           <div class="field">
             <label></label>
+            <button class="btn" type="button" id="pick-empire">Vue d'empire</button>
+          </div>
+          <div class="field">
+            <label></label>
             <button class="btn hidden" type="button" id="pick-moderation">Réglages de la galaxie</button>
           </div>
           <div class="theme-pick" id="pick-theme-pick" style="margin-top:18px"></div>
@@ -261,6 +265,11 @@
            entree dans la barre, a cote de la carte. -->
       <button class="btn btn--icon" data-act="research" title="Recherche"
               aria-label="Recherche"></button>
+      <!-- La vue d'empire est au-dessus d'un monde et en dessous de la carte :
+           elle montre TOUS les mondes a la fois, avec leurs batiments et leurs
+           defenses, et laisse lancer un chantier sans entrer dans chacun. -->
+      <button class="btn btn--icon" data-act="empire" title="Vue d'empire"
+              aria-label="Vue d'empire"></button>
       <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
               aria-label="Mes territoires"></button>
       <button class="btn btn--icon" data-act="refresh-territory" title="Rafraîchir"
@@ -275,6 +284,7 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <button class="menu-item hidden" role="menuitem" data-act="arbitrage">Arbitrer un joueur</button>
           <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
                reponse a l'isolement : il doit etre atteignable des trois vues,
                y compris depuis la carte ou l'on decouvre qu'un monde est
@@ -352,6 +362,11 @@
     <div class="acts">
       <button class="btn btn--icon" data-act="research" title="Recherche"
               aria-label="Recherche"></button>
+      <!-- La vue d'empire est au-dessus d'un monde et en dessous de la carte :
+           elle montre TOUS les mondes a la fois, avec leurs batiments et leurs
+           defenses, et laisse lancer un chantier sans entrer dans chacun. -->
+      <button class="btn btn--icon" data-act="empire" title="Vue d'empire"
+              aria-label="Vue d'empire"></button>
       <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
               aria-label="Mes territoires"></button>
       <button class="btn btn--icon" data-act="refresh-map" title="Rafraîchir"
@@ -366,6 +381,7 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <button class="menu-item hidden" role="menuitem" data-act="arbitrage">Arbitrer un joueur</button>
           <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
                reponse a l'isolement : il doit etre atteignable des trois vues,
                y compris depuis la carte ou l'on decouvre qu'un monde est
@@ -417,6 +433,101 @@
   </div>
 </section>
 
+<!-- ==================== VUE D'EMPIRE ====================
+     La console savait tout dire d'UN monde et rien de l'ensemble. Pour savoir
+     ou en sont ses extracteurs, un joueur qui tient huit planetes ouvrait huit
+     fiches, et pour lancer huit chantiers il en ouvrait huit autres.
+
+     Cette vue montre les mondes cote a cote — leurs batiments avec leur niveau,
+     leurs defenses avec leur nombre, leurs chantiers en cours — et laisse
+     lancer l'ordre depuis la carte du monde, sans y entrer.
+
+     Une seule lecture la nourrit (`POST /api/galaxy/<nom>/empire`), et c'est le
+     serveur qui rattrape chaque monde avant de le rendre : les couts sont donc
+     compares a des reserves d'aujourd'hui, pas a celles de la derniere visite.
+     -->
+<section id="view-empire" class="scene hidden">
+
+  <div class="topbar">
+    <div class="sysbox">
+      <span class="ov">Vue d'empire</span>
+      <span class="val" id="empire-galaxy">—</span>
+    </div>
+
+    <div class="resbar">
+      <!-- Le cumul, et non la reserve d'un monde : c'est la seule chose que
+           cette vue peut dire et qu'aucune fiche ne dit. -->
+      <span class="ov">Réserves cumulées</span>
+      <div class="res-grid" id="empire-totals"></div>
+    </div>
+
+    <div class="acts">
+      <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
+              aria-label="Carte de la galaxie"></button>
+      <button class="btn btn--icon" data-act="research" title="Recherche"
+              aria-label="Recherche"></button>
+      <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
+              aria-label="Mes territoires"></button>
+      <button class="btn btn--icon" data-act="refresh-empire" title="Rafraîchir"
+              aria-label="Rafraîchir"></button>
+      <div class="menu" data-menu>
+        <button class="btn btn--icon" data-menu-toggle aria-haspopup="menu"
+                aria-expanded="false" title="Menu" aria-label="Menu"></button>
+        <div class="menu-pop" data-menu-pop hidden role="menu">
+          <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <button class="menu-item hidden" role="menuitem" data-act="arbitrage">Arbitrer un joueur</button>
+          <button class="menu-item" role="menuitem" data-act="trade">Réseau de commerce</button>
+          <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
+          <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body-cols">
+    <div class="panel panel--hazard">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Mondes, bâtiments et défenses</span>
+          <span class="t" id="empire-title">—</span>
+          <span class="deposits" id="empire-tally"></span>
+        </div>
+        <span class="loading" id="empire-updated"></span>
+      </div>
+      <div class="rule"></div>
+
+      <!-- L'arbitrage. Muet pour un joueur ordinaire : le bloc ne parait que
+           si le serveur a repondu `can_moderate`, c'est-a-dire moderateur de
+           cette galaxie ou administrateur. Cacher le choix n'est qu'une
+           politesse — la barriere est sur les routes, qui refusent l'empire
+           d'un autre et tout geste gratuit a qui n'a pas le droit. -->
+      <div class="empire-mod hidden" id="empire-moderation"></div>
+
+      <!-- Sept batiments, six batteries et sept coques par monde : tout montrer
+           d'un coup sur dix mondes fait deux cents lignes. Le filtre choisit ce
+           qu'on est venu faire, et le second ne garde que ce qui est payable
+           tout de suite — la question du joueur qui vient depenser. -->
+      <div class="empire-bar">
+        <div class="tabs" id="empire-sections">
+          <button class="tab on" data-empire-section="all">Tout</button>
+          <button class="tab" data-empire-section="buildings">Bâtiments</button>
+          <button class="tab" data-empire-section="defenses">Défenses</button>
+          <button class="tab" data-empire-section="ships">Chantier naval</button>
+        </div>
+        <label class="empire-only">
+          <input type="checkbox" id="empire-ready">
+          Seulement ce qui est constructible maintenant
+        </label>
+      </div>
+
+      <div class="empire-grid" id="empire-grid"><p class="empty">Chargement…</p></div>
+    </div>
+  </div>
+</section>
+
 <!-- ==================== RECHERCHE ====================
      La recherche appartient au joueur, toutes galaxies confondues, et se paie
      sur l'ensemble de ses mondes : elle ne peut pas vivre dans la fiche d'une
@@ -443,6 +554,11 @@
     <div class="acts">
       <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
               aria-label="Carte de la galaxie"></button>
+      <!-- La vue d'empire est au-dessus d'un monde et en dessous de la carte :
+           elle montre TOUS les mondes a la fois, avec leurs batiments et leurs
+           defenses, et laisse lancer un chantier sans entrer dans chacun. -->
+      <button class="btn btn--icon" data-act="empire" title="Vue d'empire"
+              aria-label="Vue d'empire"></button>
       <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
               aria-label="Mes territoires"></button>
       <button class="btn btn--icon" data-act="refresh-research" title="Rafraîchir"
@@ -453,6 +569,7 @@
         <div class="menu-pop" data-menu-pop hidden role="menu">
           <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
           <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <button class="menu-item hidden" role="menuitem" data-act="arbitrage">Arbitrer un joueur</button>
           <!-- Le reseau ne se consulte pas a chaque tour, mais c'est la seule
                reponse a l'isolement : il doit etre atteignable des trois vues,
                y compris depuis la carte ou l'on decouvre qu'un monde est
@@ -529,6 +646,80 @@
       </div>
       <div class="rule"></div>
       <div id="node-body"><p class="empty">Choisissez un nœud dans l'arbre.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== ARBITRAGE DE LA RECHERCHE ====================
+     Une vue a elle, et non un mode de la vue d'empire. Deux raisons :
+
+       · la recherche ne pend a aucun monde. Elle appartient au joueur, toutes
+         galaxies confondues, et n'a rien a faire dans une carte de planete —
+         l'y glisser aurait repete quatre-vingt-dix noeuds sur chaque carte ;
+       · on n'y vient pas pour la meme chose. La vue d'empire repond « ou en
+         sont ses mondes » ; celle-ci repond « ou en est sa recherche », et se
+         lit branche par branche, comme l'arbre du joueur.
+
+     Le joueur arbitre est preselectionne : on y arrive depuis l'empire qu'on
+     est en train d'arbitrer, et changer de tete en cours de route serait le
+     meilleur moyen de poser un niveau chez le mauvais joueur. -->
+<section id="view-arbitrage" class="scene hidden">
+
+  <div class="topbar">
+    <div class="sysbox">
+      <span class="ov">Arbitrage · Recherche</span>
+      <span class="val" id="arb-player">—</span>
+    </div>
+
+    <div class="resbar">
+      <span class="ov">Réserve du joueur</span>
+      <div class="res-grid" id="arb-pool"></div>
+    </div>
+
+    <div class="acts">
+      <button class="btn btn--icon" data-act="map" title="Carte de la galaxie"
+              aria-label="Carte de la galaxie"></button>
+      <button class="btn btn--icon" data-act="empire" title="Vue d'empire"
+              aria-label="Vue d'empire"></button>
+      <button class="btn btn--icon" data-act="worlds" title="Mes territoires"
+              aria-label="Mes territoires"></button>
+      <button class="btn btn--icon" data-act="refresh-arbitrage" title="Rafraîchir"
+              aria-label="Rafraîchir"></button>
+      <div class="menu" data-menu>
+        <button class="btn btn--icon" data-menu-toggle aria-haspopup="menu"
+                aria-expanded="false" title="Menu" aria-label="Menu"></button>
+        <div class="menu-pop" data-menu-pop hidden role="menu">
+          <button class="menu-item hidden" role="menuitem" data-act="moderation">Réglages de la galaxie</button>
+          <button class="menu-item hidden" role="menuitem" data-act="admin">Administration du serveur</button>
+          <button class="menu-item hidden" role="menuitem" data-act="arbitrage">Arbitrer un joueur</button>
+          <button class="menu-item" role="menuitem" data-act="trade">Réseau de commerce</button>
+          <button class="menu-item" role="menuitem" data-act="devices">Appareils connectés</button>
+          <button class="menu-item" role="menuitem" data-act="settings">Paramètres</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item menu-item--dgr" role="menuitem" data-act="logout">Déconnexion</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body-cols">
+    <div class="rail rail--branches" id="arb-rail">
+      <span class="ov" style="text-align:center">Branches</span>
+    </div>
+
+    <div class="panel panel--hazard">
+      <div class="panel-head">
+        <div>
+          <span class="ov">Arbre technologique</span>
+          <span class="t" id="arb-title">—</span>
+          <span class="deposits" id="arb-tally"></span>
+        </div>
+        <span class="loading" id="arb-updated"></span>
+      </div>
+      <div class="rule"></div>
+
+      <div class="empire-mod" id="arb-moderation"></div>
+      <div id="arb-body"><p class="empty">Chargement…</p></div>
     </div>
   </div>
 </section>

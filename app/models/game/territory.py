@@ -1650,6 +1650,94 @@ class Territory(Base):
             )
             # TODO do it after event finished --> self.add(type=building_type, amount=1)
 
+    def grant(self, element, amount=1):
+        """
+        Poser ou retirer un element, sans cout et sans delai.
+        ---
+        Le geste d'un arbitre, et il lui fallait son propre chemin : ni
+        `increase` ni `build` ne conviennent. Tous deux facturent, exigent les
+        technologies et ouvrent un chantier — c'est-a-dire exactement les trois
+        choses dont un moderateur a besoin de se passer pour reparer une partie.
+        Les detourner en leur ajoutant des drapeaux aurait mis la regle du jeu
+        et son exception dans la meme methode, ou personne n'aurait plus su
+        laquelle s'applique.
+
+        Ce qui saute est ce qui se rattrape : le prix, le temps, les prerequis
+        technologiques. Ce qui tient est ce qui ne se rattrape pas — la PLACE.
+        Une ferme sur une plateforme orbitale n'a pas de sol, et un niveau pose
+        la ne produirait rien tout en laissant croire le contraire : le monde
+        mentirait a son proprietaire, et le moderateur aurait casse ce qu'il
+        venait reparer.
+
+        Rien ne passe sous zero : un retrait plus grand que ce qui est pose
+        enleve ce qui est pose, et le dit en rendant ce qu'il a fait.
+
+        :param element: membre de `BuildingType`, `DefenseType` ou `ShipType`
+        :param amount: signe. Positif pose, negatif retire.
+        :return: la quantite reellement appliquee, du meme signe que `amount`
+        """
+        amount = int(amount)
+        if amount == 0:
+            return 0
+
+        if isinstance(element, BuildingType):
+            refusal = self.place_refusal(element)
+            if refusal:
+                raise ValueError(refusal)
+            building = self.get_building(building_type=element)
+            if building is None:
+                return 0
+            applied = max(amount, -(building.level or 0))
+            if applied:
+                building.level += applied
+            return applied
+
+        if isinstance(element, DefenseType):
+            battery = next((d for d in self.defenses if d.type == element), None)
+            if battery is None:
+                return 0
+            if amount > 0:
+                battery.increment(count=amount)
+                return amount
+            applied = min(-amount, battery.count or 0)
+            battery.decrement(count=applied)
+            return -applied
+
+        if isinstance(element, ShipType):
+            if amount > 0:
+                # Meme regle qu'a la sortie du chantier : ce qui apparait au-dessus
+                # d'un monde appartient a une flotte, et laquelle se decide sur ce
+                # qui tient deja l'orbite. Voir `Fleet.receive_construction`.
+                fleet = Fleet.receive_construction(territory=self, user=self.user)
+                fleet.add_ships(ship_type=element, amount=amount)
+                return amount
+            return -self._retire_ships(ship_type=element, amount=-amount)
+
+        raise ValueError("Unknown element to grant: %r" % (element,))
+
+    def _retire_ships(self, ship_type, amount):
+        """
+        Retirer des coques de ce qui tient l'orbite d'ici.
+        ---
+        Flotte par flotte, dans l'ordre ou le serveur les rend, et jamais
+        au-dela de ce qu'elles portent : un retrait ne creuse pas un compte.
+        Les flottes videes ne sont pas dissoutes — elles peuvent porter autre
+        chose, et la position d'une flotte est ce que le client a pose.
+
+        :return: la quantite reellement retiree
+        """
+        left = amount
+        for fleet in Fleet.in_orbit_of(territory=self, user=self.user):
+            for ship in fleet.ships:
+                if left <= 0:
+                    return amount - left
+                if ship.type != ship_type or not ship.count:
+                    continue
+                taken = min(left, ship.count)
+                ship.decrement(count=taken)
+                left -= taken
+        return amount - left
+
     def missing_technologies(self, element):
         """
         Les technologies qui manquent pour construire cette unite.

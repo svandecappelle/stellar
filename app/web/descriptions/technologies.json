@@ -1,4 +1,47 @@
 {
+    "/api/galaxy/{name}/research": {
+        "tags": ["Technologies"],
+        "method": "POST",
+        "summary": "A player's technology tree, read by a referee",
+        "description": "A player's tree, read by a referee. Same payload as GET /api/technologies -- the same function builds it, and a referee reading anything else would be refereeing something else -- plus who it belongs to (player), whether it is read as a referee (moderating), and whether one may pick another (can_moderate). The body may carry `player`; without it, it is one's own tree and the route does no more than the ordinary read. POST so the player's name travels in the body rather than through a proxy's access log.",
+        "responses": {
+            "200": {
+                "description": "The player's state in the tree"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Moderation of this galaxy is required"
+            },
+            "404": {
+                "description": "Galaxy or player does not exists"
+            }
+        }
+    },
+    "/api/galaxy/{name}/research/grant": {
+        "tags": ["Technologies"],
+        "method": "POST",
+        "summary": "Place or take back research levels, instantly and for free",
+        "description": "Place or take back research levels, instantly and for free. The counterpart of /api/territory/<id>/grant for what hangs on no world. Nothing is charged, no slot is taken, no prerequisite is required -- a referee who had to climb a whole branch to hand out its summit would never repair anything. What still holds is the node's CEILING: a level beyond its maximum exists in no effect table. Body: player, name (the node), a signed amount, and choice for a doctrine. Brought back to zero, a doctrine returns its way to the player. Restricted to a moderator of this galaxy, and the player must hold something in it -- research follows a player across every galaxy, so the right to touch it must be anchored where he actually plays. Writes a moderation.grant line.",
+        "responses": {
+            "200": {
+                "description": "The player's whole tree, after the gesture"
+            },
+            "400": {
+                "description": "Zero or oversized amount, missing player, or a player who holds nothing here"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Moderation of this galaxy is required"
+            },
+            "404": {
+                "description": "Unknown technology"
+            }
+        }
+    },
     "/api/technologies/tree": {
         "tags": ["Technologies"],
         "method": "GET",

@@ -168,6 +168,69 @@ export const api = {
   claimTerritory: (id) => request(`/api/territory/${id}`, { method: 'POST' }),
   territoryDefenses: (id) => request(`/api/territory/${id}/defenses`),
 
+  /* ---- vue d'empire ----
+     Tous les mondes de la galaxie en une seule lecture, et chacun rattrape
+     avant d'etre rendu — d'ou le POST, exactement comme
+     `/api/territory/<id>/update` : les ressources d'un monde ne montent pas
+     toutes seules en base, elles sont creditees au moment ou on le regarde.
+     Une vue d'empire batie sur `myTerritories` afficherait les stocks de la
+     derniere visite, et grieserait des boutons que le monde peut payer.
+
+     Elle porte en plus ce que la liste des territoires ne porte pas : les
+     defenses posees, les chantiers en cours, et ce qui tient l'orbite. */
+  /* `player` n'est pose que pour regarder l'empire d'un AUTRE, ce que le
+     serveur n'ouvre qu'au moderateur de la galaxie. Sans lui, c'est le sien.
+     La reponse entiere est rendue et non les seuls mondes : elle porte aussi
+     de qui est l'empire (`player`), si on le regarde en arbitre
+     (`moderating`) et si on a le droit d'en choisir un autre
+     (`can_moderate`) — trois reponses que le client ne doit pas deviner. */
+  empire: (galaxy, player = null) =>
+    request(
+      `/api/galaxy/${encodeURIComponent(galaxy)}/empire`,
+      player ? { method: 'POST', body: { player } } : { method: 'POST' }
+    ),
+
+  /* Qui tient quelque chose dans cette galaxie : la liste ou un arbitre choisit
+     l'empire a ouvrir. Reservee au moderateur — `/api/admin/players` ne
+     convenait pas, elle rend tous les comptes du serveur et lui est fermee. */
+  galaxyPlayers: (galaxy) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/players`).then(
+      (r) => (r && r.players) || []
+    ),
+
+  /* L'arbre d'un joueur, lu par un arbitre. Meme charge utile que
+     `technologies` — c'est la meme fonction qui la batit cote serveur, et un
+     arbitre qui lirait autre chose arbitrerait sur autre chose — plus de quoi
+     savoir ce qu'on regarde. POST pour que le nom du joueur voyage dans le
+     corps : il n'a pas a trainer dans les journaux d'acces d'un proxy. */
+  playerResearch: (galaxy, player = null) =>
+    request(
+      `/api/galaxy/${encodeURIComponent(galaxy)}/research`,
+      player ? { method: 'POST', body: { player } } : { method: 'POST' }
+    ),
+
+  /* Poser ou retirer des niveaux de recherche. `choice` n'a de sens que sur une
+     doctrine, ou il fixe la voie. La reponse est l'arbre entier du joueur : un
+     niveau change les paliers, les prerequis et les couts de toute la branche,
+     et repeindre la seule ligne touchee laisserait le reste faux. */
+  grantTechnology: (galaxy, player, name, amount, choice = null) =>
+    request(`/api/galaxy/${encodeURIComponent(galaxy)}/research/grant`, {
+      method: 'POST',
+      body: choice ? { player, name, amount, choice } : { player, name, amount },
+    }),
+
+  /* Poser ou retirer un element chez un joueur, sans cout ni delai. `amount`
+     est signe. La reponse est le monde entier, dans la forme de la vue
+     d'empire : c'est avec elle que la console repeint la carte, et c'est la
+     seule facon dont elle le peut — les routes de territoire sont fermees a
+     qui n'en est pas le proprietaire. Chaque appel laisse une ligne au
+     journal du serveur. */
+  grant: (territoryId, kind, name, amount) =>
+    request(`/api/territory/${territoryId}/grant`, {
+      method: 'POST',
+      body: { kind, name, amount },
+    }),
+
   /* ---- systèmes ---- */
   systemTerritories: (id) =>
     request(`/api/system/${id}/territories`).then((r) => (r && r.territories) || []),

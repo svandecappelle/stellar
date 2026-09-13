@@ -56,6 +56,10 @@ const ICONS = {
   research: P('<circle cx="12" cy="12" r="2.4"/>'
     + '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>'
     + '<path d="M6.5 6.5 9 9M15 15l2.5 2.5M17.5 6.5 15 9M9 15l-2.5 2.5"/>'),
+  /* La vue d'empire : un tableau de bord, pas une carte. Quatre cases — ce
+     qu'on vient y faire est de regarder tous ses mondes cote a cote. */
+  empire: P('<rect x="3" y="4" width="7.5" height="7"/><rect x="13.5" y="4" width="7.5" height="7"/>'
+    + '<rect x="3" y="14" width="7.5" height="6"/><rect x="13.5" y="14" width="7.5" height="6"/>'),
   sliders: P('<path d="M4 7h10M18 7h2"/><path d="M4 17h4M12 17h8"/>'
     + '<circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
 };

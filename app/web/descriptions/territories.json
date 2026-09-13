@@ -25,6 +25,69 @@
             }
         }
     },
+    "/api/galaxy/{name}/empire": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Every world a player holds in this galaxy, caught up",
+        "description": "One read for a whole empire in a galaxy. POST because each world is caught up before being serialized, exactly like /api/territory/<id>/update: resources are credited when a world is looked at, so a listing without the catch-up would report the stocks of the last visit. Each world carries its buildings, the defenses posed, the running yards (events) and what holds its orbit (orbit). The body may carry `player` to read the empire of ANOTHER player, which only a moderator of this galaxy may do; the answer says whose empire it is (player), whether it is read as a referee (moderating), and whether one may pick another (can_moderate).",
+        "responses": {
+            "200": {
+                "description": "Worlds of this galaxy"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Moderation of this galaxy is required"
+            },
+            "404": {
+                "description": "Galaxy or player does not exists"
+            }
+        }
+    },
+    "/api/galaxy/{name}/players": {
+        "tags": ["Territories"],
+        "method": "GET",
+        "summary": "Who holds something in this galaxy (moderation)",
+        "description": "The list a moderator picks from to open a player's empire. Restricted to a moderator of this galaxy, and to administrators. A name and a world count, nothing more: enough to point at someone, not an account sheet.",
+        "responses": {
+            "200": {
+                "description": "Players of this galaxy"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Moderation of this galaxy is required"
+            },
+            "404": {
+                "description": "Galaxy does not exists"
+            }
+        }
+    },
+    "/api/territory/{territory_id}/grant": {
+        "tags": ["Territories"],
+        "method": "POST",
+        "summary": "Place or take back an element, instantly and for free",
+        "description": "A referee's gesture: repair a game, give back what an anomaly ate, try out a balance pass. No cost, no yard, no technology prerequisite -- only the rule of PLACE still holds, since a world that cannot carry something would produce nothing from it. Body: kind (building, defense or ship), name (the enum member), and a signed amount -- negative takes back, never below zero. Restricted to a moderator of the galaxy the world belongs to. Every call writes a moderation.grant line naming the target, the world, the element and the amount. Answers with the whole world, in the shape of the empire view.",
+        "responses": {
+            "200": {
+                "description": "The world, after the gesture"
+            },
+            "400": {
+                "description": "Unknown element, zero or oversized amount, or a world that cannot carry it"
+            },
+            "401": {
+                "description": "Not authorized"
+            },
+            "403": {
+                "description": "Moderation of this galaxy is required"
+            },
+            "404": {
+                "description": "Territory does not exists"
+            }
+        }
+    },
     "/api/territories": {
         "tags": ["Territories"],
         "method": "GET",

@@ -84,7 +84,15 @@ def serialize(*args, **kwargs):
 
     def serialize_list(result):
         # On array results
-        if len(result) > 0 and not hasattr(result[0], "serialize") and result is not None:
+        #
+        # Le garde ne vise que ce que la boucle ci-dessous ne saurait pas
+        # traiter. Les listes et les dictionnaires, elle les traite : les
+        # ecarter ici interdisait a une route de rendre une liste d'objets
+        # composes — un monde et ce qui pend a lui, par exemple — alors que le
+        # code juste en dessous est ecrit pour ca.
+        if (len(result) > 0
+                and not isinstance(result[0], (list, dict))
+                and not hasattr(result[0], "serialize")):
             get_logger().error("serialize property or function is not implemented")
             raise NotImplementedError("serialize property or function is not implemented")
         array_results = list()

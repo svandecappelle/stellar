@@ -1075,3 +1075,158 @@ button{font:inherit;color:inherit}
 }
 .req-link:hover{color:var(--fg-hi);border-bottom-color:var(--fg-hi)}
 .req-link:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+
+/* ============================================================
+   vue d'empire
+
+   Une carte par monde, autant de colonnes que la largeur en porte. Les lignes
+   de construction sont celles de la fiche d'une planete — meme classes, meme
+   code — mais resserrees : a l'echelle de la scene, huit mondes faisaient
+   quatre ecrans de haut.
+   ============================================================ */
+
+.empire-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-3);
+}
+.empire-bar .tabs{margin-bottom:0}
+/* « Chantier naval » tenait sur deux lignes et decalait la bande entiere : ces
+   onglets-ci nomment un filtre, pas une vue, et se lisent d'un trait. */
+.empire-bar .tab{flex:none;white-space:nowrap}
+.empire-only{
+  display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  font-size:11.5px;color:var(--fg-dim);
+}
+.empire-only input{accent-color:var(--acc);cursor:pointer}
+.empire-only:hover{color:var(--fg)}
+
+/* Le decompte de tete reprend la bande des gisements ; une seule de ses
+   mentions est une alarme, et elle ne parait que s'il y a lieu. */
+#empire-tally .alarm,#empire-tally .alarm b{color:var(--bad-fg);font-weight:700}
+
+/* `minmax(380px, 1fr)` : en dessous, une ligne de construction — icone, nom,
+   niveau, quantite, bouton — passe a la ligne et la carte cesse de se lire en
+   diagonale. Mieux vaut une colonne de moins. */
+.empire-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));
+  gap:14px;align-items:start;
+}
+
+.world{
+  padding:var(--sp-3);
+  background:var(--bg-chip);
+  border:var(--bw) solid var(--bc-soft);border-radius:var(--r);
+  clip-path:var(--cut-sm);
+}
+/* Coupe du reseau : le monde compte ses heures, et cela doit se voir de la
+   grille entiere, sans lire la ligne. */
+.world--cut{border-color:var(--bad);box-shadow:inset 3px 0 0 var(--bad)}
+
+.world__head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.world__orb{
+  width:26px;height:26px;flex:none;border-radius:50%;
+  box-shadow:inset -3px -3px 7px rgba(0,0,0,.55);
+}
+.world__id{flex:1;min-width:0}
+.world__name{
+  display:block;font-family:var(--f-disp);font-size:13.5px;font-weight:700;
+  color:var(--fg-hi);letter-spacing:var(--val-track);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.world__sub{display:block;font-family:var(--f-num);font-size:10.5px;color:var(--fg-dim)}
+.world__flag{
+  flex:none;font-family:var(--f-disp);font-size:9px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--acc);
+  border:1px solid var(--bc);padding:2px 6px;border-radius:var(--r);
+}
+
+.world__res{margin-bottom:10px}
+.world__alarm{
+  margin:0 0 10px;padding:7px 9px;font-size:11.5px;line-height:1.5;
+  color:var(--bad-fg);background:var(--btn-dgr-bg);
+  border-left:var(--row-edge) solid var(--bad);border-radius:var(--r);
+}
+.world__alarm b{
+  font-family:var(--f-disp);font-size:10px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;
+}
+
+.world__sec{margin-top:12px}
+.world__sec .ov{display:block;margin-bottom:6px}
+.world__void{margin:0;padding:10px 0;font-size:11.5px;color:var(--fg-dim)}
+
+/* Resserrement des lignes dans une carte. Rien d'autre ne change : ce sont les
+   memes elements, avec les memes etats. */
+.world .row{padding:8px 9px;margin-bottom:6px;gap:10px}
+.world .ico{width:34px;height:34px}
+.world .ico svg{width:20px;height:20px}
+.world .row-head{gap:8px;margin-bottom:4px}
+.world .row-name{font-size:12px}
+.world .costs{gap:10px;margin-bottom:0}
+.world .qty{width:56px;height:26px}
+
+/* ---------- arbitrage ----------
+   Un moderateur regarde l'empire de quelqu'un d'autre et y pose des choses
+   gratuitement. Rien de tout cela ne doit pouvoir se faire par inadvertance ni
+   se confondre avec sa propre partie : le bandeau est donc teinte de l'avertis-
+   sement, et il le reste tant que dure l'arbitrage. */
+.empire-mod{
+  display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
+  padding:10px 12px;margin-bottom:var(--sp-3);
+  background:var(--ico-bg);
+  border:var(--bw) solid var(--bc-soft);border-radius:var(--r);
+}
+.empire-mod .ov{color:var(--fg-dim)}
+.empire-mod label{
+  font-family:var(--f-disp);font-size:11px;font-weight:600;
+  letter-spacing:var(--ov-track);text-transform:uppercase;color:var(--fg-dim);
+}
+.empire-mod select{
+  height:28px;padding:0 8px;min-width:200px;
+  background:var(--btn-bg);color:var(--fg-hi);
+  border:var(--bw) solid var(--bc-soft);border-radius:var(--r);
+  font-family:var(--f-num);font-size:12px;
+}
+.empire-mod select:focus{border-color:var(--acc);outline:none}
+.empire-mod__note{
+  flex:1 1 100%;margin:0;font-size:11.5px;line-height:1.5;color:var(--fg-dim);
+}
+/* En arbitrage : la teinte de l'avertissement, du bandeau jusqu'aux cartes. */
+.empire-mod--on{border-color:var(--warn);border-left:var(--row-edge) solid var(--warn)}
+.empire-mod--on .ov{color:var(--warn)}
+.empire-mod--on .empire-mod__note b{color:var(--warn)}
+
+/* Les cartes d'un empire arbitre : meme forme, bord teinte. Sans ce rappel, un
+   moderateur qui fait defiler la grille ne voit plus, dix lignes plus bas, que
+   ce ne sont pas ses mondes. */
+.empire-grid--moderated .world{border-color:var(--warn)}
+.empire-grid--moderated .world--cut{border-color:var(--bad)}
+
+/* Le bouton qui retire. Etroit et discret : il est a cote de celui qui pose, et
+   c'est celui-la qu'on vise. */
+.btn--pinch{min-width:30px;padding:0 9px}
+
+/* ---------- arbitrage de la recherche ----------
+   Les memes lignes que partout ailleurs (`.row`), sans pictogramme : un noeud
+   de recherche n'en a pas, et en inventer un n'aurait rien dit de plus que son
+   nom. Ce qui compte sur une ligne, c'est le niveau et ce qu'il ouvre. */
+.tech-row{padding:9px 11px}
+.tech-row .row-head{gap:9px}
+.tech-state{
+  font-family:var(--f-disp);font-size:9px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--fg-dim);
+}
+.tech-state--owned{color:var(--good)}
+.tech-state--researching{color:var(--acc)}
+.tech-state--locked{color:var(--fg-off)}
+.tech-state--maxed{color:var(--h,var(--acc))}
+/* Ce qui manque se lit en rouge : c'est la seule chose qu'un arbitre ne peut
+   pas deviner du niveau seul, et ce qu'il vient souvent debloquer. */
+.tech-missing{color:var(--bad-fg);font-size:11px;margin:4px 0 0}
+.tech-missing b{color:var(--bad-fg);font-weight:600}
+/* Les deux voies d'une doctrine, posees a plat sur la ligne : un arbitre qui
+   ouvre une doctrine doit dire laquelle, et le choix est definitif. */
+.tech-ways{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.tech-ways .dopt{flex:1 1 220px;margin:0}
+.tech-way-note{font-size:11px;color:var(--fg-dim);margin:6px 0 0}

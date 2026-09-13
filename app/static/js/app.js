@@ -121,6 +121,54 @@ const state = {
     readAt: 0,
     tick: 0,
   },
+  /* La vue d'empire : tous les mondes de la galaxie a la fois, chacun avec ses
+     batiments, ses defenses et ses chantiers. Une seule lecture les porte tous
+     — `POST /api/galaxy/<nom>/empire` — et c'est le serveur qui rattrape chaque
+     monde avant de le rendre : ce qu'on compare a un cout est donc une reserve
+     d'aujourd'hui, pas celle de la derniere visite. */
+  empire: {
+    open: false,
+    loading: false,
+    worlds: [],
+    /* L'empire regarde. Nul, c'est le sien — le seul cas pour un joueur
+       ordinaire. Un moderateur de la galaxie, et l'administrateur dont la
+       portee vaut partout, peuvent ouvrir celui d'un autre : c'est alors le
+       serveur qui confirme, par `moderating`, que ce qu'on lit n'est pas a
+       nous et que les gestes gratuits sont ouverts. Rien de tout cela ne se
+       decide ici : le client affiche ce que la reponse lui dit. */
+    player: null,
+    moderating: false,
+    canModerate: false,
+    /* Ce qu'on est venu faire. Sept batiments, six batteries et sept coques par
+       monde : tout montrer sur dix mondes fait deux cents lignes, et le filtre
+       est ce qui rend la vue lisible. */
+    section: 'all',
+    /* Ne garder que ce qui est payable tout de suite, ou deja en chantier. */
+    onlyReady: false,
+    readAt: 0,
+  },
+  /* Qui tient quelque chose dans la galaxie courante. Lue une fois, partagee
+     par les deux vues d'arbitrage : c'est la meme liste, et la relire deux fois
+     ferait deux verites a un colon pres. */
+  galaxyPlayers: [],
+  /* L'arbitrage de la recherche. Une vue a elle et non un mode de la vue
+     d'empire : la recherche ne pend a aucun monde, et on n'y vient pas pour la
+     meme question. Le joueur y est preselectionne — on arrive depuis l'empire
+     qu'on arbitre, et changer de tete en chemin poserait un niveau chez le
+     mauvais joueur. */
+  arbitrage: {
+    open: false,
+    loading: false,
+    player: null,
+    moderating: false,
+    canModerate: false,
+    /* La charge utile de `/api/galaxy/<nom>/research` : l'etat du joueur dans
+       l'arbre, exactement ce que lui-meme lit. */
+    state: null,
+    cards: new Map(),
+    branch: null,
+    readAt: 0,
+  },
   map: {
     galaxy: null,
     systems: [],
@@ -174,6 +222,17 @@ function on(selector, event, handler, options) {
      /                              le menu, tant qu'aucune galaxie n'est choisie
      /galaxy/<nom>                  la carte, qui est la vue d'accueil
      /galaxy/<nom>/territory/<id>   un monde
+     /galaxy/<nom>/research           l'arbre technologique, le sien
+     /galaxy/<nom>/empire             tous ses mondes a la fois
+     /galaxy/<nom>/empire/<joueur>    l'empire d'un autre, en arbitrage
+     /galaxy/<nom>/arbitrage          l'arbitrage de la recherche, sans cible
+     /galaxy/<nom>/arbitrage/<joueur> la recherche d'un joueur, en arbitrage
+
+   L'empire porte le nom du joueur arbitre parce que c'est la MEME vue, vue de
+   l'autre cote. La recherche, non : celle du joueur est un arbre qu'on parcourt
+   et ou l'on commande, celle de l'arbitre une liste ou l'on pose. Deux vues,
+   donc deux chemins — les faire tenir sur le meme aurait rendu l'adresse
+   ambigue, et un rechargement n'aurait pas su laquelle ouvrir.
 
    Dans le chemin et non dans la requete : c'est une adresse de page, pas un
    filtre. Elle se met en favori, se partage et se recharge, et le bouton retour
@@ -182,6 +241,10 @@ function on(selector, event, handler, options) {
    `/api` est a l'API : rien ne se chevauche. Le serveur rend la meme page pour
    tous ces chemins (voir `app/web/ui.py`), c'est ici qu'on decide de ce qu'elle
    montre. */
+/* Les vues de premier niveau qui ont une adresse a elles sous la galaxie. Un
+   monde n'en fait pas partie : il est designe par son identifiant. */
+const VIEW_PATHS = ['research', 'empire', 'arbitrage'];
+
 function readRoute() {
   let parts = [];
   try {
@@ -200,25 +263,62 @@ function readRoute() {
     } catch (e) {
       legacy = null;
     }
-    return { galaxy: legacy || null, territoryId: null };
+    return { galaxy: legacy || null, territoryId: null, view: null };
   }
 
   const id = parts[2] === 'territory' && parts[3] ? Number(parts[3]) : null;
   return {
     galaxy: parts[1],
     territoryId: Number.isFinite(id) && id > 0 ? id : null,
-    research: parts[2] === 'research',
+    view: VIEW_PATHS.includes(parts[2]) ? parts[2] : null,
+    /* La vue arbitree porte le nom du joueur regarde : une vue de moderation
+       se partage — « viens voir ce qui lui arrive » — et se recharge. Le
+       serveur refuse l'adresse a qui n'a pas le droit, et la console retombe
+       alors sur la sienne. */
+    player: VIEW_PATHS.includes(parts[2]) && parts[3] ? parts[3] : null,
   };
 }
 
-function routePath(galaxy, territoryId, research = false) {
+function routePath(galaxy, territoryId, view = null, player = null) {
   if (!galaxy) return '/';
   const base = `/galaxy/${encodeURIComponent(galaxy)}`;
   if (territoryId) return `${base}/territory/${territoryId}`;
-  /* La recherche est imperiale et traverse les galaxies, mais l'adresse en
-     porte une : c'est celle ou l'on travaille, et celle qui decide des mondes
-     affiches partout ailleurs. */
-  return research ? `${base}/research` : base;
+  /* La recherche est imperiale et la vue d'empire rassemble des mondes, mais
+     l'adresse porte une galaxie : c'est celle ou l'on travaille, et celle qui
+     decide des mondes affiches partout ailleurs. */
+  if (!VIEW_PATHS.includes(view)) return base;
+  if (player) return `${base}/${view}/${encodeURIComponent(player)}`;
+  return `${base}/${view}`;
+}
+
+/* Quelle vue de premier niveau est ouverte, du point de vue de l'adresse, et
+   sur quel joueur. L'arbitrage de la recherche partage le chemin de la
+   recherche : c'est le meme sujet, vu de l'autre cote. */
+function currentViewPath() {
+  if (state.research.open) return 'research';
+  if (state.arbitrage.open) return 'arbitrage';
+  if (state.empire.open) return 'empire';
+  return null;
+}
+
+function currentViewPlayer() {
+  if (state.arbitrage.open) return state.arbitrage.player;
+  if (state.empire.open) return state.empire.player;
+  return null;
+}
+
+/* Prendre la main sur la vue courante, AVANT d'ecrire l'adresse.
+   ---
+   Deux vues de premier niveau ouvertes en meme temps n'existent pas, mais rien
+   ne le disait : en ouvrant la carte depuis la recherche, `syncUrl` lisait un
+   `research.open` encore vrai et laissait l'adresse sur `/research` pendant que
+   la carte s'affichait. Chaque entree declare donc ce qu'elle prend, et ce
+   qu'elle ne prend pas se ferme. */
+function claimView(name) {
+  if (name !== 'research') state.research.open = false;
+  if (name !== 'arbitrage') state.arbitrage.open = false;
+  if (name !== 'empire') state.empire.open = false;
+  if (name !== 'territory') state.territoryId = null;
 }
 
 /* Ecrit l'adresse de la vue courante.
@@ -227,13 +327,16 @@ function routePath(galaxy, territoryId, research = false) {
    l'adresse, ou le premier affichage : empiler une entree la ferait apparaitre
    dans l'historique comme un endroit ou revenir. */
 function syncUrl({ replace = false } = {}) {
-  const path = routePath(state.galaxy, state.territoryId, state.research.open);
+  const view = currentViewPath();
+  const player = currentViewPlayer();
+  const path = routePath(state.galaxy, state.territoryId, view, player);
   try {
     if (path === window.location.pathname && !window.location.search) return;
     const entry = {
       galaxy: state.galaxy,
       territoryId: state.territoryId,
-      research: state.research.open,
+      view,
+      player,
     };
     if (replace) window.history.replaceState(entry, '', path);
     else window.history.pushState(entry, '', path);
@@ -373,7 +476,11 @@ async function loadGalaxies() {
      adresse deja tronquee. La vue s'ouvrait sur la carte, quel que soit le lien
      suivi. */
   state.territoryId = route.territoryId;
-  state.research.open = route.research;
+  state.research.open = route.view === 'research';
+  state.arbitrage.open = route.view === 'arbitrage';
+  state.empire.open = route.view === 'empire';
+  state.empire.player = route.view === 'empire' ? route.player || null : null;
+  state.arbitrage.player = state.arbitrage.open ? route.player || null : null;
 
   fillGalaxySelect($('#login-galaxy'));
   fillGalaxySelect($('#pick-galaxy'));
@@ -401,6 +508,10 @@ async function switchGalaxy(name) {
   state.galaxy = name;
   state.territoryId = null;
   state.territory = null;
+  /* Deux galaxies sont deux empires sans rapport : rien de la precedente ne
+     doit rester sous les yeux le temps de la lecture suivante. Le droit
+     d'arbitrer non plus — il se porte sur UNE partie. */
+  forgetEmpire();
   /* Changer de galaxie est bien un pas de navigation : on doit pouvoir revenir
      a la precedente. */
   syncUrl();
@@ -414,7 +525,10 @@ async function switchGalaxy(name) {
    ============================================================ */
 
 function showView(name) {
-  ['login', 'pick', 'command', 'moderation', 'galaxy', 'research', 'admin'].forEach(
+  [
+    'login', 'pick', 'command', 'moderation', 'galaxy', 'research', 'empire',
+    'arbitrage', 'admin',
+  ].forEach(
     (v) => {
       $(`#view-${v}`).classList.toggle('hidden', v !== name);
     }
@@ -422,6 +536,8 @@ function showView(name) {
   if (name !== 'command') stopTimers();
   if (name !== 'galaxy') stopMapTimers();
   if (name !== 'research') leaveResearch();
+  if (name !== 'empire') leaveEmpire();
+  if (name !== 'arbitrage') state.arbitrage.open = false;
 }
 
 /* ============================================================
@@ -837,8 +953,11 @@ async function refreshModeration() {
 
 function applyModerationAccess() {
   const allowed = !!(state.moderation && state.moderation.can_edit);
+  /* Les reglages de la galaxie et l'arbitrage repondent du meme droit : qui
+     peut regler une partie peut en corriger les comptes. Les deux entrees
+     paraissent donc ensemble, et la barriere reste sur les routes. */
   document
-    .querySelectorAll('[data-act="moderation"]')
+    .querySelectorAll('[data-act="moderation"],[data-act="arbitrage"]')
     .forEach((el) => el.classList.toggle('hidden', !allowed));
   const pick = $('#pick-moderation');
   if (pick) pick.classList.toggle('hidden', !allowed);
@@ -1229,6 +1348,7 @@ function renderDeposits() {
    ============================================================ */
 
 async function selectTerritory(id, { push = true } = {}) {
+  claimView('territory');
   state.territoryId = id;
   state.tab = 'buildings';
   settledEvents = new Set();
@@ -1369,12 +1489,16 @@ function secessionIn(holding) {
 
 /* ---------- bandeau de ressources ---------- */
 
-function hourlyGains() {
+/* Ce que les batiments d'UN monde rendent par heure. Le territoire est passe
+   plutot que lu dans l'etat : la vue d'empire en dresse la somme sur dix
+   mondes, et un helper qui ne sait lire que le monde ouvert ne sert qu'a une
+   vue sur deux. Meme motif pour `visibleResources` et `resourceChips`. */
+function hourlyGains(t = state.territory) {
   const totals = {};
   RESOURCES.forEach((r) => {
     totals[r.key] = 0;
   });
-  Object.values((state.territory && state.territory.buildings) || {}).forEach((b) => {
+  Object.values((t && t.buildings) || {}).forEach((b) => {
     Object.entries(normalizeResourceMap(b.gain)).forEach(([k, v]) => {
       if (k in totals) totals[k] += v;
     });
@@ -1385,19 +1509,26 @@ function hourlyGains() {
 /* Douze ressources ne tiennent pas dans un bandeau lisible. On n'affiche un
    matériau que si le monde en produit ou s'il en reste en stock : la barre
    raconte alors ce qu'est la planète, au lieu d'aligner huit zéros. */
-function visibleResources() {
-  const res = (state.territory && state.territory.resources) || {};
-  const yields = (state.territory && state.territory.yields) || {};
+function visibleResources(t = state.territory) {
+  const res = (t && t.resources) || {};
+  const yields = (t && t.yields) || {};
   return RESOURCES.filter(
     (r) => !r.empire && (!r.material || yields[r.key] > 0 || (res[r.key] || 0) > 0)
   );
 }
 
 function renderResources() {
-  const res = (state.territory && state.territory.resources) || {};
-  const yields = (state.territory && state.territory.yields) || {};
-  const gains = hourlyGains();
-  $('#res-grid').innerHTML = visibleResources()
+  $('#res-grid').innerHTML = resourceChips(state.territory);
+}
+
+/* Les pastilles de ressources d'un monde. Rendues en chaine et non posees dans
+   un hote : la vue d'empire en place une rangee par carte, et il n'y a pas
+   d'element fixe ou ecrire. */
+function resourceChips(t) {
+  const res = (t && t.resources) || {};
+  const yields = (t && t.yields) || {};
+  const gains = hourlyGains(t);
+  return visibleResources(t)
     .map((r) => {
       const delta = gains[r.key] || 0;
       const barren = r.material && !(yields[r.key] > 0);
@@ -1608,12 +1739,17 @@ function renderFleets() {
 
 /* ---------- événements en cours ---------- */
 
-function eventsOfType(type) {
-  return state.events.filter((e) => bare(e.eventType) === type);
+/* La liste d'evenements est passee plutot que lue dans l'etat : la scene d'un
+   monde n'en tient qu'une, la vue d'empire en tient une par monde. Par defaut
+   celle du monde ouvert, pour ne rien changer aux appels existants. */
+function eventsOfType(type, events = state.events) {
+  return events.filter((e) => bare(e.eventType) === type);
 }
 
-function eventFor(type, name) {
-  return eventsOfType(type).find((e) => e.extraArgs && e.extraArgs.name === name) || null;
+function eventFor(type, name, events = state.events) {
+  return (
+    eventsOfType(type, events).find((e) => e.extraArgs && e.extraArgs.name === name) || null
+  );
 }
 
 function eventProgress(ev) {
@@ -1639,9 +1775,9 @@ function progressMarkup(ev, label) {
 }
 
 /* Rafraîchi chaque seconde sans rejouer le rendu complet. */
-function updateProgressBars() {
+function updateProgressBars(events = state.events) {
   let justFinished = false;
-  state.events.forEach((ev) => {
+  events.forEach((ev) => {
     const bar = document.querySelector(`.bar[data-event="${ev.id}"] i`);
     const label = document.querySelector(`[data-event-label="${ev.id}"] span:last-child`);
     if (!bar) return;
@@ -1690,8 +1826,8 @@ function gainMarkup(gains) {
    Permissif quand le serveur ne dit rien : un serveur qui ne connait pas
    encore ce bloc ne doit pas faire disparaitre tous les batiments. Il
    refusera l'ordre lui-meme, comme avant. */
-function placeRefusal(name) {
-  const rules = (state.territory && state.territory.construction) || null;
+function placeRefusal(name, t = state.territory) {
+  const rules = (t && t.construction) || null;
   if (!rules || !Array.isArray(rules.accepts) || !rules.accepts.length) return null;
   if (rules.accepts.includes(name)) return null;
 
@@ -1699,27 +1835,54 @@ function placeRefusal(name) {
   return (found && found.reason) || 'Ce monde ne peut pas le porter.';
 }
 
-function renderBuildings() {
-  const t = state.territory;
-  const buildings = t.buildings || {};
-  const resources = t.resources || {};
-  const names = Object.keys(buildings).sort();
-  if (!names.length) return '<p class="empty">Aucun bâtiment sur ce territoire.</p>';
+/* Les batiments d'un monde, une ligne par type.
 
-  return names
+   Le monde et ses chantiers sont passes en argument, et ne sont plus lus dans
+   l'etat : la fiche d'une planete en montre un, la vue d'empire en montre dix
+   cote a cote. Deux copies de ce rendu auraient diverge des le premier
+   equilibrage — c'est ici que se decide ce qu'un cout inatteignable donne a
+   voir, et il n'y a pas deux reponses a cette question.
+
+   `compact` retire ce qui ne se lit qu'une fois — la description du batiment —
+   et garde ce qui se compare : le niveau, le cout, le rendement, la duree.
+   `onlyReady` ne laisse que ce qui est payable tout de suite ou deja en
+   chantier, et rend une chaine vide quand il ne reste rien.
+
+   `moderating` remplace le bouton par les deux gestes d'un arbitre — poser un
+   niveau, en retirer un — instantanes et gratuits. Le cout reste affiche, et
+   c'est voulu : il dit ce que le geste aurait coute au joueur. Mais il ne
+   grise plus rien, puisqu'il n'est plus paye. */
+function renderBuildings(t = state.territory, events = state.events, options = {}) {
+  const compact = !!options.compact;
+  const moderating = !!options.moderating;
+  const buildings = (t && t.buildings) || {};
+  const resources = (t && t.resources) || {};
+  const names = Object.keys(buildings).sort();
+  if (!names.length) {
+    return compact ? '' : '<p class="empty">Aucun bâtiment sur ce territoire.</p>';
+  }
+
+  const rows = names
     .map((name) => {
       const b = buildings[name];
       const costs = normalizeResourceMap(b.cost);
       const gains = normalizeResourceMap(b.gain);
       const affordable = Object.entries(costs).every(([k, v]) => (resources[k] || 0) >= v);
-      const ev = eventFor('building', name);
+      const ev = eventFor('building', name, events);
       /* Un refus de PLACE n'est pas un manque du moment : rien ne le corrigera,
          ni d'attendre ni de chercher. La ligne est donc eteinte plutot
          qu'effacee — ne pas montrer la ferme laisserait la chercher — et sans
          ses couts : envoyer chercher du fer pour une ferme qu'aucune plateforme
          ne portera jamais est exactement ce que le serveur a cesse de faire. */
-      const barred = placeRefusal(name);
-      const cls = barred ? 'row barred' : ev ? 'row busy' : affordable ? 'row' : 'row off';
+      const barred = placeRefusal(name, t);
+      if (options.onlyReady && (barred || (!affordable && !ev))) return '';
+      const cls = barred
+        ? 'row barred'
+        : ev
+          ? 'row busy'
+          : affordable || moderating
+            ? 'row'
+            : 'row off';
 
       return `<div class="${cls}">
       <div class="ico">${icon(name)}</div>
@@ -1727,11 +1890,20 @@ function renderBuildings() {
         <div class="row-head">
           <span class="row-name">${esc(humanize(name))}</span>
           <span class="lvl">LVL ${esc(b.level)}</span>
-          <button class="btn btn--sm${affordable && !ev && !barred ? ' btn--pri' : ''}"
-            data-build-building="${esc(name)}" ${ev || !affordable || barred ? 'disabled' : ''}
+          ${
+            moderating
+              ? grantButtons('building', name, t.id, {
+                  barred,
+                  empty: !Number(b.level),
+                  pose: '+ Niveau',
+                })
+              : `<button class="btn btn--sm${affordable && !ev && !barred ? ' btn--pri' : ''}"
+            data-build-building="${esc(name)}" data-territory="${esc(t.id)}"
+            ${ev || !affordable || barred ? 'disabled' : ''}
             ${barred ? `title="${esc(barred)}"` : ''}>
             ${barred ? 'Impossible ici' : ev ? 'En cours' : 'Upgrade'}
-          </button>
+          </button>`
+          }
         </div>
         ${
           barred
@@ -1742,50 +1914,59 @@ function renderBuildings() {
           <span class="cost">Durée <b>${esc(fmtDuration(b.duration))}</b></span>
         </div>`
         }
-        <p class="desc${barred ? ' desc--barred' : ''}">${esc(
-          barred || BUILDING_DESC[name] || 'Structure planétaire.'
-        )}</p>
+        ${
+          compact
+            ? ''
+            : `<p class="desc${barred ? ' desc--barred' : ''}">${esc(
+                barred || BUILDING_DESC[name] || 'Structure planétaire.'
+              )}</p>`
+        }
         ${barred ? '' : requirementsMarkup(b.requires_list)}
         ${barred ? '' : progressMarkup(ev, `Niveau ${Number(b.level) + 1} en construction`)}
       </div>
     </div>`;
     })
-    .join('');
+    .filter(Boolean);
+
+  return rows.join('');
 }
 
 /* ---------- onglets Shipyard / Orbital Defences ---------- */
 
-function renderUnits(kind) {
-  const t = state.territory;
-  const resources = t.resources || {};
+/* Meme partage que `renderBuildings`, et une difference : ce qui est DEJA la se
+   compte a deux sources. La scene d'un monde tient les flottes du systeme sous
+   la main et sait ce qui tient l'orbite ; la vue d'empire, qui n'a pas les
+   flottes, recoit du serveur le compte deja fait. La vue passe donc `counts`
+   quand elle l'a, et le rendu ne choisit rien. */
+function renderUnits(kind, t = state.territory, events = state.events, options = {}) {
+  const compact = !!options.compact;
+  const moderating = !!options.moderating;
+  const resources = (t && t.resources) || {};
   const catalog = kind === 'ship' ? state.catalog.ships : state.catalog.defenses;
 
   if (!catalog || !catalog.length) {
-    return '<p class="empty">Catalogue indisponible.</p>';
+    return compact ? '' : '<p class="empty">Catalogue indisponible.</p>';
   }
 
   /* Les defenses restent posees sur la planete ; les vaisseaux, non : ils
      partent en orbite dans une flotte. Le compteur montre donc ce qui tient
-     l'orbite d'ici, et l'infobulle ce que porte tout le systeme. */
-  const counts = kind === 'ship' ? shipsInOrbit() : {};
-  const systemCounts = kind === 'ship' ? shipsInSystem() : {};
-  if (kind === 'defense') {
-    (state.defenses || []).forEach((u) => {
-      counts[u.type] = u.quantity;
-    });
-  }
+     l'orbite d'ici, et l'infobulle ce que porte tout le systeme — cette
+     derniere seulement la ou les flottes sont connues. */
+  const counts = options.counts || sceneUnitCounts(kind);
+  const systemCounts = options.counts ? null : shipsInSystem();
 
   const shipyardLevel = ((t.buildings || {}).shipyard || {}).level || 0;
 
-  return catalog
+  const rows = catalog
     .map((u) => {
       const costs = normalizeResourceMap(u.cost);
       const affordable = Object.entries(costs).every(([k, v]) => (resources[k] || 0) >= v);
-      const ev = eventFor(kind, u.name);
+      const ev = eventFor(kind, u.name, events);
+      if (options.onlyReady && !affordable && !ev) return '';
       /* Purement informatif : `Territory.build` ne vérifie que le coût,
          pas les prérequis technologiques. On n'interdit donc rien ici. */
       const requires = requirementsMarkup(u.requires_list);
-      const cls = ev ? 'row busy' : affordable ? 'row' : 'row off';
+      const cls = ev ? 'row busy' : affordable || moderating ? 'row' : 'row off';
       const unitSeconds = u.integrity ? (u.integrity / 2500) * (1 + shipyardLevel) * 60 : 0;
 
       return `<div class="${cls}">
@@ -1794,31 +1975,90 @@ function renderUnits(kind) {
         <div class="row-head">
           <span class="row-name">${esc(humanize(u.name))}</span>
           <span class="lvl"${
-            kind === 'ship'
+            systemCounts
               ? ` title="En orbite ici. Dans le système : ${esc(fmtNumber(systemCounts[u.name] || 0))}"`
               : ''
           }>×${esc(fmtNumber(counts[u.name] || 0))}</span>
           <input class="qty" type="number" min="1" max="999" value="1"
-            data-qty="${esc(u.name)}" aria-label="Quantité ${esc(humanize(u.name))}">
-          <button class="btn btn--sm${affordable ? ' btn--pri' : ''}"
-            data-build-unit="${esc(u.name)}" data-kind="${kind}" ${affordable ? '' : 'disabled'}>
+            data-qty="${esc(qtyKey(t.id, u.name))}"
+            aria-label="Quantité ${esc(humanize(u.name))}">
+          ${
+            moderating
+              ? grantButtons(kind, u.name, t.id, {
+                  empty: !(counts[u.name] || 0),
+                  pose: 'Poser',
+                })
+              : `<button class="btn btn--sm${affordable ? ' btn--pri' : ''}"
+            data-build-unit="${esc(u.name)}" data-kind="${kind}"
+            data-territory="${esc(t.id)}" ${affordable ? '' : 'disabled'}>
             Construire
-          </button>
+          </button>`
+          }
         </div>
         <div class="costs">
           ${costMarkup(costs, resources)}
           <span class="cost">Intégrité <b>${esc(fmtNumber(u.integrity || 0))}</b></span>
           ${unitSeconds ? `<span class="cost">Unité <b>${esc(fmtDuration(unitSeconds))}</b></span>` : ''}
         </div>
-        <p class="desc">${esc(
-          `Coût unitaire. La durée d'assemblage dépend du niveau du chantier (LVL ${shipyardLevel}).`
-        )}</p>
+        ${
+          compact
+            ? ''
+            : `<p class="desc">${esc(
+                `Coût unitaire. La durée d'assemblage dépend du niveau du chantier (LVL ${shipyardLevel}).`
+              )}</p>`
+        }
         ${requires}
         ${progressMarkup(ev, `${(ev && ev.extraArgs && ev.extraArgs.quantity) || ''} restant(s) en assemblage`)}
       </div>
     </div>`;
     })
-    .join('');
+    .filter(Boolean);
+
+  return rows.join('');
+}
+
+/* Les deux gestes d'un arbitre, sur une ligne de construction.
+
+   Poser et retirer, et rien d'autre : ce sont les seuls que le serveur ouvre
+   (`POST /api/territory/<id>/grant`), et la quantite est celle du champ voisin
+   quand il y en a un — un batiment n'en a pas, et monte d'un niveau a la fois.
+
+   Le retrait est grise quand il n'y a rien a retirer : proposer d'enlever un
+   niveau a un batiment qui n'existe pas laisse croire qu'il se passera quelque
+   chose. Ce qui n'a pas sa place ici — une ferme sur une plateforme — ne se
+   pose pas davantage : un arbitre se passe du prix et du delai, pas du sol. */
+function grantButtons(kind, name, territoryId, { barred = false, empty = false, pose } = {}) {
+  const target = `data-grant="${esc(kind)}" data-grant-name="${esc(name)}"
+    data-territory="${esc(territoryId)}"`;
+  return `<button class="btn btn--sm btn--pinch" ${target} data-grant-sign="-1"
+      ${empty ? 'disabled' : ''} title="Retirer, sans délai">−</button>
+    <button class="btn btn--sm btn--pri" ${target} data-grant-sign="1"
+      ${barred ? 'disabled' : ''}
+      title="${esc(barred || 'Poser, sans coût ni délai')}">${esc(pose)}</button>`;
+}
+
+/* Ce qui est deja la, vu depuis la scene d'un monde. */
+function sceneUnitCounts(kind) {
+  if (kind === 'ship') return shipsInOrbit();
+  const counts = {};
+  (state.defenses || []).forEach((u) => {
+    counts[u.type] = u.quantity;
+  });
+  return counts;
+}
+
+/* La clef d'un champ de quantite. Elle porte le monde : la vue d'empire aligne
+   dix chantiers sur la meme page, et un champ nomme par le seul type de coque
+   y aurait dix homonymes — le premier trouve aurait commande pour tout le
+   monde. */
+function qtyKey(territoryId, name) {
+  return `${territoryId}:${name}`;
+}
+
+/* Ce que le joueur a tape en face d'une coque, 1 par defaut. */
+function qtyValue(territoryId, name) {
+  const input = document.querySelector(`[data-qty="${CSS.escape(qtyKey(territoryId, name))}"]`);
+  return input ? input.value : 1;
 }
 
 /* Les prérequis technologiques d'une construction, chacun cliquable.
@@ -1847,26 +2087,41 @@ function requirementsMarkup(list) {
    actions
    ============================================================ */
 
-async function upgradeBuilding(name) {
+/* Le monde vise est passe et non lu dans l'etat : la vue d'empire lance des
+   chantiers sur dix mondes sans en ouvrir aucun. Par defaut celui qui est
+   ouvert, pour ne rien changer aux appels de la scene. */
+async function upgradeBuilding(name, territoryId = state.territoryId) {
   try {
-    await api.upgradeBuilding(state.territoryId, name);
+    await api.upgradeBuilding(territoryId, name);
     toast(`${humanize(name)} : construction lancée.`, 'info', 'Chantier');
-    await reloadTerritory(true);
+    await refreshAfterBuild(territoryId);
   } catch (e) {
     handleApiError(e, 'Construction refusée');
   }
 }
 
-async function buildUnit(kind, name, quantity) {
+async function buildUnit(kind, name, quantity, territoryId = state.territoryId) {
   const qty = Math.max(1, Math.min(999, Number(quantity) || 1));
   try {
-    if (kind === 'ship') await api.buildShips(state.territoryId, name, qty);
-    else await api.buildDefenses(state.territoryId, name, qty);
+    if (kind === 'ship') await api.buildShips(territoryId, name, qty);
+    else await api.buildDefenses(territoryId, name, qty);
     toast(`${qty} × ${humanize(name)} : assemblage lancé.`, 'info', 'Chantier');
-    await reloadTerritory(true);
+    await refreshAfterBuild(territoryId);
   } catch (e) {
     handleApiError(e, 'Assemblage refusé');
   }
+}
+
+/* Repeindre apres un ordre, la ou il a ete donne : la scene d'un monde relit ce
+   monde, la vue d'empire relit la seule carte concernee. Rejouer la lecture
+   d'ensemble y ferait rattraper dix mondes pour un chantier, et effacerait au
+   passage les quantites tapees sur les autres cartes. */
+async function refreshAfterBuild(territoryId) {
+  if (state.empire.open) {
+    await reloadEmpireWorld(territoryId);
+    return;
+  }
+  await reloadTerritory(true);
 }
 
 /* ---------- actions de flotte ---------- */
@@ -2057,7 +2312,7 @@ async function openResearch({ push = true } = {}) {
   /* La recherche traverse les galaxies, mais l'adresse en porte une : c'est
      celle où l'on travaille, et c'est elle qui décide des mondes affichés
      partout ailleurs. */
-  state.territoryId = null;
+  claimView('research');
   state.research.open = true;
   syncUrl({ replace: !push });
 
@@ -3314,14 +3569,14 @@ function initEvents() {
 
     const building = ev.target.closest('[data-build-building]');
     if (building) {
-      upgradeBuilding(building.dataset.buildBuilding);
+      upgradeBuilding(building.dataset.buildBuilding, Number(building.dataset.territory));
       return;
     }
     const unit = ev.target.closest('[data-build-unit]');
     if (unit) {
       const name = unit.dataset.buildUnit;
-      const input = document.querySelector(`[data-qty="${CSS.escape(name)}"]`);
-      buildUnit(unit.dataset.kind, name, input ? input.value : 1);
+      const id = Number(unit.dataset.territory);
+      buildUnit(unit.dataset.kind, name, qtyValue(id, name), id);
       return;
     }
 
@@ -3395,10 +3650,14 @@ function initEvents() {
 const CHROME_ICONS = {
   map: 'galaxy',
   research: 'research',
+  empire: 'empire',
+  arbitrage: 'research',
   worlds: 'worlds',
   'refresh-territory': 'refresh',
   'refresh-map': 'refresh',
   'refresh-research': 'refresh',
+  'refresh-empire': 'refresh',
+  'refresh-arbitrage': 'refresh',
   moderation: 'sliders',
   settings: 'settings',
   logout: 'logout',
@@ -4068,6 +4327,21 @@ function runChromeAction(name) {
     case 'refresh-research':
       loadResearch();
       break;
+    case 'empire':
+      openEmpire();
+      break;
+    case 'refresh-empire':
+      loadEmpire();
+      break;
+    case 'arbitrage':
+      /* La cible suit : on vient souvent de l'empire qu'on est en train
+         d'arbitrer, et redemander le nom du joueur a chaque passage d'une vue
+         a l'autre serait le meilleur moyen de se tromper de tete. */
+      openArbitrage({ player: state.arbitrage.player || state.empire.player || null });
+      break;
+    case 'refresh-arbitrage':
+      loadArbitrage();
+      break;
     case 'moderation':
       openModeration();
       break;
@@ -4383,7 +4657,7 @@ async function openGalaxyMap({ push = true } = {}) {
 
   /* La carte est la galaxie entiere, pas un monde : l'adresse s'arrete au nom
      de la galaxie. */
-  state.territoryId = null;
+  claimView('map');
   syncUrl({ replace: !push });
 
   showView('galaxy');
@@ -5171,6 +5445,1115 @@ function initGalaxyMap() {
 }
 
 /* ============================================================
+   vue d'empire
+
+   La console savait tout dire d'UN monde et rien de l'ensemble. Pour savoir ou
+   en etaient ses extracteurs, un joueur qui tient huit planetes ouvrait huit
+   fiches ; pour lancer huit chantiers, huit autres. La carte, elle, montre les
+   etoiles et rien de ce qu'on y a bati.
+
+   Cette vue-ci montre les mondes cote a cote — batiments avec leur niveau,
+   defenses avec leur nombre, chantiers en cours — et laisse lancer l'ordre
+   depuis la carte du monde, sans y entrer.
+
+   Une seule lecture la nourrit, `POST /api/galaxy/<nom>/empire`, et c'est le
+   serveur qui rattrape chaque monde avant de le rendre : les couts sont donc
+   compares a des reserves d'aujourd'hui. Une vue batie sur la liste des
+   territoires aurait grise des boutons que le monde peut payer depuis des
+   heures — les ressources ne montent pas toutes seules en base, elles sont
+   creditees au moment ou on regarde.
+
+   Rien n'est redessine ici : les lignes de construction sont celles de la fiche
+   d'un monde, en version compacte (`renderBuildings`, `renderUnits`). Deux
+   copies auraient diverge au premier equilibrage.
+
+   L'arbitrage
+   -----------
+   Un moderateur de la galaxie — et l'administrateur, dont la portee vaut
+   partout — ouvre ici l'empire de N'IMPORTE QUEL joueur de la partie, et y pose
+   ou retire des elements sans cout ni delai. C'est ce qu'il faut pour reparer
+   une partie, rendre ce qu'une anomalie a mange, ou eprouver un equilibrage
+   sans passer trois heures a jouer.
+
+   Le client ne decide rien de tout cela : `can_moderate` dit s'il faut
+   proposer le choix des joueurs, `moderating` si ce qu'on lit n'est pas a nous.
+   Les deux viennent de la reponse du serveur, qui est aussi celui qui refuse —
+   cacher un bouton n'a jamais empeche personne d'appeler une URL.
+
+   Ce qui change a l'ecran quand l'arbitrage est en cours : un bandeau qui
+   nomme la cible et ne s'en va pas, des cartes bordees de la teinte
+   d'avertissement, et les deux gestes gratuits a la place du bouton habituel.
+   Rien de gratuit ne doit pouvoir se faire en croyant jouer sa propre partie.
+   ============================================================ */
+
+let empireTick = null;
+let empirePoll = null;
+
+/* `player` : l'empire a ouvrir. Absent, on garde celui qu'on regardait — entrer
+   par la barre du haut ne doit pas defaire une selection d'arbitrage en cours.
+   Nul explicitement, c'est le sien, et c'est ce que dit une adresse sans nom. */
+async function openEmpire({ push = true, player } = {}) {
+  if (!state.galaxy) {
+    toast('Choisissez une galaxie.', 'err', 'Empire');
+    return;
+  }
+
+  claimView('empire');
+  state.empire.open = true;
+  if (player !== undefined && (player || null) !== state.empire.player) {
+    state.empire.player = player || null;
+    state.empire.worlds = [];
+  }
+  syncUrl({ replace: !push });
+
+  showView('empire');
+  $('#empire-galaxy').textContent = state.galaxy;
+  /* Ce qu'on a deja lu reste a l'ecran pendant la relecture : vider la grille
+     pour la repeindre une seconde plus tard fait clignoter la page a chaque
+     retour. Au tout premier passage, il n'y a rien a garder. */
+  if (!state.empire.worlds.length) {
+    $('#empire-grid').innerHTML = '<p class="empty">Chargement…</p>';
+  }
+
+  await loadEmpire();
+  startEmpireTimers();
+}
+
+function leaveEmpire() {
+  state.empire.open = false;
+  stopEmpireTimers();
+}
+
+async function loadEmpire() {
+  if (!state.galaxy || state.empire.loading) return;
+  state.empire.loading = true;
+  $('#empire-updated').textContent = 'Lecture…';
+
+  const asked = state.empire.player;
+  try {
+    const payload = (await api.empire(state.galaxy, asked)) || {};
+    state.empire.worlds = Array.isArray(payload.worlds) ? payload.worlds : [];
+    state.empire.moderating = !!payload.moderating;
+    state.empire.canModerate = !!payload.can_moderate;
+    /* Le serveur fait foi sur ce qu'il vient de rendre : sans arbitrage, la
+       selection retombe a nul, faute de quoi l'adresse porterait son propre nom
+       comme s'il s'agissait de l'empire d'un autre. */
+    state.empire.player = payload.moderating ? payload.player || null : null;
+    if (state.empire.player !== asked) syncUrl({ replace: true });
+    state.empire.readAt = Date.now();
+    await loadGalaxyPlayers(state.empire.canModerate);
+    renderEmpire();
+  } catch (e) {
+    /* Une adresse d'arbitrage suivie par quelqu'un qui n'y a pas droit, ou un
+       joueur qui n'existe plus : on le dit, et on retombe sur son propre empire
+       plutot que de laisser une page vide. */
+    if (asked && e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+      handleApiError(e, 'Arbitrage');
+      state.empire.player = null;
+      state.empire.worlds = [];
+      syncUrl({ replace: true });
+      state.empire.loading = false;
+      await loadEmpire();
+      return;
+    }
+    handleApiError(e, 'Empire indisponible');
+    if (!state.empire.worlds.length) {
+      $('#empire-grid').innerHTML = '<p class="empty">Empire indisponible.</p>';
+    }
+  } finally {
+    state.empire.loading = false;
+    $('#empire-updated').textContent = state.empire.readAt
+      ? `MAJ ${new Date(state.empire.readAt).toLocaleTimeString('fr-FR')}`
+      : '';
+  }
+}
+
+/* Qui tient quelque chose dans cette galaxie. Lue une fois par galaxie, et
+   seulement pour qui peut arbitrer : c'est la liste ou il choisit l'empire a
+   ouvrir, et elle ne bouge qu'a une colonisation pres. */
+async function loadGalaxyPlayers(can) {
+  if (!can || state.galaxyPlayers.length) return;
+  state.galaxyPlayers = await api.galaxyPlayers(state.galaxy).catch(() => []);
+}
+
+/* Tout oublier de l'empire regarde. Appele au changement de galaxie : les
+   mondes, le droit d'arbitrer et la liste des joueurs se portent tous sur UNE
+   partie, et rien de la precedente ne doit rester sous les yeux. */
+function forgetEmpire() {
+  state.empire.worlds = [];
+  state.empire.player = null;
+  state.empire.moderating = false;
+  state.empire.canModerate = false;
+  state.galaxyPlayers = [];
+  state.arbitrage.player = null;
+  state.arbitrage.state = null;
+  state.arbitrage.cards = new Map();
+  state.arbitrage.moderating = false;
+  state.arbitrage.canModerate = false;
+}
+
+/* Un seul monde relu, apres un ordre donne sur sa carte.
+
+   Trois lectures au lieu d'une : la fiche du monde — qui le rattrape —, ses
+   chantiers et ses defenses. L'orbite, elle, ne bouge pas parce qu'on a lance
+   un chantier : elle attend la prochaine lecture d'ensemble. */
+async function reloadEmpireWorld(id) {
+  const index = state.empire.worlds.findIndex((w) => w.id === id);
+  if (index < 0) {
+    await loadEmpire();
+    return;
+  }
+
+  try {
+    const [territory, events, defenses] = await Promise.all([
+      api.territory(id),
+      api.territoryEvents(id).catch(() => []),
+      api.territoryDefenses(id).catch(() => []),
+    ]);
+
+    /* La vue a pu changer pendant les allers-retours. */
+    if (!state.empire.open) return;
+
+    const world = {
+      ...territory,
+      events: Array.isArray(events) ? events : [],
+      defenses: Array.isArray(defenses) ? defenses : [],
+      orbit: (state.empire.worlds[index] || {}).orbit || {},
+    };
+    state.empire.worlds[index] = world;
+    repaintEmpireWorld(world);
+  } catch (e) {
+    handleApiError(e, 'Monde indisponible');
+  }
+}
+
+/* ---------- rendu ---------- */
+
+function renderEmpire() {
+  const worlds = state.empire.worlds;
+
+  $('#empire-title').textContent = worlds.length
+    ? `${worlds.length} monde${worlds.length > 1 ? 's' : ''} · ${
+        state.empire.moderating ? state.empire.player : state.galaxy
+      }`
+    : state.galaxy || '—';
+
+  renderEmpireTotals();
+  renderEmpireTally();
+  renderEmpireModeration();
+
+  /* Le filtre du payable disparait en arbitrage : plus rien ne se paie, et une
+     case a cocher sans effet est pire qu'absente. */
+  const only = document.querySelector('.empire-only');
+  if (only) only.classList.toggle('hidden', state.empire.moderating);
+
+  const grid = $('#empire-grid');
+  grid.classList.toggle('empire-grid--moderated', state.empire.moderating);
+  if (!worlds.length) {
+    grid.innerHTML = state.empire.moderating
+      ? `<p class="empty">${esc(state.empire.player)} ne tient aucun monde dans ${esc(
+          state.galaxy || 'cette galaxie'
+        )}.</p>`
+      : `<p class="empty">Aucun monde ne vous appartient dans ${esc(
+          state.galaxy || 'cette galaxie'
+        )}.<br>Réclamez une planète depuis le client de jeu, ou depuis la carte de la galaxie.</p>`;
+    return;
+  }
+
+  /* Ce que le joueur a tape dans les champs de quantite survit au rendu : la
+     vue se relit toute seule chaque minute, et effacer un « 40 » en cours de
+     frappe est le plus sur moyen de faire commander 1. */
+  const drafts = readQtyDrafts();
+  grid.innerHTML = worlds.map(empireCard).join('');
+  applyQtyDrafts(drafts);
+  updateProgressBars(empireEvents());
+}
+
+function repaintEmpireWorld(world) {
+  const card = document.querySelector(`[data-world="${world.id}"]`);
+  if (!card) {
+    renderEmpire();
+    return;
+  }
+  /* Les quantites tapees survivent ici aussi : un arbitre qui pose vingt-cinq
+     pieces d'une batterie en pose souvent autant de la suivante, et retomber a
+     1 apres chaque geste lui ferait retaper le nombre a chaque ligne. */
+  const drafts = readQtyDrafts();
+  card.outerHTML = empireCard(world);
+  applyQtyDrafts(drafts);
+  /* Le cumul et le decompte ont bouge avec ce monde. */
+  renderEmpireTotals();
+  renderEmpireTally();
+  updateProgressBars(empireEvents());
+}
+
+function readQtyDrafts() {
+  const drafts = new Map();
+  document.querySelectorAll('#empire-grid [data-qty]').forEach((input) => {
+    if (input.value && input.value !== '1') drafts.set(input.dataset.qty, input.value);
+  });
+  return drafts;
+}
+
+function applyQtyDrafts(drafts) {
+  if (!drafts.size) return;
+  document.querySelectorAll('#empire-grid [data-qty]').forEach((input) => {
+    const kept = drafts.get(input.dataset.qty);
+    if (kept !== undefined) input.value = kept;
+  });
+}
+
+/* Tous les chantiers de l'empire, a plat. Les barres de progression se
+   designent par l'identifiant de l'evenement, qui est unique : une seule
+   fonction les avance, quelle que soit la vue. */
+function empireEvents() {
+  return state.empire.worlds.reduce((all, w) => all.concat(w.events || []), []);
+}
+
+/* Le cumul de ce que l'empire tient dans cette galaxie, et ce qu'il produit par
+   heure. C'est la seule chose que cette vue dise et qu'aucune fiche ne peut
+   dire : additionner huit bandeaux de tete n'est pas un geste. */
+function renderEmpireTotals() {
+  const stock = {};
+  const gains = {};
+  RESOURCES.forEach((r) => {
+    stock[r.key] = 0;
+    gains[r.key] = 0;
+  });
+
+  state.empire.worlds.forEach((w) => {
+    Object.entries(w.resources || {}).forEach(([key, value]) => {
+      // `stability` voyage avec les ressources sans en etre une.
+      if (key in stock) stock[key] += Number(value) || 0;
+    });
+    Object.entries(hourlyGains(w)).forEach(([key, value]) => {
+      gains[key] += value;
+    });
+  });
+
+  const shown = RESOURCES.filter((r) => !r.empire && (stock[r.key] > 0 || gains[r.key]));
+  $('#empire-totals').innerHTML = shown.length
+    ? shown
+        .map(
+          (r) => `<div class="chip" style="--chip-accent:var(--res-${r.key})"
+        title="${esc(r.label)} — cumul de tous vos mondes de la galaxie">
+        <span class="k">${r.code}</span>
+        <span class="v">${esc(fmtNumber(stock[r.key]))}</span>
+        ${
+          gains[r.key]
+            ? `<span class="d${gains[r.key] < 0 ? ' neg' : ''}">${esc(
+                fmtDelta(gains[r.key])
+              )}/h</span>`
+            : ''
+        }
+      </div>`
+        )
+        .join('')
+    : '<span class="loading">—</span>';
+}
+
+/* Ce qui se compte : les niveaux batis, les pieces posees, les chantiers
+   ouverts, et les mondes coupes du reseau — ce dernier en dernier parce qu'il
+   ne s'affiche que s'il y en a, et qu'une alarme permanente n'en est pas une. */
+function renderEmpireTally() {
+  const worlds = state.empire.worlds;
+  const levels = worlds.reduce(
+    (n, w) =>
+      n + Object.values(w.buildings || {}).reduce((m, b) => m + (Number(b.level) || 0), 0),
+    0
+  );
+  const pieces = worlds.reduce(
+    (n, w) => n + (w.defenses || []).reduce((m, d) => m + (Number(d.quantity) || 0), 0),
+    0
+  );
+  const works = empireEvents().length;
+  const cut = worlds.filter(worldIsCut).length;
+
+  $('#empire-tally').innerHTML = [
+    `<span><b>Niveaux bâtis</b> ${esc(fmtNumber(levels))}</span>`,
+    `<span><b>Pièces de défense</b> ${esc(fmtNumber(pieces))}</span>`,
+    `<span><b>Chantiers</b> ${esc(fmtNumber(works))}</span>`,
+    cut ? `<span class="alarm"><b>Coupés du réseau</b> ${esc(fmtNumber(cut))}</span>` : '',
+  ].join('');
+}
+
+/* Le bandeau d'arbitrage : le choix de l'empire, et ce que cela autorise.
+
+   Absent pour un joueur ordinaire — il n'a rien a y lire. Present et muet pour
+   un moderateur qui regarde sa propre partie : le choix suffit. Teinte et
+   bavard des qu'il regarde ailleurs, parce qu'a partir de la chaque bouton pose
+   quelque chose chez quelqu'un d'autre, gratuitement et pour de bon. */
+function renderEmpireModeration() {
+  const host = $('#empire-moderation');
+  if (!host) return;
+
+  if (!state.empire.canModerate) {
+    host.classList.add('hidden');
+    host.innerHTML = '';
+    return;
+  }
+
+  host.classList.remove('hidden');
+  host.classList.toggle('empire-mod--on', state.empire.moderating);
+
+  const mine = (state.user && state.user.username) || 'moi';
+  const options = [
+    `<option value=""${
+      state.empire.player ? '' : ' selected'
+    }>Le mien — ${esc(mine)} · j'y joue</option>`,
+  ].concat(
+    (state.galaxyPlayers || [])
+      .filter((row) => row && row.username)
+      .map(
+        (row) => `<option value="${esc(row.username)}"${
+          row.username === state.empire.player ? ' selected' : ''
+        }>${esc(row.username)} — ${esc(fmtNumber(row.worlds))} monde${
+          row.worlds > 1 ? 's' : ''
+        }</option>`
+      )
+  );
+
+  const self = state.empire.player === mine;
+  const note = state.empire.moderating
+    ? `<p class="empire-mod__note"><b>Arbitrage en cours.</b> Vous regardez
+       ${self ? 'votre propre empire, en arbitre' : `l'empire de ${esc(state.empire.player)}`}.
+       Ce que vous posez ici est <b>immédiat et gratuit</b> — ni coût, ni chantier, ni
+       prérequis de recherche — et chaque geste est inscrit au journal du serveur avec
+       votre nom. Seule la règle de place tient encore : un monde ne portera jamais ce
+       qu'il n'a pas de quoi porter.</p>`
+    : `<p class="empire-mod__note">Vous modérez cette galaxie : vous pouvez ouvrir l'empire
+       d'un joueur — le vôtre compris, en le nommant — et y poser ou retirer des éléments
+       sans coût ni délai.</p>`;
+
+  host.innerHTML = `<span class="ov">Arbitrage</span>
+    <label for="empire-player">Empire de</label>
+    <select id="empire-player">${options.join('')}</select>
+    ${
+      state.empire.moderating
+        ? `<button class="btn btn--sm" data-arbitrate-research="${esc(state.empire.player)}"
+            title="Arbitrer la recherche de ce joueur">Sa recherche</button>`
+        : ''
+    }
+    ${note}`;
+}
+
+function worldIsCut(w) {
+  const h = w.holding || null;
+  return !!(h && h.owned && (h.deactivated || !h.connected));
+}
+
+/* ---------- la carte d'un monde ---------- */
+
+function empireShows(section) {
+  return state.empire.section === 'all' || state.empire.section === section;
+}
+
+function empireCard(w) {
+  const events = w.events || [];
+  /* Le filtre du payable n'a plus de sens quand rien ne se paie : en
+     arbitrage, tout est a portee, et masquer des lignes ne ferait que cacher ce
+     qu'on est venu poser. */
+  const options = {
+    compact: true,
+    onlyReady: state.empire.onlyReady && !state.empire.moderating,
+    moderating: state.empire.moderating,
+  };
+
+  const blocks = [];
+  if (empireShows('buildings')) {
+    blocks.push(['Bâtiments', renderBuildings(w, events, options)]);
+  }
+  if (empireShows('defenses')) {
+    blocks.push([
+      'Défenses orbitales',
+      renderUnits('defense', w, events, { ...options, counts: defenseCounts(w) }),
+    ]);
+  }
+  if (empireShows('ships')) {
+    blocks.push([
+      'Chantier naval',
+      renderUnits('ship', w, events, { ...options, counts: w.orbit || {} }),
+    ]);
+  }
+
+  const body = blocks
+    .filter(([, html]) => html)
+    .map(
+      ([label, html]) => `<div class="world__sec">
+        <span class="ov">${esc(label)}</span>${html}
+      </div>`
+    )
+    .join('');
+
+  return `<article class="world${worldIsCut(w) ? ' world--cut' : ''}" data-world="${esc(w.id)}">
+    <header class="world__head">
+      <i class="world__orb" style="background:${planetGradient(w.id || w.position || 1)}"></i>
+      <div class="world__id">
+        <span class="world__name">${esc(territoryLabel(w))}</span>
+        <span class="world__sub">${esc(empireSubtitle(w))}</span>
+      </div>
+      ${w.is_capital ? '<span class="world__flag">Capitale</span>' : ''}
+      ${
+        /* La fiche d'un monde est fermee a qui n'en est pas le proprietaire :
+           proposer de l'ouvrir chez un autre joueur menerait a un refus. */
+        state.empire.moderating
+          ? ''
+          : `<button class="btn btn--sm" data-open-world="${esc(w.id)}"
+        title="Ouvrir la fiche complète de ce monde">Ouvrir</button>`
+      }
+    </header>
+    ${empireAlarm(w)}
+    <div class="res-grid world__res">${resourceChips(w)}</div>
+    ${
+      body
+      || `<p class="world__void">${esc(
+        state.empire.onlyReady
+          ? "Rien de constructible ici dans l'immédiat."
+          : 'Rien à montrer sous ce filtre.'
+      )}</p>`
+    }
+  </article>`;
+}
+
+/* Ou est ce monde, et ce qu'il est. Le systeme et l'orbite n'y figurent que si
+   le monde porte un nom propre : sans nom, `territoryLabel` les a deja mis en
+   titre, et les repeter dessous ecrit deux fois la meme ligne. */
+function empireSubtitle(w) {
+  const named = !!(w.name || (w.characteristics && w.characteristics.name));
+  const where = [
+    (w.system && w.system.name) || `Système ${w.system ? w.system.id : '?'}`,
+    `orbite ${roman(w.position || 1)}`,
+  ].join(' · ');
+  return named ? `${where} · ${territorySubtitle(w)}` : territorySubtitle(w);
+}
+
+/* Ce qui va mal sur ce monde, en une ligne. Muet quand tout va bien : une carte
+   qui annoncerait « raccordé » dix fois de suite n'apprendrait rien et rendrait
+   invisible celle qui annonce le contraire. */
+function empireAlarm(w) {
+  const lines = [];
+  const h = w.holding || null;
+
+  if (worldIsCut(w)) {
+    lines.push(
+      h.deactivated
+        ? `<b>Monde éteint</b> ${esc(secessionIn(h))}`
+        : `<b>Coupé du réseau</b> ${esc(
+            `stabilité ${fmtNumber(h.stability)}, elle descend à chaque heure`
+          )}`
+    );
+  }
+  if (w.starving) {
+    lines.push('<b>Famine</b> la population décroît tant que les fermes ne suivent pas');
+  }
+
+  if (!lines.length) return '';
+  return `<p class="world__alarm">${lines.join(' · ')}</p>`;
+}
+
+function defenseCounts(w) {
+  const counts = {};
+  (w.defenses || []).forEach((d) => {
+    counts[d.type] = d.quantity;
+  });
+  return counts;
+}
+
+/* ---------- le geste d'un arbitre ---------- */
+
+/* Poser ou retirer, sans cout ni delai.
+
+   La reponse du serveur est le monde entier : on repeint la carte avec, sans
+   rien relire. C'est aussi la seule facon dont la console le peut — les routes
+   de territoire sont fermees a qui n'en est pas le proprietaire, et celui-ci
+   n'est pas nous. */
+async function grantElement(kind, name, territoryId, amount) {
+  if (!amount) return;
+  const world = empireWorldById(territoryId);
+  try {
+    const updated = await api.grant(territoryId, kind, name, amount);
+    replaceEmpireWorld(updated);
+    toast(
+      `${amount > 0 ? 'Posé' : 'Retiré'} : ${fmtNumber(Math.abs(amount))} × ${humanize(name)}`
+        + `${world ? ` sur ${territoryLabel(world)}` : ''}.`,
+      'info',
+      `Arbitrage · ${state.empire.player || ''}`
+    );
+  } catch (e) {
+    handleApiError(e, 'Arbitrage refusé');
+  }
+}
+
+function empireWorldById(id) {
+  return state.empire.worlds.find((w) => w.id === id) || null;
+}
+
+/* Remplace un monde par ce que le serveur vient de rendre, et repeint sa seule
+   carte. Le monde est rendu entier, il n'y a donc rien a fusionner. */
+function replaceEmpireWorld(world) {
+  if (!world || !world.id) {
+    loadEmpire();
+    return;
+  }
+  const index = state.empire.worlds.findIndex((w) => w.id === world.id);
+  if (index < 0) {
+    loadEmpire();
+    return;
+  }
+  state.empire.worlds[index] = world;
+  repaintEmpireWorld(world);
+}
+
+/* ---------- minuteries ---------- */
+
+function startEmpireTimers() {
+  stopEmpireTimers();
+  /* Les barres avancent sur l'horloge locale ; quand l'une arrive au bout, on
+     relit — c'est la livraison. */
+  empireTick = setInterval(() => {
+    if (updateProgressBars(empireEvents())) loadEmpire();
+  }, 1000);
+  /* Plus espace que la fiche d'un monde : cette lecture rattrape TOUS les
+     mondes du joueur, et une minute suffit largement a voir bouger une
+     reserve. */
+  empirePoll = setInterval(loadEmpire, 60000);
+}
+
+function stopEmpireTimers() {
+  if (empireTick) clearInterval(empireTick);
+  if (empirePoll) clearInterval(empirePoll);
+  empireTick = null;
+  empirePoll = null;
+}
+
+/* ---------- câblage ---------- */
+
+function initEmpire() {
+  on('#pick-empire', 'click', () => openEmpire());
+
+  on('#empire-sections', 'click', (ev) => {
+    const tab = ev.target.closest('[data-empire-section]');
+    if (!tab) return;
+    state.empire.section = tab.dataset.empireSection;
+    document.querySelectorAll('#empire-sections .tab').forEach((el) => {
+      el.classList.toggle('on', el.dataset.empireSection === state.empire.section);
+    });
+    renderEmpire();
+  });
+
+  on('#empire-ready', 'change', (ev) => {
+    state.empire.onlyReady = !!ev.target.checked;
+    renderEmpire();
+  });
+
+  /* Changer d'empire est un pas de navigation : on doit pouvoir revenir au
+     precedent, et l'adresse porte le nom du joueur regarde. */
+  on('#empire-moderation', 'change', (ev) => {
+    const select = ev.target.closest('#empire-player');
+    if (!select) return;
+    openEmpire({ player: select.value || null });
+  });
+
+  /* Passer a la recherche du MEME joueur : c'est l'interet d'avoir deux vues
+     plutot qu'une, et la selection ne doit pas se perdre entre les deux. */
+  on('#empire-moderation', 'click', (ev) => {
+    const research = ev.target.closest('[data-arbitrate-research]');
+    if (!research) return;
+    openArbitrage({ player: research.dataset.arbitrateResearch || null });
+  });
+
+  on('#empire-grid', 'click', (ev) => {
+    /* Avant tout le reste : le lien est posé DANS une ligne de construction, et
+       le gestionnaire de la ligne prendrait le clic. */
+    const research = ev.target.closest('[data-open-research]');
+    if (research) {
+      openResearchAt(research.dataset.openResearch);
+      return;
+    }
+
+    /* Les deux gestes d'un arbitre. La quantite est celle du champ voisin quand
+       il y en a un — un batiment n'en a pas, et monte d'un niveau a la fois. */
+    const grant = ev.target.closest('[data-grant]');
+    if (grant) {
+      const kind = grant.dataset.grant;
+      const name = grant.dataset.grantName;
+      const id = Number(grant.dataset.territory);
+      const sign = Number(grant.dataset.grantSign) || 1;
+      const quantity = Math.max(1, Math.min(999, Number(qtyValue(id, name)) || 1));
+      grantElement(kind, name, id, sign * quantity);
+      return;
+    }
+
+    const open = ev.target.closest('[data-open-world]');
+    if (open) {
+      selectTerritory(Number(open.dataset.openWorld));
+      return;
+    }
+
+    const building = ev.target.closest('[data-build-building]');
+    if (building) {
+      upgradeBuilding(building.dataset.buildBuilding, Number(building.dataset.territory));
+      return;
+    }
+
+    const unit = ev.target.closest('[data-build-unit]');
+    if (unit) {
+      const name = unit.dataset.buildUnit;
+      const id = Number(unit.dataset.territory);
+      buildUnit(unit.dataset.kind, name, qtyValue(id, name), id);
+    }
+  });
+}
+
+/* ============================================================
+   arbitrage de la recherche
+
+   Une vue a elle, et non un mode de la vue d'empire. Deux raisons, et la
+   seconde compte autant que la premiere :
+
+     · la recherche ne pend a aucun monde. Elle appartient au joueur, toutes
+       galaxies confondues, et se paie sur l'ensemble de ses mondes : la
+       glisser dans la carte d'une planete aurait repete quatre-vingt-dix
+       noeuds sur chaque carte, et menti sur ce qu'elle est ;
+     · on n'y vient pas pour la meme question. L'empire repond « ou en sont ses
+       mondes », celle-ci « ou en est sa recherche » — et se lit donc comme
+       l'arbre du joueur, branche par branche.
+
+   Le joueur est PRESELECTIONNE : on arrive ici depuis l'empire qu'on est en
+   train d'arbitrer, et changer de tete en chemin serait le meilleur moyen de
+   poser un niveau chez le mauvais joueur. Il reste choisissable, dans la meme
+   liste que la vue d'empire.
+
+   Ce que la vue ne fait pas : lancer une recherche, ni en annuler une. Ce sont
+   les gestes du JOUEUR, ils se paient et prennent du temps, et ils vivent dans
+   sa vue a lui. Un arbitre pose un niveau ou le retire, c'est tout.
+   ============================================================ */
+
+async function openArbitrage({ push = true, player } = {}) {
+  if (!state.galaxy) {
+    toast('Choisissez une galaxie.', 'err', 'Arbitrage');
+    return;
+  }
+
+  claimView('arbitrage');
+  state.arbitrage.open = true;
+  if (player !== undefined && (player || null) !== state.arbitrage.player) {
+    state.arbitrage.player = player || null;
+    state.arbitrage.state = null;
+    state.arbitrage.cards = new Map();
+  }
+  syncUrl({ replace: !push });
+
+  showView('arbitrage');
+  $('#arb-player').textContent = state.arbitrage.player || '—';
+  if (!state.arbitrage.state) $('#arb-body').innerHTML = '<p class="empty">Chargement…</p>';
+
+  await loadArbitrage();
+}
+
+async function loadArbitrage() {
+  if (!state.galaxy || state.arbitrage.loading) return;
+  state.arbitrage.loading = true;
+  $('#arb-updated').textContent = 'Lecture…';
+
+  const asked = state.arbitrage.player;
+  try {
+    /* Le catalogue d'abord : c'est lui qui donne les branches, les paliers et
+       les deux voies d'une doctrine. Il ne depend d'aucun joueur et se lit une
+       fois pour toutes — la vue recherche le garde deja, on s'en sert. */
+    await ensureResearchTree();
+
+    /* Le droit vient des reglages de la galaxie, deja lus : c'est le meme que
+       celui qui ouvre la moderation, et le redemander ici en ferait deux. */
+    state.arbitrage.canModerate = !!(state.moderation && state.moderation.can_edit);
+    await loadGalaxyPlayers(state.arbitrage.canModerate);
+
+    /* Aucune cible : la vue montre son bandeau et attend. Lire son propre arbre
+       pour l'afficher sous des boutons qui ne feraient rien serait pire que ne
+       rien montrer. */
+    if (!state.arbitrage.player) {
+      state.arbitrage.state = null;
+      state.arbitrage.cards = new Map();
+      state.arbitrage.moderating = false;
+      renderArbitrage();
+      return;
+    }
+
+    const payload = (await api.playerResearch(state.galaxy, asked)) || {};
+    state.arbitrage.state = payload;
+    state.arbitrage.cards = new Map(
+      (payload.technologies || []).map((card) => [card.type, card])
+    );
+    state.arbitrage.moderating = !!payload.moderating;
+    state.arbitrage.canModerate = !!payload.can_moderate;
+    /* Le serveur fait foi : sans arbitrage, il n'y a pas de cible, et l'adresse
+       ne doit pas porter un nom auquel on ne peut rien faire. */
+    state.arbitrage.player = payload.moderating ? payload.player || null : null;
+    state.arbitrage.readAt = Date.now();
+
+    if (!state.arbitrage.branch && state.research.branches.length) {
+      state.arbitrage.branch = state.research.branches[0].name;
+    }
+
+    if (state.arbitrage.player !== asked) syncUrl({ replace: true });
+    renderArbitrage();
+  } catch (e) {
+    /* Une adresse d'arbitrage suivie par quelqu'un qui n'y a pas droit : on le
+       dit, et on le ramene a SA recherche plutot que de le laisser devant une
+       page vide. */
+    if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+      handleApiError(e, 'Arbitrage');
+      state.arbitrage.loading = false;
+      await openResearch({ push: false });
+      return;
+    }
+    handleApiError(e, 'Recherche indisponible');
+    $('#arb-body').innerHTML = '<p class="empty">Recherche indisponible.</p>';
+  } finally {
+    state.arbitrage.loading = false;
+    $('#arb-updated').textContent = state.arbitrage.readAt
+      ? `MAJ ${new Date(state.arbitrage.readAt).toLocaleTimeString('fr-FR')}`
+      : '';
+  }
+}
+
+/* Le catalogue de l'arbre, lu une fois et partage avec la vue recherche : il
+   ne depend d'aucun joueur, et deux copies en memoire seraient deux occasions
+   d'en avoir une perimee. */
+async function ensureResearchTree() {
+  if (state.research.tree) return;
+  const tree = await api.technologyTree();
+  state.research.tree = tree;
+  state.research.branches = tree.branches || [];
+  state.research.tiers = tree.tiers || {};
+  state.research.nodes = new Map((tree.nodes || []).map((n) => [n.name, n]));
+}
+
+/* ---------- rendu ---------- */
+
+function renderArbitrage() {
+  $('#arb-player').textContent = state.arbitrage.player || 'aucun joueur';
+  $('#arb-title').textContent = state.arbitrage.player
+    ? `Recherche de ${state.arbitrage.player}`
+    : 'Choisissez un joueur';
+
+  renderArbitrageModeration();
+
+  if (!state.arbitrage.state) {
+    $('#arb-pool').innerHTML = '';
+    $('#arb-tally').innerHTML = '';
+    $('#arb-rail').innerHTML =
+      '<span class="ov" style="text-align:center">Branches</span>';
+    $('#arb-body').innerHTML = `<p class="empty">Choisissez le joueur dont vous voulez
+      ouvrir l'arbre technologique.</p>`;
+    return;
+  }
+
+  renderArbitragePool();
+  renderArbitrageTally();
+  renderArbitrageRail();
+  renderArbitrageNodes();
+}
+
+/* La reserve du JOUEUR, pas la sienne : c'est avec elle qu'il chercherait, et
+   c'est souvent ce qu'on vient regarder avant de decider d'un coup de pouce. */
+function renderArbitragePool() {
+  const payload = state.arbitrage.state || {};
+  const data = RESOURCE_BY_KEY.research;
+  const gain = Number(payload.research_gain) || 0;
+
+  $('#arb-pool').innerHTML = `<div class="chip" style="--chip-accent:var(--res-research)"
+      title="Données — la réserve impériale de ce joueur">
+      <span class="k">${esc(data.code)}</span>
+      <span class="v">${esc(fmtNumber(payload.research || 0))}</span>
+      ${gain ? `<span class="d">${esc(fmtDelta(gain))}/h</span>` : ''}
+    </div>
+    <div class="chip" title="Recherches menées de front">
+      <span class="k">SLOT</span>
+      <span class="v">${esc(payload.used_slots || 0)} / ${esc(payload.slots || 0)}</span>
+    </div>`;
+}
+
+function renderArbitrageTally() {
+  const cards = Array.from(state.arbitrage.cards.values());
+  const levels = cards.reduce((n, c) => n + (Number(c.level) || 0), 0);
+  const owned = cards.filter((c) => (Number(c.level) || 0) > 0).length;
+  const running = ((state.arbitrage.state || {}).pending || []).length;
+
+  $('#arb-tally').innerHTML = [
+    `<span><b>Niveaux acquis</b> ${esc(fmtNumber(levels))}</span>`,
+    `<span><b>Nœuds ouverts</b> ${esc(fmtNumber(owned))} / ${esc(fmtNumber(cards.length))}</span>`,
+    running ? `<span><b>En recherche</b> ${esc(fmtNumber(running))}</span>` : '',
+  ].join('');
+}
+
+/* Le meme bandeau que la vue d'empire, et c'est voulu : c'est le meme droit,
+   le meme journal et la meme liste de joueurs. Ce qui change est la phrase. */
+function renderArbitrageModeration() {
+  const host = $('#arb-moderation');
+  if (!host) return;
+
+  /* Meme politesse que la vue d'empire : sans le droit, pas de bandeau. La
+     barriere, elle, est sur les routes. */
+  host.classList.toggle('hidden', !state.arbitrage.canModerate);
+  host.classList.toggle('empire-mod--on', state.arbitrage.moderating);
+  const mine = (state.user && state.user.username) || 'moi';
+  const options = [
+    `<option value=""${
+      state.arbitrage.player === mine ? '' : ' selected'
+    }>Le mien — ${esc(mine)} · j'y joue</option>`,
+  ]
+    .concat(
+      (state.galaxyPlayers || [])
+        .filter((row) => row && row.username)
+        .map(
+          (row) => `<option value="${esc(row.username)}"${
+            row.username === state.arbitrage.player ? ' selected' : ''
+          }>${esc(row.username)} — ${esc(fmtNumber(row.worlds))} monde${
+            row.worlds > 1 ? 's' : ''
+          }</option>`
+        )
+    )
+    .join('');
+
+  const self = state.arbitrage.player === mine;
+  host.innerHTML = `<span class="ov">Arbitrage</span>
+    <label for="arb-select">Recherche de</label>
+    <select id="arb-select">${options}</select>
+    ${
+      state.arbitrage.moderating
+        ? `<button class="btn btn--sm" data-arbitrate-empire="${esc(state.arbitrage.player)}"
+            title="Arbitrer l'empire de ce joueur">Son empire</button>`
+        : ''
+    }
+    <p class="empire-mod__note">${
+      state.arbitrage.moderating
+        ? `<b>Arbitrage en cours.</b> Vous ouvrez la recherche
+           ${self ? 'de votre propre compte, en arbitre' : `de ${esc(state.arbitrage.player)}`}.
+           Un niveau posé ici est <b>immédiat et gratuit</b> : ni Données dépensées, ni
+           emplacement occupé, ni prérequis exigé — seul le plafond du nœud tient. Chaque
+           geste est inscrit au journal du serveur avec votre nom.<br>
+           Lancer ou annuler une recherche reste au joueur : ces gestes-là se paient et
+           prennent du temps, et ils vivent dans sa vue à lui.`
+        : `Choisissez le joueur dont vous voulez ouvrir l'arbre.`
+    }</p>`;
+}
+
+function renderArbitrageRail() {
+  const totals = (state.arbitrage.state && state.arbitrage.state.branches) || {};
+  const buttons = (state.research.branches || [])
+    .map((branch) => {
+      const spent = totals[branch.name] || 0;
+      const tier = tierReached(spent);
+      const on = branch.name === state.arbitrage.branch;
+      return `<button class="brbtn" data-arb-branch="${esc(branch.name)}"
+        style="--h:${esc(branch.accent)}" aria-pressed="${on ? 'true' : 'false'}"
+        title="${esc(branch.summary || '')}">
+        <span class="bn">${esc(branch.label)}</span>
+        <span class="bs">${esc(spent)} niv · palier ${esc(TIERS[tier - 1] || 'I')}</span>
+      </button>`;
+    })
+    .join('');
+
+  $('#arb-rail').innerHTML =
+    `<span class="ov" style="text-align:center">Branches</span>${buttons}`;
+}
+
+function renderArbitrageNodes() {
+  const host = $('#arb-body');
+  const branch = state.arbitrage.branch;
+  const nodes = Array.from(state.research.nodes.values())
+    .filter((node) => node.branch === branch)
+    .sort((a, b) => a.tier - b.tier || a.label.localeCompare(b.label));
+
+  if (!nodes.length) {
+    host.innerHTML = '<p class="empty">Aucun nœud dans cette branche.</p>';
+    return;
+  }
+
+  host.innerHTML = nodes.map(arbitrageRow).join('');
+}
+
+const ARB_STATE_LABEL = {
+  maxed: 'au maximum',
+  owned: 'acquis',
+  researching: 'en recherche',
+  available: 'disponible',
+  locked: 'verrouillé',
+};
+
+function arbitrageRow(node) {
+  const card = state.arbitrage.cards.get(node.name);
+  if (!card) {
+    /* Le noeud existe au catalogue mais le joueur n'en a aucun etat : sa base
+       est en retard d'une migration. On le dit plutot que de rendre une ligne
+       muette dont les boutons echoueraient. */
+    return `<div class="row tech-row off">
+      <div class="row-main">
+        <div class="row-head"><span class="row-name">${esc(node.label)}</span></div>
+        <p class="desc">Ce nœud existe au catalogue du serveur, mais ce compte n'en porte
+          aucun état : sa base est en retard d'une migration.</p>
+      </div>
+    </div>`;
+  }
+
+  const level = Number(card.level) || 0;
+  const max = Number(card.max_level) || 0;
+  const maxed = card.state === 'maxed' || (max && level >= max);
+  const branch = branchMeta(node.branch);
+  /* Une doctrine dont la voie n'est pas fixee ne se pose pas a l'aveugle : le
+     choix est definitif, et c'est lui qui decide de ce que le niveau apporte. */
+  const pending = node.kind === 'doctrine' && !card.choice && !level;
+
+  const actions = pending
+    ? ''
+    : `<button class="btn btn--sm btn--pinch" data-tech="${esc(node.name)}" data-amount="-1"
+        ${level ? '' : 'disabled'} title="Retirer un niveau, sans délai">−</button>
+      <button class="btn btn--sm btn--pri" data-tech="${esc(node.name)}" data-amount="1"
+        ${maxed ? 'disabled' : ''} title="Poser un niveau, sans coût ni délai">+ Niveau</button>
+      ${
+        max > 1
+          ? `<button class="btn btn--sm" data-tech="${esc(node.name)}"
+              data-amount="${esc(Math.max(0, max - level))}" ${maxed ? 'disabled' : ''}
+              title="Poser tous les niveaux restants">Max</button>`
+          : ''
+      }`;
+
+  const effects = (card.effects || [])
+    .map((effect) => effect.label)
+    .filter(Boolean)
+    .join(' · ');
+
+  const missing = (card.missing || [])
+    .map((m) => m.label || m.name || '')
+    .filter(Boolean)
+    .join(', ');
+
+  return `<div class="row tech-row${
+    card.state === 'researching' ? ' busy' : card.state === 'locked' ? ' off' : ''
+  }" style="--h:${esc(branch ? branch.accent : 'var(--acc)')}">
+    <div class="row-main">
+      <div class="row-head">
+        <span class="row-name">${esc(node.label)}</span>
+        <span class="tech-state tech-state--${esc(card.state)}">${esc(
+    ARB_STATE_LABEL[card.state] || card.state
+  )}</span>
+        <span class="lvl">LVL ${esc(level)}${max ? ` / ${esc(max)}` : ''}</span>
+        ${actions}
+      </div>
+      <div class="costs">
+        <span class="cost">Palier <b>${esc(TIERS[node.tier - 1] || node.tier)}</b></span>
+        <span class="cost">${esc(KIND_LABEL[node.kind] || node.kind)}</span>
+        ${
+          card.choice
+            ? `<span class="cost">Voie <b>${esc(wayLabel(node, card.choice))}</b></span>`
+            : ''
+        }
+      </div>
+      ${effects ? `<p class="desc">${esc(effects)}</p>` : ''}
+      ${
+        missing
+          ? `<p class="tech-missing">Verrouillé pour le joueur : <b>${esc(missing)}</b>.
+             Un niveau posé ici passe outre.</p>`
+          : ''
+      }
+      ${pending ? arbitrageWays(node) : ''}
+    </div>
+  </div>`;
+}
+
+/* Les deux voies d'une doctrine. Poser le premier niveau, c'est choisir : le
+   bouton porte donc la voie, et il n'y a pas de « + Niveau » tant qu'aucune
+   n'est retenue. */
+function arbitrageWays(node) {
+  const options = (node.options || [])
+    .map(
+      (option) => `<button class="dopt" data-tech="${esc(node.name)}" data-amount="1"
+        data-choice="${esc(option.key)}" title="${esc(option.summary || '')}">
+        <span class="dn">${esc(option.label)}</span>
+        ${esc((option.effects || []).map((e) => e.label).join(' · '))}
+      </button>`
+    )
+    .join('');
+
+  return `<div class="tech-ways">${options}</div>
+    <p class="tech-way-note">Deux voies exclusives : poser un niveau fixe celle que vous
+      choisissez, et le joueur ne pourra plus en changer. Ramener le nœud à zéro lui rend
+      le choix.</p>`;
+}
+
+function wayLabel(node, key) {
+  const option = (node.options || []).find((o) => o.key === key);
+  return option ? option.label : key;
+}
+
+/* ---------- le geste ---------- */
+
+async function grantTechnology(name, amount, choice = null) {
+  if (!amount || !state.arbitrage.player) return;
+  const node = state.research.nodes.get(name);
+  try {
+    const payload = await api.grantTechnology(
+      state.galaxy,
+      state.arbitrage.player,
+      name,
+      amount,
+      choice
+    );
+    state.arbitrage.state = payload;
+    state.arbitrage.cards = new Map(
+      (payload.technologies || []).map((card) => [card.type, card])
+    );
+    const applied = Number(payload.applied) || 0;
+    toast(
+      applied
+        ? `${applied > 0 ? 'Posé' : 'Retiré'} : ${fmtNumber(Math.abs(applied))} niveau(x) de `
+            + `${(node && node.label) || humanize(name)}.`
+        : `${(node && node.label) || humanize(name)} : rien à poser, le nœud est au maximum.`,
+      applied ? 'info' : 'err',
+      `Arbitrage · ${state.arbitrage.player}`
+    );
+    renderArbitrage();
+  } catch (e) {
+    handleApiError(e, 'Arbitrage refusé');
+  }
+}
+
+/* ---------- câblage ---------- */
+
+function initArbitrage() {
+  on('#arb-rail', 'click', (ev) => {
+    const branch = ev.target.closest('[data-arb-branch]');
+    if (!branch) return;
+    state.arbitrage.branch = branch.dataset.arbBranch;
+    renderArbitrageRail();
+    renderArbitrageNodes();
+  });
+
+  on('#arb-moderation', 'change', (ev) => {
+    const select = ev.target.closest('#arb-select');
+    if (!select) return;
+    openArbitrage({ player: select.value || null });
+  });
+
+  on('#arb-moderation', 'click', (ev) => {
+    const empire = ev.target.closest('[data-arbitrate-empire]');
+    if (!empire) return;
+    openEmpire({ player: empire.dataset.arbitrateEmpire || null });
+  });
+
+  on('#arb-body', 'click', (ev) => {
+    const button = ev.target.closest('[data-tech]');
+    if (!button || button.disabled) return;
+    grantTechnology(
+      button.dataset.tech,
+      Number(button.dataset.amount) || 0,
+      button.dataset.choice || null
+    );
+  });
+}
+
+/* ============================================================
    démarrage
    ============================================================ */
 
@@ -5216,6 +6599,7 @@ async function applyRoute({ push = false } = {}) {
     state.galaxy = route.galaxy;
     state.territory = null;
     state.territoryId = null;
+    forgetEmpire();
     fillGalaxySelect($('#login-galaxy'));
     fillGalaxySelect($('#pick-galaxy'));
     state.myTerritories = await api.myTerritories(state.galaxy).catch(() => []);
@@ -5228,8 +6612,18 @@ async function applyRoute({ push = false } = {}) {
     return;
   }
 
-  if (route.research) {
+  if (route.view === 'research') {
     await openResearch({ push });
+    return;
+  }
+
+  if (route.view === 'arbitrage') {
+    await openArbitrage({ push, player: route.player || null });
+    return;
+  }
+
+  if (route.view === 'empire') {
+    await openEmpire({ push, player: route.player || null });
     return;
   }
 
@@ -5261,6 +6655,8 @@ async function boot() {
   initModeration();
   initGalaxyMap();
   initResearch();
+  initEmpire();
+  initArbitrage();
 
   // Routes publiques : la liste des galaxies, qui permet de choisir la sienne
   // sur l'ecran de login, et ce que le serveur annonce a qui n'a pas encore de

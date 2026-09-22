@@ -74,6 +74,78 @@ Deux garde-fous, et ils ne servent que si on les tient à jour :
 
 * `app/web/api/openapi.generated.json`, régénéré avec la suite.
 
+## La console (`app/static`)
+
+HTML, CSS et modules ES servis tels quels — **aucune étape de construction**,
+rien à installer. `app/web/ui.py` sert `index.html` pour tous les chemins du
+routeur client ; le reste est `api.js` (accès), `icons.js` (pictogrammes et
+billes de planète), `systemview.js` (la règle de la descente) et `app.js`.
+
+**La carte de la galaxie est la vue d'accueil**, et un système y **pousse sur
+place** quand on descend assez : ses anneaux, ses mondes, et de quoi commander
+dessus sans quitter la carte. Il n'y a donc plus « la carte » d'un côté et « la
+fiche d'un monde » de l'autre — c'est une seule vue, et la fiche pleine page
+n'est qu'un raccourci.
+
+### Ce qui s'y casse, et qu'on ne voit qu'en jouant
+
+**Tout est une fonction de l'AGRANDISSEMENT, rien n'est déclenché.** Le
+dépliage, l'effacement de la galaxie, les mondes peints, la place des flottes :
+cinq lectures du même cadrage, recalculées ensemble. Un état déclenché se rate
+quand la molette dévale, et l'on se retrouve avec des anneaux sans système.
+
+**Une fraction d'écran doit dire de QUELLE dimension elle est la fraction.**
+Les seuils de `systemview.js` sont des fractions du **petit côté** : un système
+est rond, c'est le côté le plus court qui le coupe. Calés sur la largeur d'un
+cadre en 16/10, ils faisaient sortir les deux anneaux extérieurs par le haut et
+par le bas — et ce qu'on voit alors n'est pas un système qui déborde, ce sont
+des mondes qui manquent.
+
+**Cette carte est un SCHÉMA, pas une scène.** Étoiles, planètes, flottes gardent
+une taille d'**écran** constante ; seules les **distances** portent
+l'agrandissement. C'est l'écartement des anneaux qui dit qu'on descend, jamais
+la grosseur des billes — faire grandir les corps rouvrirait toute la famille de
+pièges d'échelle que le client Unity a payée.
+
+**Les orbites ne sont pas stockées par le serveur.** Il donne un rang, et le
+client en tire une distance : `1600 + rang × 400`, la même formule que
+`SystemOrbits` côté Unity. Deux formules finiraient par dessiner deux systèmes
+du même rang. Quand `characteristics.position` existe, elle l'emporte.
+
+**L'épingle.** Zoomer garde le point sous le pointeur immobile — c'est ce qu'on
+veut d'une molette — mais un système qui occupe les quatre cinquièmes du cadre
+entre alors coupé d'un côté. La descente le recadre donc **jusqu'à ce que le
+joueur déplace la vue lui-même**, et non jusqu'à un seuil : un écart pas encore
+rattrapé se figerait au seuil, puis serait amplifié par la fin de la descente.
+
+**Une ligne de construction n'est écrite qu'une fois.** `renderBuildings`,
+`renderUnits` et `renderFleets` prennent leur monde en argument, et servent
+trois vues — la fiche d'une planète, la vue d'empire, le quai de la carte. Trois
+copies auraient divergé au premier équilibrage : c'est là que se décide ce qu'un
+coût inatteignable donne à voir, et cette question n'a pas trois réponses. Même
+raison pour `refreshAfterOrder`, point unique qui repeint **là où l'ordre a été
+donné**.
+
+**Lire les territoires d'un système les fait tous avancer** (la production est
+créditée à la lecture). Le dépliage en coûte donc un par système visité — d'où
+le cache par système, et d'où le `/update` réservé au seul monde ouvert.
+
+La règle risquée vit dans `systemview.js`, **pure et sans DOM**, épinglée par
+`tests/unit/system_view.py` — qui l'éprouve avec `node` et se saute s'il manque.
+
+### Prouver qu'un écran marche
+
+Les tests pytest ne touchent que l'API : ils ne diraient rien d'un écran cassé.
+Playwright le dit en deux minutes, et c'est ce qui attrape les vraies
+régressions — un `pageerror`, une `console.error`.
+
+La recette : un `config/<nom>.ini` jetable (copie de `config/test.ini` dont
+`uri` pointe un fichier SQLite), un script qui fait `create_app(<nom>)`, sème une
+galaxie et un joueur, puis `app.run(port=…)`. **Rendre `db.session` à `None`
+avant `app.run`** — sinon les lectures parallèles d'un écran se marchent dessus
+et rendent des 500 qui n'existent pas en production (voir `app/database.py`).
+Supprimer le `.ini` à la fin : il n'a rien à faire dans le dépôt.
+
 ## Pièges éprouvés
 
 **`@serialize` et les listes.** Le décorateur refusait une liste de

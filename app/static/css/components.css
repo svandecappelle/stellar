@@ -323,8 +323,14 @@ button{font:inherit;color:inherit}
    specificite qu'il lui fallait plutot que d'ajouter un `!important`, qui
    aurait cache le conflit au lieu de le resoudre. */
 .body-cols > .panel.map-side{width:340px;flex:none}
+/* Un monde ouvert dans le panneau y met des lignes de construction — icone,
+   nom, niveau, quantite, bouton — et c'est la meme contrainte que la grille
+   d'empire : en dessous de 380 px, la ligne passe a la ligne et la fiche cesse
+   de se lire en diagonale. */
+.body-cols > .panel.map-side.map-side--world{width:412px}
 @media (max-width:1100px){
-  .body-cols > .panel.map-side{width:100%}
+  .body-cols > .panel.map-side,
+  .body-cols > .panel.map-side.map-side--world{width:100%}
 }
 
 .map-frame{
@@ -404,6 +410,61 @@ button{font:inherit;color:inherit}
    teinte disant deja a qui elle est. */
 .map-star{transition:fill var(--dur-fast),r var(--dur-fast)}
 .map-star:hover{fill:var(--fg-hi)}
+
+/* ============================================================
+   le systeme qui pousse dans la carte
+
+   Descendre assez sur une etoile fait apparaitre ses mondes autour d'elle. Ce
+   n'est pas une autre vue : c'est la meme carte, ou la galaxie s'efface a
+   mesure que le systeme se leve — deux moities d'un seul fondu, commandees par
+   un seul nombre (voir `systemview.js`).
+
+   RIEN N'EST DIMENSIONNE ICI. Les rayons et les ecarts sont poses par le
+   script, en unites de cadrage divisees par l'agrandissement : la CSS ne tient
+   que les teintes et les traits, dont la largeur est en unites d'ecran par
+   `non-scaling-stroke`. Une epaisseur qui suivrait l'echelle ferait d'un
+   anneau une surface — neuf anneaux ainsi elargis ne se lisent pas comme des
+   traits trop larges, mais comme un aplat plein ecran.
+   ============================================================ */
+
+/* L'etoile du systeme deplie : c'est le soleil, il n'y en a pas d'autre. En
+   bâtir un second mettrait deux astres au meme point et obligerait a en cacher
+   un.
+
+   Sa taille est posee par le script, pondérée par le depliage : une etoile de
+   carte exactement aussi grosse que les mondes qui l'entourent ne se lit plus
+   comme leur centre. Toujours une taille d'ECRAN — elle ne suit pas le cadrage,
+   comme rien d'autre ici. */
+.map-star--sun{fill:var(--fg-hi)}
+
+.map-orbit{
+  fill:none;stroke:var(--bc);stroke-width:1;
+  vector-effect:non-scaling-stroke;opacity:.55;
+}
+
+.map-world{cursor:pointer}
+/* La cible du pointeur : invisible, et plus large que la bille. Une planete de
+   quatre pixels ne se clique pas, et c'est pourtant elle qui ouvre le monde. */
+.map-world__hit{fill:transparent;stroke:none}
+.map-world__body{stroke:none}
+/* L'anneau dit a qui est le monde : la bille, elle, dit ce qu'il est. Les deux
+   sur la meme forme se confondraient. */
+.map-world__ring{fill:none;stroke:none;stroke-width:1.4;vector-effect:non-scaling-stroke}
+.map-world--mine .map-world__ring{stroke:var(--acc)}
+.map-world--held .map-world__ring{stroke:var(--fg-off);stroke-dasharray:3 3}
+.map-world--on .map-world__ring{stroke:var(--fg-hi);stroke-width:2}
+.map-world:hover .map-world__ring{stroke:var(--fg-hi)}
+.map-world__tag{fill:var(--fg-off)}
+
+.map-frame.map-frame--panning .map-world{cursor:grabbing}
+
+/* Le quai : la fiche d'un monde, dans le panneau de la carte. Elle porte la
+   classe `.world` pour les resserrements de la grille d'empire — memes lignes,
+   memes etats — et rend le cadre que cette grille lui donnait : ici la carte
+   EST le panneau, et une boite dans une boite n'ajoute qu'un trait. */
+.world--dock{border:none;background:transparent;padding:0;clip-path:none}
+.tabs--dock{margin:2px 0 10px}
+.tabs--dock .tab{font-size:10.5px;padding:6px 8px}
 
 /* ============================================================
    boutons a icone, menu deroulant, fenetre de parametrage

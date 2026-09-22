@@ -6,7 +6,12 @@
    ============================================================ */
 
 import { api, ApiError } from './api.js';
-import { icon, planetGradient, roman } from './icons.js';
+import { icon, planetGradient, planetPalette, roman } from './icons.js';
+/* La règle de la descente — où se posent les mondes d'un système, à partir de
+   quel agrandissement ils apparaissent, ce que la galaxie cède pour qu'on les
+   lise. Pure et éprouvée à part : ces nombres-là, ratés, ne se voient qu'en
+   jouant. */
+import * as sysview from './systemview.js';
 
 /* ---------- thèmes ---------- */
 const THEMES = [
@@ -186,6 +191,39 @@ const state = {
     selectedSystem: null,
     selectedFleet: null,
     tick: 0,
+    /* ---- le systeme qui pousse dans la carte ----
+
+       La carte montrait des etoiles et rien de ce qu'elles abritent. En
+       s'approchant assez, le systeme se deplie AUTOUR de son etoile : ses
+       anneaux, ses mondes, et de quoi commander dessus sans quitter la vue.
+
+       `radius` et `reach` sont derives de la galaxie une fois pour toutes —
+       l'ecartement de ses etoiles decide de la place qu'un systeme peut
+       prendre, et cette place decide a son tour des agrandissements. Rien
+       n'est constant ici : une galaxie serree et une galaxie lache n'ont ni
+       la meme place a donner ni la meme descente a faire. */
+    radius: 0,
+    reach: null,
+    /* L'etoile dont le systeme est deplie. Recalculee a chaque changement de
+       cadrage, jamais basculee : un etat declenche se rate quand
+       l'agrandissement saute. */
+    focus: null,
+    /* L'epingle : la descente recadre le systeme tant que le joueur n'a pas
+       deplace la vue lui-meme. */
+    pinned: false,
+    /* Les territoires lus, par systeme. La topologie d'un systeme ne change
+       pas en cours de partie ; ce qui y est bati, si — d'ou la relecture du
+       seul monde ouvert. */
+    worlds: new Map(),
+    loading: null,
+    /* Le monde ouvert dans le panneau lateral, avec de quoi y commander. Le
+       meme rendu que la fiche d'une planete et que la vue d'empire : trois
+       copies des lignes de construction auraient diverge au premier
+       equilibrage. */
+    world: {
+      id: null, mine: false, territory: null, events: [], defenses: [],
+      tab: 'buildings',
+    },
   },
 };
 
@@ -534,7 +572,12 @@ function showView(name) {
     }
   );
   if (name !== 'command') stopTimers();
-  if (name !== 'galaxy') stopMapTimers();
+  if (name !== 'galaxy') {
+    stopMapTimers();
+    /* Le quai decrit un monde de la carte : le laisser ouvert derriere une
+       autre vue ferait commander depuis un panneau qu'on ne regarde plus. */
+    closeMapWorld();
+  }
   if (name !== 'research') leaveResearch();
   if (name !== 'empire') leaveEmpire();
   if (name !== 'arbitrage') state.arbitrage.open = false;
@@ -1624,20 +1667,23 @@ function shipsInSystem() {
   return counts;
 }
 
-function territoryById(id) {
+/* La liste est passee plutot que lue dans l'etat : la fiche d'une planete tient
+   les mondes de SON systeme, le quai de la carte ceux du systeme deplie. Par
+   defaut celle de la fiche, pour ne rien changer aux appels existants. */
+function territoryById(id, territories = state.systemTerritories) {
   return (
-    state.systemTerritories.find((t) => t.id === id)
+    (territories || []).find((t) => t.id === id)
     || (state.territory && state.territory.id === id ? state.territory : null)
   );
 }
 
-function orbitLabel(fleet) {
+function orbitLabel(fleet, territories = state.systemTerritories) {
   /* « En transit » designait jusqu'ici une flotte sans orbite, ce qui etait deja
      approximatif — elle pouvait tres bien stationner sur place. Depuis qu'un
      vrai voyage existe, ce serait faux : on distingue les deux. */
   if (fleet.travel) return `En route vers le système ${fleet.travel.destination_id}`;
   if (!fleet.orbiting_territory_id) return 'Dans le système, sans orbite';
-  const t = territoryById(fleet.orbiting_territory_id);
+  const t = territoryById(fleet.orbiting_territory_id, territories);
   return t ? `Orbite de ${territoryLabel(t)}` : `Orbite du territoire ${fleet.orbiting_territory_id}`;
 }
 
@@ -1664,17 +1710,27 @@ function fmtPosition(p) {
   return `${axis(p.x)} / ${axis(p.y)} / ${axis(p.z)}`;
 }
 
-function renderFleets() {
-  if (!state.fleets.length) {
+/* Les flottes d'un systeme, avec ce qu'on peut leur ordonner.
+
+   Comme les lignes de construction, tout est passe en argument : la fiche d'une
+   planete lit les flottes de son systeme, le quai de la carte celles du systeme
+   deplie — et ce sont deux lectures differentes du serveur. Par defaut celles
+   de la fiche, pour ne rien changer aux appels existants. */
+function renderFleets(
+  fleets = state.fleets,
+  territoryId = state.territoryId,
+  territories = state.systemTerritories
+) {
+  if (!fleets.length) {
     return `<p class="empty">Aucune flotte dans ce système. Le premier vaisseau
       assemblé en fera naître une, en orbite de la planète qui l'a produit.</p>`;
   }
 
-  const others = (fleet) => state.fleets.filter((f) => f.id !== fleet.id);
+  const others = (fleet) => fleets.filter((f) => f.id !== fleet.id);
 
-  return state.fleets
+  return fleets
     .map((f) => {
-      const here = f.orbiting_territory_id === state.territoryId;
+      const here = f.orbiting_territory_id === territoryId;
       const composition = Object.entries(f.composition || {});
 
       /* Le transfert n'a de sens qu'avec une autre flotte pour destination :
@@ -1720,12 +1776,12 @@ function renderFleets() {
                    title="La flotte se pose au dernier relais franchi">Interrompre</button>`
               : here
                 ? `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="">Quitter l'orbite</button>`
-                : `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="${state.territoryId}">Amarrer ici</button>`
+                : `<button class="btn btn--sm" data-fleet-orbit="${f.id}" data-territory="${territoryId}">Amarrer ici</button>`
           }
           ${f.size || f.travel ? '' : `<button class="btn btn--sm" data-fleet-disband="${f.id}">Dissoudre</button>`}
         </div>
         <div class="costs">
-          <span class="cost">${esc(orbitLabel(f))}</span>
+          <span class="cost">${esc(orbitLabel(f, territories))}</span>
           <span class="cost" title="Coordonnées Unity conservées par le serveur">Position <b>${esc(fmtPosition(f.position))}</b></span>
         </div>
         ${travelMarkup(f)}
@@ -2055,9 +2111,16 @@ function qtyKey(territoryId, name) {
   return `${territoryId}:${name}`;
 }
 
-/* Ce que le joueur a tape en face d'une coque, 1 par defaut. */
-function qtyValue(territoryId, name) {
-  const input = document.querySelector(`[data-qty="${CSS.escape(qtyKey(territoryId, name))}"]`);
+/* Ce que le joueur a tape en face d'une coque, 1 par defaut.
+
+   Cherche DANS LA VUE D'OU VIENT L'ORDRE, et non dans la page. Trois vues
+   montrent desormais les memes lignes de construction, et rien ne les empeche
+   de montrer le MEME monde : une vue cachee garde son balisage, et une clef qui
+   ne porte que le territoire y a donc un homonyme. Le premier trouve dans
+   l'ordre du document aurait commande a la place de celui qu'on regarde. */
+function qtyValue(territoryId, name, host = document) {
+  const input = (host || document).querySelector(
+    `[data-qty="${CSS.escape(qtyKey(territoryId, name))}"]`);
   return input ? input.value : 1;
 }
 
@@ -2094,7 +2157,7 @@ async function upgradeBuilding(name, territoryId = state.territoryId) {
   try {
     await api.upgradeBuilding(territoryId, name);
     toast(`${humanize(name)} : construction lancée.`, 'info', 'Chantier');
-    await refreshAfterBuild(territoryId);
+    await refreshAfterOrder(territoryId);
   } catch (e) {
     handleApiError(e, 'Construction refusée');
   }
@@ -2106,19 +2169,29 @@ async function buildUnit(kind, name, quantity, territoryId = state.territoryId) 
     if (kind === 'ship') await api.buildShips(territoryId, name, qty);
     else await api.buildDefenses(territoryId, name, qty);
     toast(`${qty} × ${humanize(name)} : assemblage lancé.`, 'info', 'Chantier');
-    await refreshAfterBuild(territoryId);
+    await refreshAfterOrder(territoryId);
   } catch (e) {
     handleApiError(e, 'Assemblage refusé');
   }
 }
 
-/* Repeindre apres un ordre, la ou il a ete donne : la scene d'un monde relit ce
-   monde, la vue d'empire relit la seule carte concernee. Rejouer la lecture
-   d'ensemble y ferait rattraper dix mondes pour un chantier, et effacerait au
-   passage les quantites tapees sur les autres cartes. */
-async function refreshAfterBuild(territoryId) {
+/* Repeindre apres un ordre, LA OU IL A ETE DONNE : la scene d'un monde relit ce
+   monde, la vue d'empire la seule carte concernee, le quai de la carte le seul
+   monde ouvert. Rejouer la lecture d'ensemble ferait rattraper dix mondes pour
+   un chantier, et effacerait au passage les quantites tapees ailleurs.
+
+   Trois vues commandent desormais les memes lignes de construction : sans ce
+   point unique, chacune aurait fini par repeindre la mauvaise. */
+async function refreshAfterOrder(territoryId) {
   if (state.empire.open) {
     await reloadEmpireWorld(territoryId);
+    return;
+  }
+  if (state.map.world.id) {
+    /* Les flottes d'abord : le quai compte dessus ce qui tient l'orbite, et le
+       rendu qui suit doit lire le compte d'apres l'ordre, pas celui d'avant. */
+    await refreshMapFleets();
+    await reloadMapWorld();
     return;
   }
   await reloadTerritory(true);
@@ -2126,15 +2199,22 @@ async function refreshAfterBuild(territoryId) {
 
 /* ---------- actions de flotte ---------- */
 
+/* Les flottes du systeme ouvert, ou celles de la galaxie que tient la carte :
+   les deux vues qui commandent une flotte ne lisent pas la meme liste, et c'est
+   la meme flotte. */
 function fleetById(id) {
-  return state.fleets.find((f) => f.id === id) || null;
+  return (
+    state.fleets.find((f) => f.id === id)
+    || state.map.fleets.find((f) => f.id === id)
+    || null
+  );
 }
 
 async function runFleetAction(action, message) {
   try {
     await action();
     toast(message, 'info', 'Flottes');
-    await reloadTerritory(true);
+    await refreshAfterOrder(state.map.world.id || state.territoryId);
   } catch (e) {
     handleApiError(e, 'Flotte');
   }
@@ -3576,7 +3656,7 @@ function initEvents() {
     if (unit) {
       const name = unit.dataset.buildUnit;
       const id = Number(unit.dataset.territory);
-      buildUnit(unit.dataset.kind, name, qtyValue(id, name), id);
+      buildUnit(unit.dataset.kind, name, qtyValue(id, name, $('#tab-body')), id);
       return;
     }
 
@@ -3734,8 +3814,22 @@ const CLAIM_KIND = {
   station: 'Arrimer une plateforme',
 };
 
+/* Le monde designe, dans la vue d'ou vient le geste.
+
+   Deux vues offrent maintenant de prendre un monde — le rail d'orbites d'une
+   fiche, et le systeme deplie de la carte — et elles ne lisent pas la meme
+   liste. Chercher dans les deux plutot que de faire porter a l'appelant le
+   soin de savoir ou il est : c'est le meme monde, et il n'y a qu'une offre. */
+function claimableWorld(id) {
+  return (
+    (state.systemTerritories || []).find((x) => x.id === id)
+    || mapWorldById(id)
+    || null
+  );
+}
+
 function openClaim(id) {
-  const t = (state.systemTerritories || []).find((x) => x.id === id);
+  const t = claimableWorld(id);
   if (!t) {
     toast('Ce monde est inconnu de la vue courante.', 'err', 'Orbite');
     return;
@@ -3754,23 +3848,29 @@ function claimOpen() {
 }
 
 function renderClaim(t) {
-  const offer = t.claim || null;
   $('#claim-title').textContent = `${territoryLabel(t)} · ${territorySubtitle(t)}`;
   $('#claim-kind').textContent =
-    (offer && CLAIM_KIND[offer.kind]) || 'Monde';
+    (t.claim && CLAIM_KIND[t.claim.kind]) || 'Monde';
+  $('#claim-body').innerHTML = claimMarkup(t);
+}
 
-  const host = $('#claim-body');
+/* L'offre de prise, telle que le serveur la formule.
+
+   Rendue en chaine et non posee dans un hote : la fenetre de l'orbite l'affiche
+   seule, et le quai de la carte l'affiche a la place d'un chantier. Deux
+   copies auraient diverge, et c'est ici que se decide ce qu'on promet a un
+   joueur qui vient d'ouvrir un monde libre. */
+function claimMarkup(t) {
+  const offer = t.claim || null;
 
   if (!offer) {
     /* Serveur trop ancien pour le dire : on ne devine pas a sa place. */
-    host.innerHTML = `<p class="empty">Ce serveur ne dit pas ce qu'il faudrait
+    return `<p class="empty">Ce serveur ne dit pas ce qu'il faudrait
       pour prendre ce monde.</p>`;
-    return;
   }
 
   if (offer.taken) {
-    host.innerHTML = `<p class="empty">Ce monde appartient déjà à quelqu'un.</p>`;
-    return;
+    return `<p class="empty">Ce monde appartient déjà à quelqu'un.</p>`;
   }
 
   /* Ce qu'il faut avoir : une coque en orbite, et parfois des technologies.
@@ -3793,7 +3893,11 @@ function renderClaim(t) {
       : `Un monde solide se colonise : le vaisseau y débarque ses colons et
          devient la colonie.`;
 
-  host.innerHTML = `
+  /* Le bouton se designe par son territoire et non par son identite : les deux
+     hotes qui portent cette offre ecoutent leurs clics par delegation, et un
+     gestionnaire pose a la main sur l'element partirait avec le prochain
+     rendu. */
+  return `
     <p class="mod-intro">${hint}</p>
     ${offer.first ? `<p class="mod-intro">Première prise dans cette galaxie :
        elle ne coûte rien, et fera votre capitale — le point fixe depuis lequel
@@ -3806,19 +3910,24 @@ function renderClaim(t) {
     }
     <div class="rule"></div>
     <button class="btn btn--sm${offer.available ? ' btn--pri' : ''}"
-      id="claim-go" ${offer.available ? '' : 'disabled'}>
+      data-claim-go="${esc(t.id)}" ${offer.available ? '' : 'disabled'}>
       ${esc((CLAIM_KIND[offer.kind] || 'Prendre ce monde'))}
     </button>`;
-
-  const go = $('#claim-go');
-  if (go && offer.available) {
-    go.addEventListener('click', () => claimWorld(t.id));
-  }
 }
 
 async function claimWorld(id) {
-  const button = $('#claim-go');
-  if (button) button.disabled = true;
+  /* Tous les boutons de ce monde, et non « le » bouton : la fenetre de l'orbite
+     et le quai de la carte portent la meme offre, et l'une des deux peut rester
+     peinte derriere l'autre. Un identifiant unique aurait designe celui des
+     deux qui se trouve en tete du document, c'est-a-dire pas toujours celui
+     qu'on vient de cliquer. */
+  const buttons = Array.from(
+    document.querySelectorAll(`[data-claim-go="${CSS.escape(String(id))}"]`));
+  buttons.forEach((b) => { b.disabled = true; });
+  /* D'ou vient le geste : depuis le quai de la carte, on y reste. Basculer sur
+     la fiche pleine page ferait perdre le systeme qu'on etait en train de
+     parcourir, et c'est justement ce qu'on venait d'y trouver. */
+  const fromMap = state.map.world.id === id;
 
   try {
     await api.claimTerritory(id);
@@ -3827,9 +3936,20 @@ async function claimWorld(id) {
     /* Les mondes du joueur ont change : la liste sert au rail, a la carte et
        au reseau de commerce. */
     state.myTerritories = await api.myTerritories(state.galaxy).catch(() => state.myTerritories);
+
+    if (fromMap) {
+      /* La fiche du systeme porte le proprietaire de chaque monde : elle est
+         perimee des que l'un d'eux change de main. */
+      state.map.worlds.delete(state.map.focus);
+      ensureSystemWorlds(state.map.focus);
+      renderMap();
+      await openMapWorld(id);
+      return;
+    }
+
     await selectTerritory(id);
   } catch (e) {
-    if (button) button.disabled = false;
+    buttons.forEach((b) => { b.disabled = false; });
     /* Le refus vient du serveur, mot pour mot : il nomme la coque manquante ou
        la technologie qui n'est pas atteinte. */
     handleApiError(e, 'Prise refusée');
@@ -4384,6 +4504,15 @@ function initChrome() {
      ouvre une question n'a pas sa place dans la table des gestes immédiats. */
   $('#devices-revoke-all').addEventListener('click', revokeAllDevices);
 
+  /* La prise d'un monde, par délégation : l'offre est rendue en chaîne — la
+     fenêtre de l'orbite et le quai de la carte l'affichent toutes deux — et un
+     gestionnaire posé à la main sur le bouton partirait avec le prochain
+     rendu. */
+  on('#claim-body', 'click', (ev) => {
+    const go = ev.target.closest('[data-claim-go]');
+    if (go) claimWorld(Number(go.dataset.claimGo));
+  });
+
   document.addEventListener('click', (ev) => {
     const toggle = ev.target.closest('[data-menu-toggle]');
     if (toggle) {
@@ -4486,11 +4615,36 @@ const MAP_FLEET_R = 7;
    ailleurs. */
 const MAP_FLEET_ORBIT = 14;
 
-/* Bornes du zoom, en multiples du cadrage d'origine. Assez pour separer deux
-   etoiles d'un amas serre, pas au point de perdre la galaxie de vue. */
+/* Bornes du zoom, en multiples du cadrage d'origine.
+
+   Le plancher est fixe : au-dela, on ne verrait plus la galaxie. Le PLAFOND,
+   lui, est derive de la galaxie ouverte (`mapDeepest`) — il faut descendre
+   assez bas pour lire un systeme deplie, et « assez bas » depend de
+   l'ecartement de ses etoiles. La valeur ci-dessous n'est plus qu'un repli,
+   pour une carte dont on n'a pas encore la topologie. */
 const MAP_ZOOM_MIN = 0.9;
 const MAP_ZOOM_MAX = 14;
 const MAP_ZOOM_STEP = 1.25;
+
+/* Rayons a l'ecran des corps d'un systeme deplie, en unites de cadrage
+   d'origine — donc divises par l'agrandissement, comme les etoiles et les
+   flottes.
+
+   CETTE CARTE EST UN SCHEMA, PAS UNE SCENE. Tout ce qui doit rester lisible y
+   garde une taille d'ECRAN constante, et seules les DISTANCES portent
+   l'agrandissement : c'est l'ecartement des anneaux qui dit qu'on descend, pas
+   la grosseur des billes. Faire grandir les corps avec le cadrage rouvrirait
+   toute la famille de pieges d'echelle que le client de jeu a payee — une bille
+   sous le pixel de loin, un aplat plein ecran de pres. */
+const MAP_PLANET_R = 4.2;
+const MAP_GAS_R = 6;
+/* La cible du pointeur, invisible : une bille de quatre pixels ne se clique
+   pas, et c'est pourtant elle qui ouvre le monde. */
+const MAP_PLANET_HIT = 11;
+
+/* Ce que l'etoile prend, une fois son systeme deplie. Un soleil de la taille de
+   ses planetes ne se lit plus comme leur centre. */
+const MAP_SUN_GROWTH = 0.9;
 
 /* Au-dela, les etoiles sont assez espacees pour porter toutes leur nom. En
    deca, seuls les mondes du joueur sont nommes : trois cents libelles
@@ -4506,6 +4660,130 @@ let mapLoading = false;
 function mapZoom() {
   const view = state.map.view;
   return view && view.w > 0 ? MAP_W / view.w : 1;
+}
+
+/* Le fond de la descente : assez bas pour qu'un systeme deplie remplisse la
+   vue, et pas plus. Derive de la galaxie ouverte — un plafond constant
+   laisserait les galaxies denses inatteignables et les galaxies laches au ras
+   de l'etoile. */
+function mapDeepest() {
+  return state.map.reach ? state.map.reach.deepest : MAP_ZOOM_MAX;
+}
+
+/* Ce qui est deplie, de 0 a 1. UNE FONCTION DE L'AGRANDISSEMENT, recalculee a
+   chaque cadrage et jamais basculee : un etat declenche se rate quand la
+   molette devale, et l'on se retrouve avec des anneaux sans systeme. */
+function mapUnfold() {
+  return state.map.focus ? sysview.unfold(mapZoom(), state.map.reach) : 0;
+}
+
+/* Les etoiles, en unites de carte : ce que la regle de designation lit. */
+function mapStarPoints() {
+  return state.map.systems
+    .map((s) => {
+      const p = mapProject(s.position);
+      return p ? { id: s.id, x: p.x, y: p.y } : null;
+    })
+    .filter(Boolean);
+}
+
+/* Quel systeme se deplie, apres chaque changement de cadrage.
+
+   Appelee par le zoom et par la FIN d'un deplacement, pas pendant : glisser
+   doit suivre la souris a l'image pres, et rien ne justifie de rejouer le
+   rendu a chaque pixel parcouru. */
+function syncSystem() {
+  const wanted =
+    sysview.unfold(mapZoom(), state.map.reach) > 0
+      ? sysview.focusStar(state.map.view, mapStarPoints(), {
+          current: state.map.focus,
+          selected: state.map.selectedSystem,
+        })
+      : null;
+
+  if (wanted === state.map.focus) {
+    if (wanted) ensureSystemWorlds(wanted);
+    return false;
+  }
+
+  state.map.focus = wanted;
+  /* Un systeme neuf reprend l'epingle : elle vaut pour la descente qui
+     commence, pas pour celle d'avant. */
+  state.map.pinned = !!wanted;
+
+  /* Sortir du systeme ferme le monde ouvert. Le panneau decrirait sinon une
+     planete qui n'est plus a l'ecran, et ses ordres porteraient sur un systeme
+     qu'on a quitte — c'est exactement le genre d'etat en retard qui fait
+     commander au mauvais endroit. */
+  if (!wanted && state.map.world.id) closeMapWorld();
+  if (wanted) ensureSystemWorlds(wanted);
+  return true;
+}
+
+/* Les territoires d'un systeme, lus une fois puis gardes.
+
+   La lecture arrive plusieurs images plus tard, et entre-temps on a pu
+   s'ecarter : on ne peint donc que si c'est TOUJOURS ce systeme qui est
+   deplie. Sans cette verification, une reponse en retard repeint un systeme
+   par-dessus un autre. */
+function ensureSystemWorlds(systemId) {
+  if (state.map.worlds.has(systemId) || state.map.loading === systemId) return;
+
+  state.map.loading = systemId;
+  api
+    .systemTerritories(systemId)
+    .then((territories) => {
+      state.map.worlds.set(systemId, Array.isArray(territories) ? territories : []);
+      if (state.map.focus === systemId) renderMap();
+    })
+    .catch(() => {
+      /* Une lecture ratee laisse l'etoile nue : elle se retentera au prochain
+         passage. Poser une liste vide en cache ferait d'un incident reseau un
+         systeme definitivement sans mondes. */
+    })
+    .finally(() => {
+      if (state.map.loading === systemId) state.map.loading = null;
+    });
+}
+
+/* Ce que chaque cran de descente ramene vers le centre du cadre. */
+const MAP_PIN_EASE = 0.5;
+
+/* L'EPINGLE : tant que le joueur n'a pas deplace la vue lui-meme, la descente
+   recadre le systeme.
+
+   Sans elle, le systeme entre ou le pointeur se trouvait — zoomer garde le
+   point sous la souris immobile, c'est ce qu'on veut de la molette — et un
+   systeme qui occupe les quatre cinquiemes du cadre est alors coupe d'un cote.
+   On ne voit pas qu'il deborde : on voit des mondes qui manquent.
+
+   Elle tient JUSQU'A CE QUE LE JOUEUR DEPLACE LA VUE, et non jusqu'a un seuil :
+   un ecart pas encore rattrape se figerait au seuil, puis serait amplifie par
+   la fin de la descente. Et elle est ponderee par le depliage — en haut de la
+   descente, rien ne bouge : le joueur cherche encore son etoile. */
+function pinSystem() {
+  if (!state.map.pinned || !state.map.focus) return;
+
+  const reveal = mapUnfold();
+  const view = state.map.view;
+  const point = mapStarPoint(state.map.focus);
+  if (reveal <= 0 || !view || !point) return;
+
+  view.x += (point.x - (view.x + view.w / 2)) * MAP_PIN_EASE * reveal;
+  view.y += (point.y - (view.y + view.h / 2)) * MAP_PIN_EASE * reveal;
+}
+
+/* Le plan du systeme deplie, en unites de carte et relativement a son etoile.
+   Vide tant qu'on n'a rien lu — on ne dessine pas un systeme devine. */
+function mapSystemLayout() {
+  const id = state.map.focus;
+  if (!id) return [];
+  return sysview.layout(state.map.worlds.get(id) || [], state.map.radius);
+}
+
+function mapWorldById(id) {
+  const worlds = state.map.worlds.get(state.map.focus) || [];
+  return worlds.find((t) => t.id === id) || null;
 }
 
 /* Les flottes bougent : leur position se recalcule sur l'horloge locale à
@@ -4619,10 +4897,43 @@ function mapFleetPoint(fleet) {
   const angle = (-90 + (rank.total > 1 ? (rank.index * 360) / rank.total : 0)) * (Math.PI / 180);
   /* L'ecart suit le zoom : une couronne en unites de carte se refermerait sur
      l'etoile en zoomant, alors que c'est justement la qu'on veut les separer. */
-  const orbit = MAP_FLEET_ORBIT / mapZoom();
-  return {
+  const k = 1 / mapZoom();
+  const orbit = MAP_FLEET_ORBIT * k;
+  const crown = {
     x: anchor.x + Math.cos(angle) * orbit,
     y: anchor.y + Math.sin(angle) * orbit,
+  };
+
+  /* Dans le systeme deplie, la couronne n'a plus de sens : elle serre les
+     flottes contre le soleil, au milieu des anneaux interieurs. Chacune rejoint
+     donc ce qu'elle tient vraiment — la planete dont elle garde l'orbite, ou le
+     bord du systeme quand elle n'en garde aucune.
+
+     Et elle y GLISSE, au rythme du depliage, au lieu d'y sauter : une flotte
+     qui change de place d'un coup se lit comme une flotte qui bouge, ce qui est
+     precisement ce qu'on ne veut pas dire ici. */
+  const reveal = mapUnfold();
+  if (reveal <= 0 || fleet.system_id !== state.map.focus) return crown;
+
+  const plan = mapSystemLayout();
+  const held = fleet.orbiting_territory_id
+    ? plan.find((p) => p.id === fleet.orbiting_territory_id)
+    : null;
+
+  let target;
+  if (held) {
+    target = {
+      x: anchor.x + held.x + Math.cos(angle) * orbit * 0.7,
+      y: anchor.y + held.y + Math.sin(angle) * orbit * 0.7,
+    };
+  } else {
+    const edge = (plan.length ? plan[plan.length - 1].ring : state.map.radius) + orbit;
+    target = { x: anchor.x + Math.cos(angle) * edge, y: anchor.y + Math.sin(angle) * edge };
+  }
+
+  return {
+    x: crown.x + (target.x - crown.x) * reveal,
+    y: crown.y + (target.y - crown.y) * reveal,
   };
 }
 
@@ -4692,6 +5003,22 @@ async function loadGalaxyMap() {
       state.map.view = { x: 0, y: 0, w: MAP_W, h: MAP_H };
       state.map.selectedSystem = null;
       state.map.selectedFleet = null;
+
+      /* La place qu'un systeme peut prendre se mesure sur l'ECARTEMENT REEL
+         des etoiles de cette galaxie-ci, et la descente en decoule. Une
+         constante serait juste sur la galaxie qui l'aurait vue naitre, et
+         ferait ailleurs des couronnes qui se chevauchent — ou des systemes
+         qu'on ne peut plus atteindre. */
+      state.map.radius = sysview.systemRadius(sysview.nearestSpacing(mapStarPoints()));
+      /* `MAP_H` et non `MAP_W` : les seuils sont des fractions du PETIT COTE,
+         parce qu'un systeme est rond et que c'est le cote le plus court qui le
+         coupe. Le cadre est en 16/10, et le calage sur la largeur faisait
+         sortir les deux anneaux exterieurs par le haut et par le bas. */
+      state.map.reach = sysview.reach(state.map.radius, MAP_H);
+      state.map.focus = null;
+      state.map.worlds = new Map();
+      state.map.loading = null;
+      closeMapWorld();
     }
 
     mapFleetsReadNow(fleets);
@@ -4734,6 +5061,16 @@ function startMapTimers() {
      compte en minutes, et rien ne justifie d'animer image par image. */
   mapTimer = setInterval(() => {
     renderMapFleets();
+
+    /* Le quai avance ses barres sur l'horloge locale, comme la fiche d'une
+       planete : un chantier qui se termine doit se voir finir, pas apparaitre
+       fini a la lecture suivante. Et il se relit de temps en temps pour les
+       ressources, qui montent sans que rien ne les demande. */
+    if (state.map.world.id && state.map.world.mine) {
+      if (updateProgressBars(state.map.world.events)) reloadMapWorld();
+      else if (state.map.tick % 30 === 29) reloadMapWorld();
+    }
+
     if (state.map.tick++ % 15 === 0) refreshMapFleets();
   }, 1000);
 }
@@ -4781,36 +5118,149 @@ function renderMap() {
     })
     .join('');
 
+  /* L'etoile du systeme deplie est peinte avec lui, et non ici : c'est LA
+     SEULE EXCEPTION AU VOILE, et il en faut exactement une. Un soleil qui
+     s'eteindrait avec la galaxie laisserait des anneaux tourner autour de rien
+     — et un second astre dessine au meme endroit obligerait a en cacher un. */
   const stars = state.map.systems
-    .map((system) => {
-      const point = mapProject(system.position);
-      if (!point) return '';
-      const owned = mine.has(system.id);
-      const on = state.map.selectedSystem === system.id;
-      const radius = (owned ? MAP_STAR_MINE_R : MAP_STAR_R) * k;
-      const label = owned || named
-        ? `<text class="map-label" x="${point.x.toFixed(1)}"
-             y="${(point.y + radius + 9 * k).toFixed(1)}"
-             style="font-size:${(8 * k).toFixed(2)}px">${esc(systemLabel(system))}</text>`
-        : '';
-      return `<circle class="map-star${owned ? ' map-star--mine' : ''}${on ? ' map-star--on' : ''}"
-          data-system="${system.id}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}"
-          r="${radius.toFixed(2)}"><title>${esc(systemLabel(system))} — ${esc(String(system.territories_count || 0))} territoire(s)</title></circle>${label}`;
-    })
+    .filter((system) => system.id !== state.map.focus)
+    .map((system) => starMarkup(system, mine, k, named))
     .join('');
 
   const view = state.map.view || { x: 0, y: 0, w: MAP_W, h: MAP_H };
   frame.innerHTML = `<svg viewBox="${view.x.toFixed(2)} ${view.y.toFixed(2)} ${view.w.toFixed(2)} ${view.h.toFixed(2)}" preserveAspectRatio="xMidYMid meet"
       role="img" aria-label="Carte de la galaxie ${esc(state.galaxy || '')}">
-    <g>${lanes}</g>
+    <g id="map-galaxy-layer" opacity="${sysview.galaxyDim(mapUnfold()).toFixed(3)}">
+      <g>${lanes}</g>
+      <g>${stars}</g>
+    </g>
     <g id="map-route-layer"></g>
     <g id="map-halo-layer"></g>
-    <g>${stars}</g>
+    <g id="map-system-layer">${renderSystemLayer(mine, k, named)}</g>
     <g id="map-fleet-layer"></g>
   </svg>`;
 
   renderMapFleets();
   paintMapSelection();
+}
+
+/* Une etoile de la carte. Sortie du rendu d'ensemble parce que le systeme
+   deplie peint la sienne dans sa propre couche : deux ecritures de la meme
+   etoile auraient fini par ne plus se ressembler, et c'est precisement celle
+   qu'on regarde. */
+function starMarkup(system, mine, k, named, grow = 1) {
+  const point = mapProject(system.position);
+  if (!point) return '';
+
+  const owned = mine.has(system.id);
+  const on = state.map.selectedSystem === system.id;
+  const sun = state.map.focus === system.id;
+  const radius = (owned ? MAP_STAR_MINE_R : MAP_STAR_R) * k * grow;
+  const label =
+    owned || named || sun
+      ? `<text class="map-label" x="${point.x.toFixed(1)}"
+           y="${(point.y + radius + 9 * k).toFixed(1)}"
+           style="font-size:${(8 * k).toFixed(2)}px">${esc(systemLabel(system))}</text>`
+      : '';
+
+  return `<circle class="map-star${owned ? ' map-star--mine' : ''}${on ? ' map-star--on' : ''}${sun ? ' map-star--sun' : ''}"
+      data-system="${system.id}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}"
+      r="${radius.toFixed(2)}"><title>${esc(systemLabel(system))} — ${esc(String(system.territories_count || 0))} territoire(s)</title></circle>${label}`;
+}
+
+/* Le systeme qui pousse dans la carte : ses anneaux, ses mondes, et l'etoile
+   qui lui sert de soleil.
+
+   IL N'Y A QU'UNE ETOILE. Celle de la carte occupe deja l'endroit exact ou un
+   soleil se poserait — c'est elle qu'on a approchee, c'est autour d'elle que le
+   systeme s'ouvre. En dessiner un second mettrait deux astres au meme point et
+   obligerait a en cacher un.
+
+   Rien n'est peint tant que le serveur n'a pas repondu : un systeme dessine a
+   une taille devinee se reorganiserait a l'arrivee des vraies donnees,
+   exactement la ou le joueur regarde. */
+function renderSystemLayer(mine, k, named) {
+  const id = state.map.focus;
+  if (!id) return '';
+
+  const system = mapSystem(id);
+  const centre = system ? mapProject(system.position) : null;
+  if (!centre) return '';
+
+  /* Le soleil grossit avec le depliage. Toujours une taille d'ECRAN — il ne
+     suit pas le cadrage, comme rien d'autre ici — mais une etoile de carte
+     exactement aussi grosse que les mondes qui l'entourent ne se lit plus comme
+     leur centre. Le rapport est lu sur le depliage, donc recalcule : il n'y a
+     pas deux tailles d'etoile a tenir en accord. */
+  const reveal = mapUnfold();
+  const sun = starMarkup(system, mine, k, named, 1 + MAP_SUN_GROWTH * reveal);
+  const plan = mapSystemLayout();
+  if (!plan.length || reveal <= 0) return sun;
+
+  const mineWorlds = new Set(state.myTerritories.map((t) => t.id));
+  const at = (v) => v.toFixed(2);
+
+  const rings = plan
+    .map((p) => `<circle class="map-orbit" cx="${at(centre.x)}" cy="${at(centre.y)}"
+      r="${at(p.ring)}"></circle>`)
+    .join('');
+
+  const defs = plan
+    .map((p) => {
+      const { colors, x, y } = planetPalette(p.id || p.position || 1);
+      return `<radialGradient id="map-world-${p.id}" cx="${x}%" cy="${y}%" r="72%">
+        <stop offset="0%" stop-color="${colors[0]}"/>
+        <stop offset="56%" stop-color="${colors[1]}"/>
+        <stop offset="100%" stop-color="${colors[2]}"/>
+      </radialGradient>`;
+    })
+    .join('');
+
+  const bodies = plan
+    .map((p) => {
+      const world = mapWorldById(p.id) || {};
+      const r = (world.archetype === 'gas_giant' ? MAP_GAS_R : MAP_PLANET_R) * k;
+      const owned = mineWorlds.has(p.id);
+      /* Trois etats, et le troisieme n'est pas le second : un monde libre est
+         une occasion, un monde pris par quelqu'un d'autre est un voisin. Les
+         confondre sous « pas a moi » est ce qui fait chercher une colonisation
+         la ou il n'y en a pas. */
+      const held = !owned && !!(world.claim && world.claim.taken);
+      const on = state.map.world.id === p.id;
+      const cx = centre.x + p.x;
+      const cy = centre.y + p.y;
+      const name = world.id ? territoryLabel(world) : `Orbite ${roman(p.position)}`;
+
+      const label =
+        reveal > 0.55
+          ? `<text class="map-label map-world__tag" x="${at(cx)}"
+               y="${at(cy + r + 8 * k)}"
+               style="font-size:${(7 * k).toFixed(2)}px">${esc(roman(p.position))}</text>`
+          : '';
+
+      return `<g class="map-world${owned ? ' map-world--mine' : ''}${held ? ' map-world--held' : ''}${on ? ' map-world--on' : ''}"
+          data-world="${p.id}">
+        <circle class="map-world__hit" cx="${at(cx)}" cy="${at(cy)}"
+          r="${at(MAP_PLANET_HIT * k)}"></circle>
+        <circle class="map-world__body" cx="${at(cx)}" cy="${at(cy)}" r="${at(r)}"
+          fill="url(#map-world-${p.id})"></circle>
+        <circle class="map-world__ring" cx="${at(cx)}" cy="${at(cy)}"
+          r="${at(r + 2.2 * k)}"></circle>
+        <title>${esc(name)}${world.archetype_label ? ` — ${esc(world.archetype_label)}` : ''}</title>
+      </g>${label}`;
+    })
+    .join('');
+
+  /* Une couche presque transparente reste cliquable : l'opacite ne dit rien du
+     pointeur. Tant que le systeme n'est pas lisible, il ne doit pas non plus
+     etre attrapable — sans quoi on cliquerait une planete invisible en visant
+     l'etoile. */
+  const live = reveal > 0.25 ? '' : 'pointer-events:none;';
+
+  return `<defs>${defs}</defs>
+    <g class="map-orbits" style="opacity:${reveal.toFixed(3)};${live}">${rings}</g>
+    ${sun}
+    <g class="map-worlds" style="opacity:${reveal.toFixed(3)};${live}">${bodies}</g>`;
 }
 
 /* Rafraichit les marques de designation sans refaire la carte.
@@ -4831,6 +5281,11 @@ function paintMapSelection() {
   svg.querySelectorAll('[data-fleet]').forEach((node) => {
     node.classList.toggle(
       'map-fleet--on', Number(node.getAttribute('data-fleet')) === state.map.selectedFleet);
+  });
+
+  svg.querySelectorAll('[data-world]').forEach((node) => {
+    node.classList.toggle(
+      'map-world--on', Number(node.getAttribute('data-world')) === state.map.world.id);
   });
 
   /* L'anneau vit dans sa propre couche : il change de place a chaque
@@ -5010,14 +5465,33 @@ function selectMapFleet(id) {
 
 function selectMapSystem(id) {
   state.map.selectedSystem = id;
+  /* Désigner une étoile la désigne aussi pour la descente. Sans cela, on
+     cliquerait un voisin pendant qu'un système est déplié et rien ne
+     bougerait jusqu'au prochain cran de molette — ce qui se lit comme un clic
+     qui n'a pas pris. */
+  if (syncSystem()) renderMap();
   paintMapSelection();
   renderMapSelection();
 }
 
 function renderMapSelection() {
+  /* Un monde ouvert tient le panneau, et le garde : ce rendu-ci repasse toutes
+     les quinze secondes avec les flottes, et repeindre le quai avec lui
+     effacerait les quantites tapees en face d'un chantier. Le quai a ses
+     propres moments pour se refaire — un ordre donne, une lecture, un
+     onglet. */
+  if (state.map.world.id) return;
+
   const host = $('#map-sel-body');
   const fleet = selectedMapFleet();
-  const system = state.map.selectedSystem ? mapSystem(state.map.selectedSystem) : null;
+  /* A defaut de designation, le systeme deplie : il occupe l'ecran, et un
+     panneau qui repondrait « choisissez une etoile » pendant qu'on regarde ses
+     anneaux ferait croire que la carte n'a pas compris ce qu'on fait. */
+  const shown = state.map.selectedSystem || state.map.focus;
+  const system = shown ? mapSystem(shown) : null;
+
+  const side = $('#map-side');
+  if (side) side.classList.remove('map-side--world');
 
   if (!fleet && !system) {
     $('#map-sel-title').textContent = '—';
@@ -5099,6 +5573,14 @@ function systemBlock(system, fleet) {
      une destination qui n'est pas déjà la sienne. */
   const canSend = fleet && fleet.system_id !== system.id;
 
+  /* Déplié, ce système ne se commande plus depuis ce panneau mais depuis la
+     carte : le dire, sinon la liste ci-dessus paraît être tout ce qu'on peut
+     en faire. */
+  const unfolded =
+    state.map.focus === system.id && mapUnfold() > 0.25
+      ? `<p class="desc">Cliquez une planète pour l'ouvrir ici, sans quitter la carte.</p>`
+      : '';
+
   return `<div class="row">
     <div class="row-main">
       <div class="row-head">
@@ -5106,6 +5588,7 @@ function systemBlock(system, fleet) {
         <span class="lvl">${esc(fmtNumber(system.territories_count || 0))} territoire(s)</span>
       </div>
       ${territories}
+      ${unfolded}
       ${present}
       <div class="map-actions">
         ${canSend
@@ -5116,6 +5599,199 @@ function systemBlock(system, fleet) {
       </div>
     </div>
   </div>`;
+}
+
+/* ============================================================
+   le quai : un monde de la carte, et tout ce qu'on peut lui ordonner
+
+   Cliquer une planete du systeme deplie ouvre ici sa fiche — bandeau de
+   ressources, alarmes, batiments, chantier naval, defenses, flottes — et l'on y
+   commande sans quitter la carte. C'est ce qui fait de cette vue une vue
+   d'accueil et non un index : on y trouve ses mondes ET on y agit.
+
+   Aucune ligne de construction n'est redessinee : ce sont celles de la fiche
+   d'une planete et de la vue d'empire (`renderBuildings`, `renderUnits`,
+   `renderFleets`), en version resserree. Trois copies auraient diverge au
+   premier equilibrage — et c'est ici que se decide ce qu'un cout inatteignable
+   donne a voir, question qui n'a pas trois reponses.
+
+   Un monde qui n'est pas a nous n'ouvre pas de chantier : il ouvre l'offre de
+   prise, telle que le serveur la formule. La console ne recopie aucune regle —
+   ni la coque exigee, ni les technologies, ni le refus.
+   ============================================================ */
+
+function mapWorldIsMine(id) {
+  return state.myTerritories.some((t) => t.id === id);
+}
+
+/* Ce que le joueur tient en orbite d'un monde, par type de coque.
+
+   Lu dans les flottes de la GALAXIE, qui sont deja en memoire : la carte les
+   relit toutes les quinze secondes pour les faire avancer, et redemander celles
+   du systeme ferait une seconde verite a un vaisseau pres. */
+function mapOrbitCounts(territoryId) {
+  const counts = {};
+  state.map.fleets
+    .filter((f) => f.orbiting_territory_id === territoryId)
+    .forEach((f) => {
+      Object.entries(f.composition || {}).forEach(([type, n]) => {
+        counts[type] = (counts[type] || 0) + n;
+      });
+    });
+  return counts;
+}
+
+function mapSystemFleets() {
+  return state.map.fleets.filter((f) => f.system_id === state.map.focus);
+}
+
+async function openMapWorld(id) {
+  const mine = mapWorldIsMine(id);
+
+  /* La designation d'une flotte s'efface : le panneau ne montre qu'une chose a
+     la fois, et laisser l'ordre « envoyer ici » sous une fiche de monde ferait
+     partir une flotte pour un clic destine au chantier. */
+  state.map.selectedFleet = null;
+  settledEvents = new Set();
+  state.map.world = {
+    id,
+    mine,
+    territory: mapWorldById(id),
+    events: [],
+    defenses: [],
+    tab: 'buildings',
+  };
+
+  paintMapSelection();
+  renderMapWorld();
+  if (mine) await reloadMapWorld();
+}
+
+function closeMapWorld() {
+  state.map.world = {
+    id: null, mine: false, territory: null, events: [], defenses: [], tab: 'buildings',
+  };
+  const side = $('#map-side');
+  if (side) side.classList.remove('map-side--world');
+}
+
+function leaveMapWorld() {
+  closeMapWorld();
+  paintMapSelection();
+  renderMapSelection();
+}
+
+/* La fiche complete du monde ouvert.
+
+   `/update` et non la lecture du systeme : c'est le seul appel qui rattrape la
+   production avant de servir. Un quai bati sur la lecture d'ensemble
+   comparerait des couts a des reserves de la derniere visite, et griserait des
+   chantiers que le monde peut payer depuis des heures. */
+async function reloadMapWorld() {
+  const id = state.map.world.id;
+  if (!id || !state.map.world.mine) return;
+
+  let territory;
+  try {
+    territory = await api.territory(id);
+  } catch (e) {
+    handleApiError(e, 'Monde indisponible');
+    return;
+  }
+
+  const [events, defenses] = await Promise.all([
+    api.territoryEvents(id).catch(() => []),
+    api.territoryDefenses(id).catch(() => []),
+  ]);
+
+  /* Une reponse en retard n'a plus de repere : le joueur a pu ouvrir un autre
+     monde, ou remonter hors du systeme, pendant les allers-retours. On ne peint
+     rien par-dessus ce qu'il regarde maintenant. */
+  if (state.map.world.id !== id) return;
+
+  state.map.world.territory = territory;
+  state.map.world.events = Array.isArray(events) ? events : [];
+  state.map.world.defenses = Array.isArray(defenses) ? defenses : [];
+  renderMapWorld();
+}
+
+const MAP_WORLD_TABS = [
+  ['buildings', 'Bâtiments'],
+  ['shipyard', 'Chantier'],
+  ['defences', 'Défenses'],
+  ['fleets', 'Flottes'],
+];
+
+function renderMapWorld() {
+  const w = state.map.world;
+  if (!w.id) return;
+
+  const side = $('#map-side');
+  if (side) side.classList.add('map-side--world');
+
+  const host = $('#map-sel-body');
+  const t = w.territory;
+
+  if (!t) {
+    $('#map-sel-title').textContent = `Monde ${w.id}`;
+    host.innerHTML = '<p class="empty">Lecture du monde…</p>';
+    return;
+  }
+
+  $('#map-sel-title').textContent = territoryLabel(t);
+
+  const head = `<header class="world__head">
+      <i class="world__orb" style="background:${planetGradient(t.id || t.position || 1)}"></i>
+      <div class="world__id">
+        <span class="world__name">${esc(territoryLabel(t))}</span>
+        <span class="world__sub">${esc(empireSubtitle(t))}</span>
+      </div>
+      ${t.is_capital ? '<span class="world__flag">Capitale</span>' : ''}
+    </header>`;
+
+  host.innerHTML = `<article class="world world--dock${worldIsCut(t) ? ' world--cut' : ''}">
+    ${head}
+    ${empireAlarm(t)}
+    ${w.mine ? `<div class="res-grid world__res">${resourceChips(t)}</div>` : ''}
+    ${w.mine ? mapWorldTabs() : ''}
+    <div id="map-world-body">${w.mine ? mapWorldBody() : claimMarkup(t)}</div>
+    <div class="map-actions">
+      ${w.mine
+        ? `<button class="btn btn--sm" data-map-territory="${t.id}"
+             title="Ouvrir la fiche pleine page de ce monde">Administrer</button>`
+        : ''}
+      <button class="btn btn--sm btn--ghost" data-map-world-close="1">Fermer</button>
+    </div>
+  </article>`;
+
+  updateProgressBars(w.events);
+}
+
+function mapWorldTabs() {
+  return `<div class="tabs tabs--dock" id="map-world-tabs">${MAP_WORLD_TABS.map(
+    ([key, label]) => `<button class="tab${state.map.world.tab === key ? ' on' : ''}"
+        data-map-tab="${key}">${esc(label)}</button>`
+  ).join('')}</div>`;
+}
+
+function mapWorldBody() {
+  const w = state.map.world;
+  const t = w.territory;
+  const options = { compact: true };
+
+  if (w.tab === 'shipyard') {
+    return renderUnits('ship', t, w.events, { ...options, counts: mapOrbitCounts(t.id) });
+  }
+  if (w.tab === 'defences') {
+    return renderUnits('defense', t, w.events, {
+      ...options,
+      counts: defenseCounts({ defenses: w.defenses }),
+    });
+  }
+  if (w.tab === 'fleets') {
+    return renderFleets(mapSystemFleets(), t.id, state.map.worlds.get(state.map.focus) || []);
+  }
+  return renderBuildings(t, w.events, options) || '<p class="empty">Aucun bâtiment ici.</p>';
 }
 
 /* ---------- ordres ---------- */
@@ -5214,7 +5890,7 @@ function zoomMapAround(point, factor) {
   if (!view) return;
 
   const zoom = mapZoom();
-  const wanted = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, zoom * factor));
+  const wanted = Math.min(mapDeepest(), Math.max(MAP_ZOOM_MIN, zoom * factor));
   if (Math.abs(wanted - zoom) < 1e-6) return;
 
   const w = MAP_W / wanted;
@@ -5225,7 +5901,13 @@ function zoomMapAround(point, factor) {
   const ratioY = view.h > 0 ? (point.y - view.y) / view.h : 0.5;
 
   state.map.view = { x: point.x - ratioX * w, y: point.y - ratioY * h, w, h };
+  /* Le systeme se redesigne AVANT le rendu : le depliage, l'effacement de la
+     galaxie et les mondes peints sont trois lectures du meme cadrage, et une
+     seule image ou ils divergeraient se verrait. */
+  syncSystem();
+  pinSystem();
   renderMap();
+  renderMapSelection();
 }
 
 function zoomMapCentre(factor) {
@@ -5236,7 +5918,10 @@ function zoomMapCentre(factor) {
 
 function fitMap() {
   state.map.view = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+  state.map.pinned = false;
+  syncSystem();
   renderMap();
+  renderMapSelection();
 }
 
 function initMapNavigation() {
@@ -5310,6 +5995,9 @@ function initMapNavigation() {
       }
     }
 
+    /* Deplacer a la main lache l'epingle : a partir de la, c'est le joueur qui
+       cadre, et un recadrage automatique lui reprendrait la vue des mains. */
+    state.map.pinned = false;
     state.map.view.x = drag.viewX - dx / drag.scale;
     state.map.view.y = drag.viewY - dy / drag.scale;
     applyMapView();
@@ -5324,8 +6012,18 @@ function initMapNavigation() {
         /* le pointeur a pu être perdu en route */
       }
     }
+    const panned = state.map.dragged;
     drag = null;
     frame.classList.remove('map-frame--panning');
+
+    /* Le systeme deplie se redesigne a l'ARRIVEE du deplacement, jamais
+       pendant : glisser doit suivre la souris a l'image pres, et rejouer le
+       rendu a chaque pixel parcouru se verrait sur une galaxie de trois cents
+       etoiles. */
+    if (panned && syncSystem()) {
+      renderMap();
+      renderMapSelection();
+    }
   };
 
   frame.addEventListener('pointerup', endDrag);
@@ -5357,6 +6055,86 @@ function initMapNavigation() {
   });
 }
 
+/* Les gestes du quai. Rendus a part du reste du panneau de selection : ce sont
+   les gestes d'une FICHE DE MONDE — les memes que la scene d'une planete et
+   que la vue d'empire — et non ceux d'une carte.
+
+   Rend `true` quand le clic lui revenait, pour que l'appelant s'arrete la. */
+function mapWorldClick(ev) {
+  const tab = ev.target.closest('[data-map-tab]');
+  if (tab) {
+    state.map.world.tab = tab.dataset.mapTab;
+    renderMapWorld();
+    return true;
+  }
+
+  const close = ev.target.closest('[data-map-world-close]');
+  if (close) {
+    leaveMapWorld();
+    return true;
+  }
+
+  /* Avant les lignes : le lien est pose DANS une ligne de construction. */
+  const research = ev.target.closest('[data-open-research]');
+  if (research) {
+    openResearchAt(research.dataset.openResearch);
+    return true;
+  }
+
+  const claim = ev.target.closest('[data-claim-go]');
+  if (claim) {
+    claimWorld(Number(claim.dataset.claimGo));
+    return true;
+  }
+
+  const building = ev.target.closest('[data-build-building]');
+  if (building) {
+    upgradeBuilding(building.dataset.buildBuilding, Number(building.dataset.territory));
+    return true;
+  }
+
+  const unit = ev.target.closest('[data-build-unit]');
+  if (unit) {
+    const name = unit.dataset.buildUnit;
+    const id = Number(unit.dataset.territory);
+    buildUnit(unit.dataset.kind, name, qtyValue(id, name, $('#map-sel-body')), id);
+    return true;
+  }
+
+  const rename = ev.target.closest('[data-fleet-rename]');
+  if (rename) {
+    renameFleet(Number(rename.dataset.fleetRename));
+    return true;
+  }
+
+  const orbit = ev.target.closest('[data-fleet-orbit]');
+  if (orbit) {
+    const target = orbit.dataset.territory;
+    setFleetOrbit(Number(orbit.dataset.fleetOrbit), target ? Number(target) : null);
+    return true;
+  }
+
+  const stop = ev.target.closest('[data-fleet-stop]');
+  if (stop) {
+    stopFleetTravel(Number(stop.dataset.fleetStop));
+    return true;
+  }
+
+  const disband = ev.target.closest('[data-fleet-disband]');
+  if (disband) {
+    disbandFleet(Number(disband.dataset.fleetDisband));
+    return true;
+  }
+
+  const transfer = ev.target.closest('[data-transfer]');
+  if (transfer) {
+    transferShips(Number(transfer.dataset.transfer), transfer.dataset.type);
+    return true;
+  }
+
+  return false;
+}
+
 /* ---------- branchements ---------- */
 
 function initGalaxyMap() {
@@ -5372,6 +6150,12 @@ function initGalaxyMap() {
   window.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Escape') return;
     if ($('#view-galaxy').classList.contains('hidden')) return;
+    /* Le quai se ferme avant la designation : c'est ce qui est ouvert
+       par-dessus, et c'est de lui qu'on cherche a sortir. */
+    if (state.map.world.id) {
+      leaveMapWorld();
+      return;
+    }
     if (state.map.selectedFleet === null && state.map.selectedSystem === null) return;
     state.map.selectedFleet = null;
     state.map.selectedSystem = null;
@@ -5390,14 +6174,26 @@ function initGalaxyMap() {
       return;
     }
 
+    /* Avant l'etoile : les mondes sont peints PAR-DESSUS elle, et c'est bien
+       eux qu'on vise quand on clique dans le systeme deplie. */
+    const worldEl = ev.target.closest('[data-world]');
+    if (worldEl) {
+      const id = Number(worldEl.dataset.world);
+      if (state.map.world.id === id) leaveMapWorld();
+      else openMapWorld(id);
+      return;
+    }
+
     const fleetEl = ev.target.closest('[data-fleet]');
     if (fleetEl) {
+      if (state.map.world.id) leaveMapWorld();
       selectMapFleet(Number(fleetEl.dataset.fleet));
       return;
     }
 
     const starEl = ev.target.closest('[data-system]');
     if (starEl) {
+      if (state.map.world.id) closeMapWorld();
       selectMapSystem(Number(starEl.dataset.system));
       return;
     }
@@ -5405,6 +6201,10 @@ function initGalaxyMap() {
     /* Le vide : on lache la selection. C'est le geste qu'on tente d'instinct
        pour sortir d'une selection, et sans reponse il donne l'impression que
        la carte est bloquee. */
+    if (state.map.world.id) {
+      leaveMapWorld();
+      return;
+    }
     if (state.map.selectedSystem !== null || state.map.selectedFleet !== null) {
       state.map.selectedSystem = null;
       state.map.selectedFleet = null;
@@ -5414,6 +6214,11 @@ function initGalaxyMap() {
   });
 
   $('#map-sel-body').addEventListener('click', (ev) => {
+    /* Le quai d'abord : ses lignes de construction portent des liens — vers un
+       noeud de recherche, par exemple — poses DANS la ligne, et le
+       gestionnaire de la ligne prendrait le clic. */
+    if (mapWorldClick(ev)) return;
+
     const send = ev.target.closest('[data-map-send]');
     if (send) {
       sendMapFleet(Number(send.dataset.mapSend));
@@ -6079,7 +6884,8 @@ function initEmpire() {
       const name = grant.dataset.grantName;
       const id = Number(grant.dataset.territory);
       const sign = Number(grant.dataset.grantSign) || 1;
-      const quantity = Math.max(1, Math.min(999, Number(qtyValue(id, name)) || 1));
+      const quantity = Math.max(
+        1, Math.min(999, Number(qtyValue(id, name, $('#empire-grid'))) || 1));
       grantElement(kind, name, id, sign * quantity);
       return;
     }
@@ -6100,7 +6906,7 @@ function initEmpire() {
     if (unit) {
       const name = unit.dataset.buildUnit;
       const id = Number(unit.dataset.territory);
-      buildUnit(unit.dataset.kind, name, qtyValue(id, name), id);
+      buildUnit(unit.dataset.kind, name, qtyValue(id, name, $('#empire-grid')), id);
     }
   });
 }

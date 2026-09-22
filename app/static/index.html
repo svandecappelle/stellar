@@ -416,11 +416,16 @@
           <button class="btn btn--sm" id="map-zoom-out" title="Zoom arrière" aria-label="Zoom arrière">−</button>
           <button class="btn btn--sm" id="map-fit" title="Revoir la galaxie entière">Recadrer</button>
         </div>
-        <p class="map-hint">Molette pour zoomer · glisser pour déplacer · double-clic sur un de vos mondes pour l'administrer</p>
+        <!-- Le systeme ne s'ouvre pas : il POUSSE quand on descend assez.
+             L'indication le dit, parce qu'une carte qui ne montre que des
+             points ne laisse pas deviner qu'elle en contient davantage. -->
+        <p class="map-hint">Molette pour zoomer · glisser pour déplacer ·
+          <b>descendez sur une étoile</b> et son système apparaît : cliquez une
+          planète pour la commander sans quitter la carte</p>
       </div>
     </div>
 
-    <div class="panel panel--hazard map-side">
+    <div class="panel panel--hazard map-side" id="map-side">
       <div class="panel-head">
         <div>
           <span class="ov">Sélection</span>

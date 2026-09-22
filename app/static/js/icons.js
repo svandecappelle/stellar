@@ -70,20 +70,38 @@ export function icon(name) {
   return ICONS[name] || FALLBACK;
 }
 
+/* Les six billes de planete : clair, teinte, ombre.
+
+   Publiees a part du degrade CSS parce qu'un SECOND lecteur en a besoin : la
+   carte de la galaxie peint les mondes d'un systeme en SVG, ou un
+   `radial-gradient` CSS n'a pas cours. Deux tables de couleurs auraient fini
+   par diverger, et le meme monde n'aurait pas eu la meme bille selon l'ecran
+   ou on le regarde. */
+const PLANET_PALETTES = [
+  ['#E0A868', '#8A4E1E', '#3A1E08'],
+  ['#9FD8E8', '#3E7E96', '#12303E'],
+  ['#C9D3D8', '#6B7A82', '#242D33'],
+  ['#F2E2B8', '#C08A3E', '#5A3A12'],
+  ['#B8D8B0', '#4E7E52', '#1E3A22'],
+  ['#D9B8E8', '#7A4E96', '#301240'],
+];
+
+/* Où se pose la lumière sur la bille, en pourcentage de son diamètre. La même
+   des deux côtés : c'est ce qui fait reconnaître un monde d'une vue à
+   l'autre. */
+export function planetPalette(seed) {
+  const n = Math.abs(Math.round(Number(seed) || 0));
+  return {
+    colors: PLANET_PALETTES[n % PLANET_PALETTES.length],
+    x: 28 + ((n * 7) % 12),
+    y: 24 + ((n * 11) % 12),
+  };
+}
+
 /* Dégradé de planète déterministe : même territoire, même bille. */
 export function planetGradient(seed) {
-  const palettes = [
-    ['#E0A868', '#8A4E1E', '#3A1E08'],
-    ['#9FD8E8', '#3E7E96', '#12303E'],
-    ['#C9D3D8', '#6B7A82', '#242D33'],
-    ['#F2E2B8', '#C08A3E', '#5A3A12'],
-    ['#B8D8B0', '#4E7E52', '#1E3A22'],
-    ['#D9B8E8', '#7A4E96', '#301240'],
-  ];
-  const p = palettes[Math.abs(seed) % palettes.length];
-  const x = 28 + ((Math.abs(seed) * 7) % 12);
-  const y = 24 + ((Math.abs(seed) * 11) % 12);
-  return `radial-gradient(circle at ${x}% ${y}%,${p[0]},${p[1]} 56%,${p[2]})`;
+  const { colors, x, y } = planetPalette(seed);
+  return `radial-gradient(circle at ${x}% ${y}%,${colors[0]},${colors[1]} 56%,${colors[2]})`;
 }
 
 export const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
